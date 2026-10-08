@@ -3,6 +3,8 @@
 # Global test and verification suite for Omarchy Tidal Music Player
 set -euo pipefail
 
+[[ -d "$HOME/.cargo/bin" ]] && export PATH="$HOME/.cargo/bin:$PATH"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 echo "=========================================================="

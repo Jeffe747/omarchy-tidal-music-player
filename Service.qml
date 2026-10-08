@@ -14,6 +14,7 @@ Item {
   property string authUrl: ""
   property string authCode: ""
   property bool authPending: false
+  property string authError: ""
 
   property bool isPlaying: false
   property string trackTitle: ""
@@ -70,9 +71,21 @@ Item {
     }
   }
 
+  Component.onCompleted: {
+    daemonSocket.connected = true
+  }
+
+  function ensureDaemonRunning() {
+    if (!daemonSocket.connected && !daemonProcess.running) {
+      daemonProcess.running = true
+    }
+  }
+
   function sendCommand(obj) {
     if (daemonSocket.connected) {
       daemonSocket.write(JSON.stringify(obj) + "\n")
+    } else {
+      ensureDaemonRunning()
     }
   }
 
@@ -81,6 +94,12 @@ Item {
 
     if (msg.type === "status" || msg.type === "state_change") {
       root.authenticated = msg.authenticated === true
+      if (root.authenticated) {
+        root.authPending = false
+        root.authCode = ""
+        root.authUrl = ""
+        root.authError = ""
+      }
       root.isPlaying = msg.is_playing === true
       root.trackTitle = msg.track_title || ""
       root.trackArtist = msg.track_artist || ""
@@ -93,11 +112,20 @@ Item {
       root.authPending = true
       root.authUrl = msg.verification_uri || "https://link.tidal.com"
       root.authCode = msg.user_code || ""
+      root.authError = ""
     } else if (msg.type === "auth_success") {
       root.authPending = false
       root.authenticated = true
       root.authCode = ""
       root.authUrl = ""
+      root.authError = ""
+      sendCommand({ "command": "get_status" })
+    } else if (msg.type === "auth_expired") {
+      root.authPending = false
+      root.authError = msg.error || "Device code expired"
+    } else if (msg.type === "auth_error") {
+      root.authPending = false
+      root.authError = msg.error || "Authentication error"
     } else if (msg.type === "search_results") {
       root.searching = false
       root.searchResults = msg.results || []
@@ -106,7 +134,12 @@ Item {
 
   // Public control APIs
   function startAuth() {
+    ensureDaemonRunning()
     sendCommand({ "command": "start_auth" })
+  }
+
+  function logout() {
+    sendCommand({ "command": "logout" })
   }
 
   function play() {

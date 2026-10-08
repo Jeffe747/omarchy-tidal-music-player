@@ -1,7 +1,7 @@
 # Project Progress & Roadmap Tracker
 
 Last Updated: **2026-10-08**  
-Current Status: **Phase 1: Foundation & Scaffolding Completed -> Ready for Milestone 1**
+Current Status: **Milestone 1: Authentication & Session Management Completed -> Ready for Milestone 2**
 
 ---
 
@@ -10,8 +10,8 @@ Current Status: **Phase 1: Foundation & Scaffolding Completed -> Ready for Miles
 | # | Milestone | Status | Completed / Total Tasks |
 | :---: | :--- | :---: | :---: |
 | **M0** | **Foundation & Scaffolding** | 🟢 **Done** | 6 / 6 |
-| **M1** | **Authentication & Session Management (Login)** | 🟡 **Active** | 2 / 5 |
-| **M2** | **Favorites List & Core Audio Playback** | ⚪ Queued | 0 / 5 |
+| **M1** | **Authentication & Session Management (Login)** | 🟢 **Done** | 5 / 5 |
+| **M2** | **Favorites List & Core Audio Playback** | 🟡 **Active** | 0 / 5 |
 | **M3** | **Interactive Controls, Seeking & Auto-Advance** | ⚪ Queued | 0 / 4 |
 | **M4** | **MPRIS D-Bus & Desktop Integration** | ⚪ Queued | 0 / 4 |
 | **M5** | **Catalog Search & Discovery** | ⚪ Queued | 0 / 3 |
@@ -32,13 +32,13 @@ Current Status: **Phase 1: Foundation & Scaffolding Completed -> Ready for Miles
 
 ---
 
-### Milestone 1: Authentication & Session Management (Login) 🟡 [CURRENT]
+### Milestone 1: Authentication & Session Management (Login) 🟢
 - [x] Scaffold Device Authorization flow models in `auth.rs`.
 - [x] Add unit tests for `DeviceAuthInfo` JSON deserialization and `Session` serialization roundtrip.
-- [ ] Implement end-to-end device code request (`POST /v1/oauth2/device/authorization`).
-- [ ] Implement token polling background loop with exponential backoff and error handling.
-- [ ] Connect IPC flow: widget opens `link.tidal.com` via `xdg-open`, polls daemon, and updates UI to "Connected".
-- [ ] **Gate Verification:** Pass Gate M1 (session tokens saved to `~/.local/state/omarchy/tidal/session.json`, binary size < 2.5 MB).
+- [x] Implement end-to-end device code request (`POST /v1/oauth2/device_authorization`).
+- [x] Implement token polling background loop with RFC 8628 handling (`slow_down`, `authorization_pending`, `expired_token`).
+- [x] Connect IPC flow: widget opens `link.tidal.com` via `xdg-open`, polls daemon, and updates UI to "Connected".
+- [x] **Gate Verification:** Pass Gate M1 (session tokens saved to `~/.local/state/omarchy/tidal/session.json`, binary size < 2.5 MB).
 
 ---
 
@@ -102,3 +102,4 @@ Current Status: **Phase 1: Foundation & Scaffolding Completed -> Ready for Miles
 | 2026-10-08 | `173cc4e` | Added 7-milestone progression plan, verification gates, unit tests, and size audit script. | jaj |
 | 2026-10-08 | `d70a175` | Added `AGENTS.md` operational contract and agent gate. | jaj |
 | 2026-10-08 | `f8a8aef` | Added official Omarchy compliance validator (`scripts/verify-omarchy-compliance.sh`). | jaj |
+| 2026-10-08 | `4aaa8fa` | Implemented Milestone 1: OAuth 2.0 Device Flow, token polling, session persistence, and UI integration. | jaj |

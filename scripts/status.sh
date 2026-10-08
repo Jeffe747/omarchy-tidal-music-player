@@ -27,10 +27,17 @@ if [[ -f "$PROGRESS_FILE" ]]; then
     echo -e "  ${line}"
   done
   echo ""
-  echo -e "${BOLD}Next Immediate Tasks (Milestone 1):${NC}"
-  grep -A 8 "### Milestone 1:" "$PROGRESS_FILE" | grep "^- \[ \]" | head -n 3 | while IFS= read -r task; do
-    echo -e "  ${YELLOW}${task}${NC}"
-  done
+  ACTIVE_M=$(grep -E "^\| \*\*M[0-9]\*\*.*🟡" "$PROGRESS_FILE" | head -n 1 | sed -E 's/.*(\*\*M[0-9]\*\*).*/\1/' | tr -d '*' || true)
+  if [[ -z "$ACTIVE_M" ]]; then
+    ACTIVE_M="Completed"
+    echo -e "  ${GREEN}All planned milestone tasks currently completed.${NC}"
+  else
+    M_NUM="${ACTIVE_M#M}"
+    echo -e "${BOLD}Next Immediate Tasks (Milestone ${M_NUM}):${NC}"
+    grep -A 10 "### Milestone ${M_NUM}:" "$PROGRESS_FILE" | (grep "^- \[ \]" || true) | head -n 5 | while IFS= read -r task; do
+      [[ -n "$task" ]] && echo -e "  ${YELLOW}${task}${NC}"
+    done
+  fi
 else
   echo "PROGRESS.md not found."
 fi

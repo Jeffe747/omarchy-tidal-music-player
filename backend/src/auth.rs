@@ -1,11 +1,18 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-const AUTH_URL: &str = "https://auth.tidal.com/v1/oauth2/device/authorization";
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
+const AUTH_URL: &str = "https://auth.tidal.com/v1/oauth2/device_authorization";
+const FALLBACK_AUTH_URL: &str = "https://auth.tidal.com/v1/oauth2/device/authorization";
 const TOKEN_URL: &str = "https://auth.tidal.com/v1/oauth2/token";
-// Common client ID used for Tidal device flow in community players
-pub const DEFAULT_CLIENT_ID: &str = "zU4XHVVk3BmICqXd";
+
+// Standard client credentials for Tidal Device Flow
+pub const DEFAULT_CLIENT_ID: &str = "zU4XHVVkc2tDPo4t";
+pub const DEFAULT_CLIENT_SECRET: &str = "VJKhDFqJPqvsPVNBV6ukXTJmwlvbttP7wlMlrc72se4=";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceAuthInfo {
@@ -20,26 +27,96 @@ pub struct DeviceAuthInfo {
     pub interval: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Session {
     pub access_token: String,
+    #[serde(default)]
     pub refresh_token: Option<String>,
+    #[serde(default)]
     pub user_id: Option<u64>,
+    #[serde(default)]
     pub expires_in: Option<u64>,
+    #[serde(default)]
+    pub expires_at: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PollResult {
+    Success(Session),
+    Pending,
+    SlowDown,
+    Expired,
+    Denied,
+    Error(String),
+}
+
+#[derive(Debug, Deserialize)]
+struct RawTokenResponse {
+    access_token: String,
+    refresh_token: Option<String>,
+    expires_in: Option<u64>,
+    user_id: Option<u64>,
+    user: Option<RawUser>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RawUser {
+    #[serde(rename = "userId")]
+    user_id: Option<u64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct OAuthErrorResponse {
+    error: Option<String>,
+    error_description: Option<String>,
 }
 
 pub struct AuthManager {
     client_id: String,
+    client_secret: Option<String>,
+}
+
+pub fn current_unix_timestamp() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 impl AuthManager {
     pub fn new(client_id: Option<String>) -> Self {
+        let env_id = std::env::var("TIDAL_CLIENT_ID").ok();
+        let env_secret = std::env::var("TIDAL_CLIENT_SECRET").ok();
+
+        let id = client_id
+            .or(env_id)
+            .unwrap_or_else(|| DEFAULT_CLIENT_ID.to_string());
+        let secret = env_secret.or_else(|| {
+            if id == DEFAULT_CLIENT_ID {
+                Some(DEFAULT_CLIENT_SECRET.to_string())
+            } else {
+                None
+            }
+        });
+
         Self {
-            client_id: client_id.unwrap_or_else(|| DEFAULT_CLIENT_ID.to_string()),
+            client_id: id,
+            client_secret: secret,
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn with_credentials(client_id: String, client_secret: Option<String>) -> Self {
+        Self {
+            client_id,
+            client_secret,
         }
     }
 
     pub fn session_file_path() -> PathBuf {
+        if let Ok(path) = std::env::var("TIDAL_SESSION_PATH") {
+            return PathBuf::from(path);
+        }
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         PathBuf::from(home).join(".local/state/omarchy/tidal/session.json")
     }
@@ -57,36 +134,221 @@ impl AuthManager {
         let path = Self::session_file_path();
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
+            #[cfg(unix)]
+            {
+                let _ = fs::set_permissions(parent, fs::Permissions::from_mode(0o700));
+            }
         }
         let json = serde_json::to_string_pretty(session)?;
-        fs::write(path, json)?;
+        fs::write(&path, json)?;
+        #[cfg(unix)]
+        {
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600))?;
+        }
         Ok(())
     }
 
-    pub fn request_device_code(&self) -> Result<DeviceAuthInfo, String> {
-        let resp = ureq::post(AUTH_URL)
-            .send_form(&[
-                ("client_id", self.client_id.as_str()),
-                ("scope", "r_usr w_usr"),
-            ])
-            .map_err(|e| format!("Auth request failed: {e}"))?;
-
-        resp.into_json::<DeviceAuthInfo>()
-            .map_err(|e| format!("Failed to parse device auth response: {e}"))
+    pub fn delete_session(&self) -> std::io::Result<()> {
+        let path = Self::session_file_path();
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
+        Ok(())
     }
 
-    pub fn poll_token(&self, device_code: &str) -> Result<Session, String> {
-        let resp = ureq::post(TOKEN_URL)
-            .send_form(&[
-                ("client_id", self.client_id.as_str()),
-                ("device_code", device_code),
-                ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
-                ("scope", "r_usr w_usr"),
-            ])
-            .map_err(|e| format!("Token poll failed: {e}"))?;
+    pub fn is_authenticated(&self) -> bool {
+        self.load_session()
+            .map(|s| !s.access_token.is_empty())
+            .unwrap_or(false)
+    }
 
-        resp.into_json::<Session>()
-            .map_err(|e| format!("Failed to parse session token: {e}"))
+    pub fn is_token_expired(&self, session: &Session) -> bool {
+        if let Some(expires_at) = session.expires_at {
+            let now = current_unix_timestamp();
+            // 60-second safety window before expiration
+            now + 60 >= expires_at
+        } else {
+            false
+        }
+    }
+
+    pub fn request_device_code(&self) -> Result<DeviceAuthInfo, String> {
+        let mut form_data = vec![
+            ("client_id", self.client_id.as_str()),
+            ("scope", "r_usr w_usr"),
+        ];
+        if let Some(ref secret) = self.client_secret {
+            form_data.push(("client_secret", secret.as_str()));
+        }
+
+        // Try primary device_authorization endpoint, fallback if necessary
+        let resp = match ureq::post(AUTH_URL)
+            .set("Content-Type", "application/x-www-form-urlencoded")
+            .send_form(&form_data)
+        {
+            Ok(r) => Ok(r),
+            Err(ureq::Error::Status(404, _)) => ureq::post(FALLBACK_AUTH_URL)
+                .set("Content-Type", "application/x-www-form-urlencoded")
+                .send_form(&form_data),
+            Err(e) => Err(e),
+        }
+        .map_err(|e| format!("Device authorization request failed: {e}"))?;
+
+        let mut info: DeviceAuthInfo = resp
+            .into_json()
+            .map_err(|e| format!("Failed to parse device auth response: {e}"))?;
+
+        // Ensure verificationUri has https:// scheme for xdg-open compatibility
+        if !info.verification_uri.starts_with("http://")
+            && !info.verification_uri.starts_with("https://")
+        {
+            info.verification_uri = format!("https://{}", info.verification_uri);
+        }
+
+        Ok(info)
+    }
+
+    pub fn poll_token_once(&self, device_code: &str) -> PollResult {
+        let mut form_data = vec![
+            ("client_id", self.client_id.as_str()),
+            ("device_code", device_code),
+            ("grant_type", "urn:ietf:params:oauth:grant-type:device_code"),
+            ("scope", "r_usr w_usr"),
+        ];
+        if let Some(ref secret) = self.client_secret {
+            form_data.push(("client_secret", secret.as_str()));
+        }
+
+        match ureq::post(TOKEN_URL)
+            .set("Content-Type", "application/x-www-form-urlencoded")
+            .send_form(&form_data)
+        {
+            Ok(resp) => match resp.into_json::<RawTokenResponse>() {
+                Ok(raw) => {
+                    let now = current_unix_timestamp();
+                    let expires_at = raw.expires_in.map(|exp| now + exp);
+                    let user_id = raw.user_id.or_else(|| raw.user.and_then(|u| u.user_id));
+
+                    let session = Session {
+                        access_token: raw.access_token,
+                        refresh_token: raw.refresh_token,
+                        user_id,
+                        expires_in: raw.expires_in,
+                        expires_at,
+                    };
+                    PollResult::Success(session)
+                }
+                Err(e) => PollResult::Error(format!("Failed to parse token response: {e}")),
+            },
+            Err(ureq::Error::Status(status_code, resp)) => {
+                if let Ok(err_resp) = resp.into_json::<OAuthErrorResponse>() {
+                    let err_type = err_resp.error.as_deref().unwrap_or("");
+                    match err_type {
+                        "authorization_pending" => PollResult::Pending,
+                        "slow_down" => PollResult::SlowDown,
+                        "expired_token" => PollResult::Expired,
+                        "access_denied" => PollResult::Denied,
+                        _ => PollResult::Error(format!(
+                            "OAuth error '{}': {} (HTTP {})",
+                            err_type,
+                            err_resp.error_description.unwrap_or_default(),
+                            status_code
+                        )),
+                    }
+                } else {
+                    PollResult::Error(format!("HTTP error {status_code}"))
+                }
+            }
+            Err(ureq::Error::Transport(e)) => PollResult::Error(format!("Transport error: {e}")),
+        }
+    }
+
+    pub fn poll_token(
+        &self,
+        device_code: &str,
+        mut interval: u64,
+        expires_in: u64,
+    ) -> Result<Session, String> {
+        if interval == 0 {
+            interval = 5;
+        }
+        let start = Instant::now();
+        let timeout = Duration::from_secs(expires_in);
+
+        while start.elapsed() < timeout {
+            std::thread::sleep(Duration::from_secs(interval));
+
+            match self.poll_token_once(device_code) {
+                PollResult::Success(session) => return Ok(session),
+                PollResult::Pending => continue,
+                PollResult::SlowDown => {
+                    interval += 5;
+                    continue;
+                }
+                PollResult::Expired => return Err("Device authorization code expired".to_string()),
+                PollResult::Denied => return Err("User denied authorization".to_string()),
+                PollResult::Error(err) => {
+                    eprintln!("  [!] Warning during token poll: {err}");
+                }
+            }
+        }
+
+        Err("Device authorization timed out".to_string())
+    }
+
+    pub fn refresh_session(&self, refresh_token: &str) -> Result<Session, String> {
+        let mut form_data = vec![
+            ("client_id", self.client_id.as_str()),
+            ("grant_type", "refresh_token"),
+            ("refresh_token", refresh_token),
+            ("scope", "r_usr w_usr"),
+        ];
+        if let Some(ref secret) = self.client_secret {
+            form_data.push(("client_secret", secret.as_str()));
+        }
+
+        let resp = ureq::post(TOKEN_URL)
+            .set("Content-Type", "application/x-www-form-urlencoded")
+            .send_form(&form_data)
+            .map_err(|e| format!("Token refresh request failed: {e}"))?;
+
+        let raw: RawTokenResponse = resp
+            .into_json()
+            .map_err(|e| format!("Failed to parse refresh token response: {e}"))?;
+
+        let now = current_unix_timestamp();
+        let expires_at = raw.expires_in.map(|exp| now + exp);
+        let user_id = raw.user_id.or_else(|| raw.user.and_then(|u| u.user_id));
+
+        let new_session = Session {
+            access_token: raw.access_token,
+            refresh_token: raw.refresh_token.or_else(|| Some(refresh_token.to_string())),
+            user_id,
+            expires_in: raw.expires_in,
+            expires_at,
+        };
+
+        self.save_session(&new_session)
+            .map_err(|e| format!("Failed to save refreshed session: {e}"))?;
+
+        Ok(new_session)
+    }
+
+    pub fn get_valid_session(&self) -> Result<Session, String> {
+        let session = self
+            .load_session()
+            .ok_or_else(|| "No active session found".to_string())?;
+
+        if self.is_token_expired(&session) {
+            if let Some(ref refresh_tok) = session.refresh_token {
+                println!("  [i] Access token expired. Refreshing using refresh_token...");
+                self.refresh_session(refresh_tok)
+            } else {
+                Err("Session expired and no refresh token available to refresh".to_string())
+            }
+        } else {
+            Ok(session)
+        }
     }
 }
 
@@ -120,6 +382,7 @@ mod tests {
             refresh_token: Some("test_refresh_token".to_string()),
             user_id: Some(987654321),
             expires_in: Some(3600),
+            expires_at: Some(1700000000),
         };
 
         let serialized = serde_json::to_string(&session).unwrap();
@@ -127,5 +390,93 @@ mod tests {
 
         assert_eq!(deserialized.access_token, "test_access_token");
         assert_eq!(deserialized.user_id, Some(987654321));
+        assert_eq!(deserialized.expires_at, Some(1700000000));
+    }
+
+    #[test]
+    fn test_session_expiry_check() {
+        let auth = AuthManager::new(None);
+        let now = current_unix_timestamp();
+
+        let valid_session = Session {
+            access_token: "valid".to_string(),
+            refresh_token: None,
+            user_id: None,
+            expires_in: Some(3600),
+            expires_at: Some(now + 1000),
+        };
+        assert!(!auth.is_token_expired(&valid_session));
+
+        let expired_session = Session {
+            access_token: "expired".to_string(),
+            refresh_token: None,
+            user_id: None,
+            expires_in: Some(3600),
+            expires_at: Some(now - 10),
+        };
+        assert!(auth.is_token_expired(&expired_session));
+
+        // Grace period test: expires in 30 seconds should be treated as expired
+        let almost_expired = Session {
+            access_token: "almost".to_string(),
+            refresh_token: None,
+            user_id: None,
+            expires_in: Some(3600),
+            expires_at: Some(now + 30),
+        };
+        assert!(auth.is_token_expired(&almost_expired));
+    }
+
+    #[test]
+    fn test_session_file_save_and_load() {
+        let temp_dir = std::env::temp_dir().join(format!("tidal_test_{}", current_unix_timestamp()));
+        let temp_file = temp_dir.join("session.json");
+        std::env::set_var("TIDAL_SESSION_PATH", temp_file.to_str().unwrap());
+
+        let auth = AuthManager::new(None);
+        assert!(!auth.is_authenticated());
+
+        let session = Session {
+            access_token: "token_123".to_string(),
+            refresh_token: Some("refresh_456".to_string()),
+            user_id: Some(42),
+            expires_in: Some(3600),
+            expires_at: Some(current_unix_timestamp() + 3600),
+        };
+
+        assert!(auth.save_session(&session).is_ok());
+        assert!(auth.is_authenticated());
+
+        #[cfg(unix)]
+        {
+            let metadata = fs::metadata(&temp_file).unwrap();
+            let mode = metadata.permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "Session file should have 0600 permissions");
+        }
+
+        let loaded = auth.load_session().expect("Failed to load saved session");
+        assert_eq!(loaded.access_token, "token_123");
+        assert_eq!(loaded.user_id, Some(42));
+
+        assert!(auth.delete_session().is_ok());
+        assert!(!auth.is_authenticated());
+        assert!(auth.load_session().is_none());
+
+        let _ = fs::remove_dir_all(&temp_dir);
+        std::env::remove_var("TIDAL_SESSION_PATH");
+    }
+
+    #[test]
+    fn test_live_device_authorization_request() {
+        // Verifies real handshake with Tidal's Device Authorization endpoint
+        let auth = AuthManager::new(None);
+        let res = auth.request_device_code();
+        assert!(res.is_ok(), "Live request_device_code should succeed: {:?}", res.err());
+        let info = res.unwrap();
+        assert!(!info.device_code.is_empty());
+        assert!(!info.user_code.is_empty());
+        assert!(info.verification_uri.contains("link.tidal.com"));
+        assert!(info.expires_in > 0);
+        assert!(info.interval > 0);
     }
 }

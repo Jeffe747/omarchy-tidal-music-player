@@ -83,8 +83,8 @@ Implementation is strictly phased into 7 milestones:
 
 | # | Milestone | Status | Gate Pre-requisite to Advance |
 | :---: | :--- | :---: | :--- |
-| **M1** | **Authentication & Session Management (Login)** | 🟡 **Next** | Unit tests pass for `auth.rs`; device code generated; tokens persisted to `~/.local/state/omarchy/tidal/session.json`; UI shows "Connected". |
-| **M2** | **Favorites List & Core Audio Playback** | ⚪ Queued | Favorites API parsed; unencrypted FLAC manifest resolved; headless `mpv` streams audio to PipeWire; now-playing artwork/title renders in UI. |
+| **M1** | **Authentication & Session Management (Login)** | 🟢 **Done** | Unit tests pass for `auth.rs`; device code generated; tokens persisted to `~/.local/state/omarchy/tidal/session.json`; UI shows "Connected". |
+| **M2** | **Favorites List & Core Audio Playback** | 🟡 **Next** | Favorites API parsed; unencrypted FLAC manifest resolved; headless `mpv` streams audio to PipeWire; now-playing artwork/title renders in UI. |
 | **M3** | **Interactive Controls, Seeking & Auto-Advance** | ⚪ Queued | Seek slider latency < 100ms; pause/play/next transport works; EOF auto-advances to next favorite; right-click toggles on bar. |
 | **M4** | **MPRIS D-Bus & Desktop Integration** | ⚪ Queued | `org.mpris.MediaPlayer2.Tidal` on session bus; media keys and `playerctl` control playback; Omarchy media widgets sync. |
 | **M5** | **Catalog Search & Discovery** | ⚪ Queued | Debounced search queries complete in < 500ms; one-click play from search results. |
@@ -101,12 +101,12 @@ Before an agent claims a milestone as complete, it **must** run the correspondin
 ```bash
 ./scripts/verify.sh
 ```
-- [ ] `auth::tests::test_device_auth_info_deserialization` passes.
-- [ ] `auth::tests::test_session_serialization_roundtrip` passes.
-- [ ] Running daemon or test harness receives user code from Tidal.
-- [ ] Confirming on `link.tidal.com` persists session to `~/.local/state/omarchy/tidal/session.json`.
-- [ ] Bar flyout updates from pairing prompt to "Connected" without restarting the shell.
-- [ ] Binary size is < 2.5 MB.
+- [x] `auth::tests::test_device_auth_info_deserialization` passes.
+- [x] `auth::tests::test_session_serialization_roundtrip` passes.
+- [x] Running daemon or test harness receives user code from Tidal.
+- [x] Confirming on `link.tidal.com` persists session to `~/.local/state/omarchy/tidal/session.json`.
+- [x] Bar flyout updates from pairing prompt to "Connected" without restarting the shell.
+- [x] Binary size is < 2.5 MB.
 
 ### Gate M2: Favorites & Playback Verification
 ```bash

@@ -70,59 +70,80 @@ Panel {
         anchors.top: parent.top
         spacing: Style.space(12)
 
-        // Header: Tidal logo + Title + Quality Badge
-        Row {
+        // Header: Tidal logo + Title + Quality Badge + Actions
+        Item {
           width: parent.width
-          spacing: Style.space(8)
+          implicitHeight: Math.max(headerLeft.implicitHeight, headerRight.implicitHeight)
 
-          Text {
-            text: "󰓇"
-            font.family: root.bar ? root.bar.fontFamily : Style.font.family
-            font.pixelSize: Style.font.display
-            color: Color.accent
+          Row {
+            id: headerLeft
+            anchors.left: parent.left
             anchors.verticalCenter: parent.verticalCenter
-          }
-
-          Column {
-            anchors.verticalCenter: parent.verticalCenter
-            spacing: Style.space(2)
+            spacing: Style.space(8)
 
             Text {
-              text: "TIDAL"
+              text: "󰓇"
               font.family: root.bar ? root.bar.fontFamily : Style.font.family
-              font.pixelSize: Style.font.title
-              font.bold: true
-              color: Color.foreground
-            }
-
-            Text {
-              text: tidalService.authenticated ? "Connected" : "Not Logged In"
-              font.family: root.bar ? root.bar.fontFamily : Style.font.family
-              font.pixelSize: Style.font.caption
-              color: Color.muted
-            }
-          }
-
-          Item { width: 1; height: 1; Layout.fillWidth: true }
-
-          // Audio Quality Badge
-          Rectangle {
-            visible: tidalService.authenticated && tidalService.trackTitle !== ""
-            anchors.verticalCenter: parent.verticalCenter
-            radius: Style.radiusSmall
-            color: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.15)
-            border.color: Color.accent
-            border.width: 1
-            implicitWidth: qualityText.implicitWidth + Style.space(12)
-            implicitHeight: qualityText.implicitHeight + Style.space(6)
-
-            Text {
-              id: qualityText
-              anchors.centerIn: parent
-              text: tidalService.audioQuality === "HI_RES_LOSSLESS" ? "HI-RES FLAC" : (tidalService.audioQuality === "LOSSLESS" ? "LOSSLESS" : "HIGH AAC")
-              font.pixelSize: Style.font.caption
-              font.bold: true
+              font.pixelSize: Style.font.display
               color: Color.accent
+              anchors.verticalCenter: parent.verticalCenter
+            }
+
+            Column {
+              anchors.verticalCenter: parent.verticalCenter
+              spacing: Style.space(2)
+
+              Text {
+                text: "TIDAL"
+                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                font.pixelSize: Style.font.title
+                font.bold: true
+                color: Color.foreground
+              }
+
+              Text {
+                text: tidalService.authenticated ? "Connected" : (tidalService.authPending ? "Waiting for Login..." : "Not Logged In")
+                font.family: root.bar ? root.bar.fontFamily : Style.font.family
+                font.pixelSize: Style.font.caption
+                color: tidalService.authenticated ? Color.accent : Color.muted
+              }
+            }
+          }
+
+          Row {
+            id: headerRight
+            anchors.right: parent.right
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.space(8)
+
+            // Audio Quality Badge
+            Rectangle {
+              visible: tidalService.authenticated && tidalService.trackTitle !== ""
+              anchors.verticalCenter: parent.verticalCenter
+              radius: Style.radiusSmall
+              color: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.15)
+              border.color: Color.accent
+              border.width: 1
+              implicitWidth: qualityText.implicitWidth + Style.space(12)
+              implicitHeight: qualityText.implicitHeight + Style.space(6)
+
+              Text {
+                id: qualityText
+                anchors.centerIn: parent
+                text: tidalService.audioQuality === "HI_RES_LOSSLESS" ? "HI-RES FLAC" : (tidalService.audioQuality === "LOSSLESS" ? "LOSSLESS" : "HIGH AAC")
+                font.pixelSize: Style.font.caption
+                font.bold: true
+                color: Color.accent
+              }
+            }
+
+            // Disconnect / Logout Button
+            Button {
+              visible: tidalService.authenticated
+              anchors.verticalCenter: parent.verticalCenter
+              text: "Logout"
+              iconText: "󰍃"
+              onClicked: tidalService.logout()
             }
           }
         }
@@ -133,10 +154,10 @@ Panel {
         Column {
           visible: !tidalService.authenticated
           width: parent.width
-          spacing: Style.space(10)
+          spacing: Style.space(12)
 
           Text {
-            text: "Sign in with Tidal to stream high-fidelity audio."
+            text: "Sign in with Tidal to stream high-fidelity audio directly from Omarchy."
             wrapMode: Text.WordWrap
             width: parent.width
             color: Color.foreground
@@ -146,42 +167,65 @@ Panel {
           Column {
             visible: tidalService.authPending
             width: parent.width
-            spacing: Style.space(6)
+            spacing: Style.space(10)
 
             Text {
-              text: "Enter this code on your device:"
+              text: "Pairing code (enter on link.tidal.com):"
               color: Color.muted
               font.pixelSize: Style.font.caption
             }
 
             Rectangle {
               width: parent.width
-              height: Style.space(48)
+              height: Style.space(56)
               radius: Style.radiusMedium
-              color: Qt.rgba(Color.foreground.r, Color.foreground.g, Color.foreground.b, 0.05)
+              color: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.1)
               border.color: Color.accent
               border.width: 1
 
               Text {
                 anchors.centerIn: parent
                 text: tidalService.authCode || "FETCHING..."
-                font.pixelSize: Style.space(22)
+                font.pixelSize: Style.space(26)
                 font.bold: true
                 color: Color.accent
               }
             }
 
+            Text {
+              text: "Enter the code in your browser to approve:"
+              color: Color.muted
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+              width: parent.width
+            }
+
             Button {
               width: parent.width
               text: "Open link.tidal.com in Browser"
-              onClicked: Quickshell.execDetached(["xdg-open", tidalService.authUrl])
+              iconText: "󰌹"
+              onClicked: {
+                if (tidalService.authUrl) {
+                  Quickshell.execDetached(["xdg-open", tidalService.authUrl])
+                }
+              }
             }
+          }
+
+          Text {
+            visible: tidalService.authError !== "" && !tidalService.authPending
+            text: tidalService.authError
+            color: Color.urgent
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+            width: parent.width
           }
 
           Button {
             visible: !tidalService.authPending
             width: parent.width
             text: "Login with Tidal"
+            iconText: "󰓇"
             onClicked: tidalService.startAuth()
           }
         }
@@ -268,15 +312,20 @@ Panel {
               }
             }
 
-            Row {
+            Item {
               width: parent.width
+              implicitHeight: timeCurrent.implicitHeight
+
               Text {
+                id: timeCurrent
+                anchors.left: parent.left
                 text: root.formatTime(tidalService.trackPosition)
                 font.pixelSize: Style.font.caption
                 color: Color.muted
               }
-              Item { width: 1; height: 1; Layout.fillWidth: true }
+
               Text {
+                anchors.right: parent.right
                 text: root.formatTime(tidalService.trackDuration)
                 font.pixelSize: Style.font.caption
                 color: Color.muted
