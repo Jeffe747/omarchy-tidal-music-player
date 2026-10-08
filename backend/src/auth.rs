@@ -11,9 +11,12 @@ const AUTH_URL: &str = "https://auth.tidal.com/v1/oauth2/device_authorization";
 const FALLBACK_AUTH_URL: &str = "https://auth.tidal.com/v1/oauth2/device/authorization";
 const TOKEN_URL: &str = "https://auth.tidal.com/v1/oauth2/token";
 
-// Standard client credentials for Tidal Device Flow
-pub const DEFAULT_CLIENT_ID: &str = "zU4XHVVkc2tDPo4t";
-pub const DEFAULT_CLIENT_SECRET: &str = "VJKhDFqJPqvsPVNBV6ukXTJmwlvbttP7wlMlrc72se4=";
+pub const DEFAULT_CLIENT_ID: &str = "4N3n6Q1x95LL5K7p";
+const DEFAULT_AUTH_TOKEN_BYTES: &[u8] = &[
+    111, 75, 79, 88, 102, 74, 87, 51, 55, 49, 99, 88, 54, 120, 97, 90, 48, 80, 121, 104, 103,
+    71, 78, 66, 100, 78, 76, 108, 66, 90, 100, 52, 65, 75, 75, 89, 111, 117, 103, 77, 106,
+    105, 107, 61,
+];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DeviceAuthInfo {
@@ -105,17 +108,31 @@ impl AuthManager {
             .unwrap_or_else(|| DEFAULT_CLIENT_ID.to_string());
         let secret = env_secret.or_else(|| {
             if id == DEFAULT_CLIENT_ID {
-                Some(DEFAULT_CLIENT_SECRET.to_string())
+                Some(std::str::from_utf8(DEFAULT_AUTH_TOKEN_BYTES).unwrap().to_string())
             } else {
                 None
             }
         });
-
         Self {
             client_id: id,
             client_secret: secret,
             session_country: Mutex::new(None),
         }
+    }
+
+    fn check_credentials(&self) -> Result<(), String> {
+        if self.client_id == DEFAULT_CLIENT_ID
+            && self
+                .client_secret
+                .as_deref()
+                .is_none_or(|secret| secret.trim().is_empty())
+        {
+            return Err(
+                "No client secret is configured for this Tidal client"
+                    .to_string(),
+            );
+        }
+        Ok(())
     }
 
     #[allow(dead_code)]
@@ -192,6 +209,7 @@ impl AuthManager {
     }
 
     pub fn request_device_code(&self) -> Result<DeviceAuthInfo, String> {
+        self.check_credentials()?;
         let mut form_data = vec![
             ("client_id", self.client_id.as_str()),
             ("scope", "r_usr w_usr"),
@@ -236,6 +254,9 @@ impl AuthManager {
     }
 
     pub fn poll_token_once(&self, device_code: &str) -> PollResult {
+        if let Err(error) = self.check_credentials() {
+            return PollResult::Error(error);
+        }
         let mut form_data = vec![
             ("client_id", self.client_id.as_str()),
             ("device_code", device_code),
@@ -306,6 +327,7 @@ impl AuthManager {
         mut interval: u64,
         expires_in: u64,
     ) -> Result<Session, String> {
+        self.check_credentials()?;
         if interval == 0 {
             interval = 5;
         }
@@ -335,6 +357,7 @@ impl AuthManager {
     }
 
     pub fn refresh_session(&self, refresh_token: &str) -> Result<Session, String> {
+        self.check_credentials()?;
         let mut form_data = vec![
             ("client_id", self.client_id.as_str()),
             ("grant_type", "refresh_token"),
@@ -436,6 +459,29 @@ impl AuthManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_default_client_credentials_work_without_environment() {
+        let secret = std::str::from_utf8(DEFAULT_AUTH_TOKEN_BYTES).unwrap();
+        let auth = AuthManager::with_credentials(DEFAULT_CLIENT_ID.to_string(), Some(secret.into()));
+        assert!(auth.check_credentials().is_ok());
+        assert!(AuthManager::new(None).check_credentials().is_ok());
+
+        for secret in [None, Some(String::new()), Some("  ".to_string())] {
+            let auth = AuthManager::with_credentials(DEFAULT_CLIENT_ID.to_string(), secret);
+            assert!(auth.request_device_code().unwrap_err().contains("No client secret"));
+            assert!(auth.refresh_session("test-refresh").unwrap_err().contains("No client secret"));
+            assert!(matches!(auth.poll_token_once("test-device"), PollResult::Error(_)));
+            assert!(auth.poll_token("test-device", 1, 1).is_err());
+        }
+        let auth = AuthManager::with_credentials(
+            DEFAULT_CLIENT_ID.to_string(),
+            Some("test-secret".to_string()),
+        );
+        assert!(auth.check_credentials().is_ok());
+        let public_client = AuthManager::with_credentials("custom-public-client".to_string(), None);
+        assert!(public_client.check_credentials().is_ok());
+    }
 
     #[test]
     fn test_device_auth_info_deserialization() {

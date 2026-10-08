@@ -175,6 +175,21 @@ Commands issued while the daemon connects are delivered after connection.
 
 ### Favorites & Playback (M2)
 
+The plugin includes the public OAuth client credentials for client ID
+`4N3n6Q1x95LL5K7p`, so login and session refresh work without setting any
+environment variables. Set `TIDAL_CLIENT_SECRET` only when using a custom
+`TIDAL_CLIENT_ID`. Sessions issued for the previous client may require signing
+in again.
+
+Run `bin/tidal-daemon --probe <track_id>` with an authenticated session to print
+track metadata, catalog and resolved audio quality, manifest MIME type, and a
+60-character stream-location preview. The probe resolves the manifest without
+starting `mpv` or playing audio, and cleans up any temporary DASH manifest.
+Success confirms supported manifest resolution, not CDN access or audible
+playback. Missing sessions, invalid arguments, API errors, and unsupported
+manifests exit with status 1. Stream previews may contain signed URL data;
+do not share them publicly.
+
 After login, the popup automatically fetches all favorite tracks, newest first.
 Click a favorite to request lossless playback through headless `mpv` and PipeWire;
 the hero card and bar label show its artwork and metadata. Favorites can be

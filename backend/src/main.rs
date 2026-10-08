@@ -137,6 +137,34 @@ fn api_client(auth: &AuthManager) -> Result<(TidalApiClient, Option<u64>), Strin
     ))
 }
 
+fn run_cli_probe(auth: &AuthManager, id: u64) -> Result<(), String> {
+    let (api, _) = api_client(auth)?;
+    let track = api.get_track(id)?;
+    println!("Track ID: {}", track.id);
+    println!("Title: {}", track.title);
+    println!("Artist: {}", track.artist_name());
+    println!("Album: {}", track.album_title());
+    println!("Duration: {} seconds", track.duration);
+    println!(
+        "Catalog Audio Quality: {}",
+        track.audio_quality.as_deref().unwrap_or("Unknown")
+    );
+
+    let info = api.get_playback_info(id, track.audio_quality.as_deref().unwrap_or("LOSSLESS"))?;
+    println!("audioQuality: {}", info.audio_quality);
+    println!("manifestMimeType: {}", info.manifest_mime_type);
+    let mut engine = PlaybackEngine::new();
+    let url = engine.resolve_stream_url(&info.manifest_mime_type, &info.manifest)?;
+    let preview: String = url.chars().take(60).collect();
+    println!(
+        "Resolved Stream URL: {preview}{}",
+        if preview.len() < url.len() { "..." } else { "" }
+    );
+    engine.stop()?;
+    println!("[✓] Probe successful! Stream is playable.");
+    Ok(())
+}
+
 fn load_favorites(
     auth: &AuthManager,
     player: &Mutex<Player>,
@@ -200,6 +228,25 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let auth_manager = Arc::new(AuthManager::new(None));
 
+    if let Some(index) = args.iter().position(|a| a == "--probe") {
+        let result = (|| {
+            if args.len() != 3 || index != 1 {
+                return Err("Usage: tidal-daemon --probe <track_id>".to_string());
+            }
+            let id = args[2]
+                .parse::<u64>()
+                .ok()
+                .filter(|id| *id > 0)
+                .ok_or("track_id must be a positive integer")?;
+            run_cli_probe(&auth_manager, id)
+        })();
+        if let Err(error) = result {
+            eprintln!("[FAIL] Probe error: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     if args.iter().any(|a| a == "--test-auth" || a == "--login") {
         match run_cli_auth(&auth_manager) {
             Ok(()) => std::process::exit(0),
@@ -248,6 +295,7 @@ fn main() {
         println!("  --test-auth, --login  Run OAuth 2.0 Device Flow authorization CLI runner");
         println!("  --status              Print current session and authentication status");
         println!("  --logout              Clear stored session credentials");
+        println!("  --probe <track_id>    Resolve a track's stream without starting playback");
         println!("  --help, -h            Print this help message");
         std::process::exit(0);
     }

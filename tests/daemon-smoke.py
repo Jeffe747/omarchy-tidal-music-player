@@ -11,6 +11,23 @@ binary = Path(__file__).resolve().parents[1] / "bin/tidal-daemon"
 with tempfile.TemporaryDirectory(prefix="tidal-daemon-smoke-") as runtime:
     env = dict(os.environ, HOME=runtime, XDG_RUNTIME_DIR=runtime,
                TIDAL_SESSION_PATH=runtime + "/session.json")
+    help_result = subprocess.run([binary, "--help"], env=env, capture_output=True,
+                                 text=True, timeout=5)
+    assert help_result.returncode == 0 and "--probe <track_id>" in help_result.stdout
+    for args, error in [
+        (["--probe"], "Usage:"),
+        (["--probe", "invalid"], "positive integer"),
+        (["--probe", "0"], "positive integer"),
+        (["--probe", "-1"], "positive integer"),
+        (["--probe", "18446744073709551616"], "positive integer"),
+        (["--probe", "42", "extra"], "Usage:"),
+        (["--probe", "42"], "No active session found"),
+    ]:
+        result = subprocess.run([binary, *args], env=env, capture_output=True,
+                                text=True, timeout=5)
+        assert result.returncode == 1 and error in result.stderr, result
+        assert "Probe successful!" not in result.stdout
+        assert not Path(runtime, "tidal.sock").exists()
     daemon = subprocess.Popen([binary], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         path = runtime + "/tidal.sock"
@@ -64,4 +81,4 @@ with tempfile.TemporaryDirectory(prefix="tidal-daemon-smoke-") as runtime:
         assert f"IPC command: {command}" in lines
     assert "Playback failed: No active session found" in lines
     assert "Daemon stopped" in lines
-    print("Daemon smoke passed: status, favorites/playback errors, responsive IPC, clean shutdown")
+    print("Daemon smoke passed: probe arguments, default client config, responsive IPC, clean shutdown")

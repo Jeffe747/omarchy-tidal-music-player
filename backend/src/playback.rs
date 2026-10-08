@@ -54,7 +54,9 @@ impl PlaybackEngine {
             // For DASH, write temporary MPD or pipe to mpv
             let runtime_dir =
                 std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
-            let mpd_path = PathBuf::from(runtime_dir).join("tidal-stream.mpd");
+            // A separate probe process must not overwrite the daemon's active MPD.
+            let mpd_path = PathBuf::from(runtime_dir)
+                .join(format!("tidal-stream-{}.mpd", std::process::id()));
             std::fs::write(&mpd_path, decoded).map_err(|e| format!("Failed to write MPD: {e}"))?;
             Ok(mpd_path.to_string_lossy().to_string())
         } else {
