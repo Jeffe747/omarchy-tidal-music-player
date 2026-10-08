@@ -1,7 +1,7 @@
 # Project Progress & Roadmap Tracker
 
 Last Updated: **2026-10-08**  
-Current Status: **Milestone 2 implementation verified locally; live playback gate pending on the remote laptop**
+Current Status: **Milestone 2 complete; live authenticated playback and PipeWire gate passed on Rimegale**
 
 ---
 
@@ -11,7 +11,7 @@ Current Status: **Milestone 2 implementation verified locally; live playback gat
 | :---: | :--- | :---: | :---: |
 | **M0** | **Foundation & Scaffolding** | 🟢 **Done** | 6 / 6 |
 | **M1** | **Authentication & Session Management (Login)** | 🟢 **Done** | 5 / 5 |
-| **M2** | **Favorites List & Core Audio Playback** | 🟡 **Live gate pending** | 5 / 5 |
+| **M2** | **Favorites List & Core Audio Playback** | 🟢 **Done** | 6 / 6 |
 | **M3** | **Interactive Controls, Seeking & Auto-Advance** | ⚪ Queued | 0 / 4 |
 | **M4** | **MPRIS D-Bus & Desktop Integration** | ⚪ Queued | 0 / 4 |
 | **M5** | **Catalog Search & Discovery** | ⚪ Queued | 0 / 3 |
@@ -42,23 +42,24 @@ Current Status: **Milestone 2 implementation verified locally; live playback gat
 
 ---
 
-### Milestone 2: Favorites List & Core Audio Playback 🟡
+### Milestone 2: Favorites List & Core Audio Playback 🟢
 - [x] Implement Tidal API client endpoint for fetching user favorite tracks.
 - [x] Implement `playbackinfopostpaywall` manifest resolver (`application/vnd.tidal.bts` unencrypted FLAC), with legacy endpoint and quality-rejection fallbacks.
 - [x] Launch headless `mpv` background runner with PipeWire audio sink (`--ao=pipewire`).
 - [x] Connect playback IPC commands (`play_track`, `favorites_loaded`).
 - [x] Render scrollable favorites list and now-playing artwork card in `BarWidget.qml`.
-- [ ] **Gate Verification:** Pass Gate M2 (audio verified through PipeWire via `pw-cli`, metadata in UI).
+- [x] **Gate Verification:** Pass Gate M2 on Rimegale: authenticated session (User ID 5040), Tidal favorites fetched, unencrypted LOSSLESS BTS stream resolved, loaded into headless mpv, PipeWire output confirmed on ALC233 Analog (`output_FR`/`output_FL`), and player status verified over IPC.
 
 Local verification passed: 28 Rust tests, four QML runtime scenarios (including
 favorites loading/empty/error states, click dispatch, and now-playing artwork),
 bundled-daemon IPC smoke, Omarchy compliance, and the binary size audit. Real mpv
 startup arguments, stale-socket recovery, and child reaping were verified.
 The stripped bundle is 1,786,456 bytes, using stable ELF relative-relocation
-packing and no UPX. There is no local Tidal session: authenticated favorites
-fetching, live stream resolution, and distortion-free PipeWire playback with
-`pw-cli` remain pending on the remote laptop. M2 is not fully passed, and M3 has
-not been advanced.
+packing and no UPX. Live verification on Rimegale confirmed the authenticated
+session (User ID 5040), favorites API response, unencrypted LOSSLESS BTS stream
+resolution, headless mpv playback, active PipeWire output streams
+(`output_FR`/`output_FL`) on ALC233 Analog, and player status over IPC. Gate M2
+passed; M3 remains queued.
 
 ---
 
@@ -108,6 +109,7 @@ not been advanced.
 
 | Date | Commit | Description | Author |
 | :--- | :--- | :--- | :--- |
+| 2026-10-08 | This change | Completed Gate M2 with live verification on Rimegale: authenticated session (User ID 5040), favorites fetched, unencrypted LOSSLESS BTS manifest resolved, stream loaded into headless mpv, active PipeWire output verified on ALC233 Analog (`output_FR`/`output_FL`), and player status confirmed over IPC. | Codex |
 | 2026-10-08 | This change | Added the public default client token fallback for `4N3n6Q1x95LL5K7p`, making the bundled plugin usable without user-provided environment variables; custom client secrets remain environment-configurable. Updated auth coverage, daemon smoke expectations, and setup documentation. Retained the `--probe <track_id>` CLI and isolated DASH manifest filenames. `./scripts/build.sh` and `./scripts/verify.sh` passed: 33 Rust tests, bundled daemon smoke, Omarchy compliance, and stripped 1,790,704-byte bundle. QML runtime checks were skipped because this environment has no Quickshell/Omarchy Wayland session. M2 live authenticated playback and PipeWire verification remains pending on the remote laptop; no milestone advanced. | Codex |
 | 2026-10-08 | This change | Fixed playback subStatus 4005 ("Asset is not ready for playback") with both stereo-only immersive-audio query flags, catalog-quality preference, and a bounded preferred/HIGH/LOW ladder. Retry legacy playbackinfo for 401/404 or quality-related errors; negotiate lower quality for playback 401/403/404, while stopping on transport, parsing, rate-limit, and server failures. Added track/attempt/retry diagnostics and fallback regression coverage. Release build and full verification gate passed: 32 Rust tests, four QML scenarios, isolated daemon smoke, compliance, and stripped 1,787,704-byte bundle. M2 live authenticated playback/PipeWire verification remains pending on the remote laptop; no milestone advanced. | Copilot |
 | 2026-10-08 | This change | Fixed playback HTTP 404 by using `playbackinfopostpaywall`, retrying legacy `playbackinfo` once on 404, and retrying `HIGH` only for quality-related 401/403/404 errors. Resolved and cached the real country from `/v1/sessions`, replacing the hardcoded US fallback. Added redacted HTTP status/`userMessage`/`subStatus` diagnostics and private persistent `daemon.log` (0700 directory, 0600 file, startup truncation above 256 KiB), including IPC/API/MIME/mpv events. `scripts/build.sh` and `WAYLAND_DISPLAY=wayland-1 scripts/verify.sh` passed: 28 Rust tests, four QML scenarios, isolated daemon/log smoke, compliance, and stripped 1,786,456-byte bundle. M2 live playback gate remains pending on the remote laptop; no milestone advanced. | Copilot |
