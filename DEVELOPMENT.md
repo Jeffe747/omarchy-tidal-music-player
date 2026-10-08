@@ -188,7 +188,7 @@ When modifying or adding QML code ([`BarWidget.qml`](file:///home/jaj/Projects/o
      - `Style.font.body` / `Style.font.subtext` for fonts.
 
 3. **Symlink Prohibition**:
-   - Do **not** create internal symlinks inside the repository or plugin directory. Omarchy strictly prohibits symlinks inside plugin folders for security reasons.
+   - Do **not** create internal symlinks inside the repository or plugin directory, or symlink the installed plugin root. Omarchy rejects these for security reasons.
 
 ---
 
@@ -196,11 +196,13 @@ When modifying or adding QML code ([`BarWidget.qml`](file:///home/jaj/Projects/o
 
 To test the plugin live in your local Omarchy desktop environment:
 
-1. **Install plugin link into Omarchy**:
+1. **Build and install a standalone plugin into Omarchy**:
    ```bash
+   ./scripts/build.sh
    ./install.sh
    ```
-   This symlinks the repository root to `~/.config/omarchy/plugins/jaj.tidal`.
+   This copies the source and release daemon to `~/.config/omarchy/plugins/jaj.tidal`.
+   Run `./install.sh` again after source edits or backend rebuilds.
 
 2. **Enable plugin in status bar**:
    Add `"jaj.tidal"` to your status bar layout in `~/.config/omarchy/shell.json`:

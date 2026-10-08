@@ -10,18 +10,33 @@ TARGET_PLUGIN_DIR="$HOME/.config/omarchy/plugins/jaj.tidal"
 
 echo "==> Installing Tidal Omarchy Plugin..."
 
-# 1. Install Plugin symlink
-mkdir -p "$(dirname "$TARGET_PLUGIN_DIR")"
-if [[ -L "$TARGET_PLUGIN_DIR" ]] || [[ -d "$TARGET_PLUGIN_DIR" ]]; then
-  rm -rf "$TARGET_PLUGIN_DIR"
+# 1. Stage a standalone plugin; Omarchy rejects symlinked plugin roots.
+if [[ "$SCRIPT_DIR" != "$(realpath -m "$TARGET_PLUGIN_DIR")" || -L "$TARGET_PLUGIN_DIR" ]]; then
+  STAGING_DIR="$(mktemp -d)"
+  trap 'rm -rf "$STAGING_DIR"' EXIT
+  tar -C "$SCRIPT_DIR" --exclude='./.git' --exclude='./backend/target' -cf - . \
+    | tar -C "$STAGING_DIR" -xf -
+  if [[ -f "$SCRIPT_DIR/backend/target/release/tidal-daemon" ]]; then
+    mkdir -p "$STAGING_DIR/backend/target/release"
+    cp "$SCRIPT_DIR/backend/target/release/tidal-daemon" "$STAGING_DIR/backend/target/release/"
+  fi
+  if command -v omarchy >/dev/null 2>&1; then
+    omarchy plugin validate "$STAGING_DIR"
+  fi
+  if [[ -L "$TARGET_PLUGIN_DIR" ]]; then
+    rm "$TARGET_PLUGIN_DIR"
+  fi
+  mkdir -p "$TARGET_PLUGIN_DIR"
+  cp -a "$STAGING_DIR/." "$TARGET_PLUGIN_DIR/"
 fi
-ln -sf "$SCRIPT_DIR" "$TARGET_PLUGIN_DIR"
-echo "  [✓] Linked plugin to $TARGET_PLUGIN_DIR"
+echo "  [✓] Installed standalone plugin to $TARGET_PLUGIN_DIR"
 
 # 2. Validate Plugin
 if command -v omarchy >/dev/null 2>&1; then
-  omarchy plugin validate "$TARGET_PLUGIN_DIR" 2>/dev/null || true
-  echo "  [✓] Plugin validation checked"
+  omarchy plugin validate "$TARGET_PLUGIN_DIR"
+  echo "  [✓] Plugin validation passed"
+else
+  echo "  [i] Omarchy CLI unavailable; plugin validation skipped"
 fi
 
 # 3. Check shell.json layout
@@ -38,8 +53,8 @@ fi
 
 # 4. Trigger rescan
 if command -v omarchy-shell >/dev/null 2>&1; then
-  omarchy-shell shell rescanPlugins 2>/dev/null || true
+  omarchy-shell shell rescanPlugins
   echo "  [✓] Triggered shell plugin rescan"
 fi
 
-echo "==> Installation complete! Build backend with ./scripts/build.sh when ready."
+echo "==> Installation complete! After source changes or a backend rebuild, run ./install.sh again."

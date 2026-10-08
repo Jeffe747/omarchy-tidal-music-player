@@ -72,7 +72,7 @@ Every agent must use these standard project scripts:
 | `./scripts/verify-omarchy-compliance.sh` | Audits 100% of official Omarchy security, schema, symlink, and theming rules. |
 | `./scripts/verify-size.sh` | Audits release binary size (< 2.5 MB) and verifies symbol stripping. |
 | `./scripts/verify.sh` | **Full gate runner:** runs Omarchy compliance audit, unit tests, and binary size audit. |
-| `./install.sh` | Links plugin to `~/.config/omarchy/plugins/jaj.tidal` and triggers shell rescan. |
+| `./install.sh` | Copies a standalone plugin to `~/.config/omarchy/plugins/jaj.tidal`, validates it, and triggers shell rescan. |
 
 ---
 

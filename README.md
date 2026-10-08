@@ -91,16 +91,21 @@ omarchy plugin add https://github.com/Jeffe747/omarchy-tidal-music-player.git --
 
 ### Option 2: Local / Manual Installation
 
-#### 1. Install Plugin Link
-```bash
-./install.sh
-```
-
-#### 2. Build the Backend Daemon
+#### 1. Build the Backend Daemon
 Requires Rust (managed via [`mise`](DEVELOPMENT.md), `omarchy pkg add rust`, or `rustup`):
 ```bash
 ./scripts/build.sh
 ```
+
+#### 2. Install the Standalone Plugin
+```bash
+./install.sh
+```
+
+The installer copies the plugin and release binary into
+`~/.config/omarchy/plugins/jaj.tidal`, without Git metadata or build caches.
+Omarchy rejects symlinked plugin directories. Run `./install.sh` again after
+editing the source or rebuilding the daemon.
 
 > [!TIP]
 > For complete development toolchains, system package setup, and dependencies, see **[`DEVELOPMENT.md`](DEVELOPMENT.md)**.
