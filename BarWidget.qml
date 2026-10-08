@@ -37,14 +37,14 @@ Panel {
       var icon = tidalService.isPlaying ? "󰐊 " : "󰏤 "
       return icon + tidalService.trackTitle + " • " + tidalService.trackArtist
     }
-    return "󰓇 Tidal"
+    return ""
   }
 
   BarIconButton {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: root.barLabelText() || "󰓇"
+    text: root.barLabelText()
     tooltipText: (tidalService && tidalService.trackTitle) ? (tidalService.trackTitle + " - " + tidalService.trackArtist) : "Tidal Music"
     onPressed: function(b) {
       if (b === Qt.RightButton) {
@@ -133,7 +133,7 @@ Panel {
             Rectangle {
               visible: root.isAuthenticated && (tidalService && tidalService.trackTitle !== "")
               anchors.verticalCenter: parent.verticalCenter
-              radius: Style.radiusSmall
+              radius: Math.max(2, Style.space(4))
               color: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.15)
               border.color: Color.accent
               border.width: 1
@@ -176,7 +176,7 @@ Panel {
             id: missingBinaryBanner
             visible: tidalService && (!tidalService.daemonBinaryExists || tidalService.authError === "Backend daemon not found. Run ~/.config/omarchy/plugins/jaj.tidal/scripts/build.sh to build.")
             width: parent.width
-            radius: Style.radiusMedium
+            radius: Style.cornerRadius
             color: Qt.rgba(Color.urgent.r, Color.urgent.g, Color.urgent.b, 0.12)
             border.color: Color.urgent
             border.width: 1
@@ -215,7 +215,7 @@ Panel {
             Rectangle {
               width: parent.width
               height: Style.space(56)
-              radius: Style.radiusMedium
+              radius: Style.cornerRadius
               color: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.1)
               border.color: Color.accent
               border.width: 1
@@ -284,7 +284,7 @@ Panel {
             Rectangle {
               width: Style.space(72)
               height: Style.space(72)
-              radius: Style.radiusMedium
+              radius: Style.cornerRadius
               color: Qt.rgba(Color.foreground.r, Color.foreground.g, Color.foreground.b, 0.08)
               clip: true
 

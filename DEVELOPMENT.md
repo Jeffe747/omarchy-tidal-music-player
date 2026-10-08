@@ -184,7 +184,7 @@ When modifying or adding QML code ([`BarWidget.qml`](file:///home/jaj/Projects/o
 2. **Spacing & Typography**:
    - Use `qs.Commons.Style`:
      - `Style.space(Style.scaleX)` for paddings and margins.
-     - `Style.radiusMedium` / `Style.radiusSmall` for corner rounding.
+     - `Style.cornerRadius` for corner rounding.
      - `Style.font.body` / `Style.font.subtext` for fonts.
 
 3. **Symlink Prohibition**:

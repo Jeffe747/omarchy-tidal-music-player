@@ -53,7 +53,7 @@ This project is a first-class, lightweight **Tidal music streaming plugin for th
 4. **Omarchy Theming & Style Compliance**:
    - **NEVER** hardcode hex colors or arbitrary margins in QML.
    - Always bind to `qs.Commons.Color` (`Color.foreground`, `Color.background`, `Color.accent`, `Color.muted`, `Color.urgent`).
-   - Always use `qs.Commons.Style` (`Style.space()`, `Style.radiusMedium`, `Style.font.*`).
+   - Always use `qs.Commons.Style` (`Style.space()`, `Style.cornerRadius`, `Style.font.*`).
    - The UI must dynamically react to `omarchy theme set <theme>` with zero restarts.
 5. **Manifest Integrity**:
    - Any change to `manifest.json` must be verified with `omarchy plugin validate .`.
