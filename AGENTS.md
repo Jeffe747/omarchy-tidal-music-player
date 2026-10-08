@@ -66,6 +66,7 @@ Every agent must use these standard project scripts:
 
 | Command | Action |
 | :--- | :--- |
+| `./scripts/status.sh` | Prints live milestone status, completed tasks, and active goals. |
 | `./scripts/build.sh` | Compiles `tidal-daemon` in release mode with size optimizations and stripping. |
 | `(cd backend && cargo test)` | Runs all unit tests. |
 | `./scripts/verify-omarchy-compliance.sh` | Audits 100% of official Omarchy security, schema, symlink, and theming rules. |
@@ -77,6 +78,7 @@ Every agent must use these standard project scripts:
 
 ## 4. Milestone Progression & Current Status
 
+The live granular task checklist and activity log are maintained in **[`PROGRESS.md`](PROGRESS.md)**.
 Implementation is strictly phased into 7 milestones:
 
 | # | Milestone | Status | Gate Pre-requisite to Advance |

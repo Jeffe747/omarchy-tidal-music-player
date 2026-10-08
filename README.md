@@ -42,7 +42,8 @@
 +----------------------------------+   +----------------------------------+
 ```
 
-For the comprehensive research report, binary tuning parameters, and implementation phases, see **[`PLAN.md`](PLAN.md)**.
+For the comprehensive research report, binary tuning parameters, and implementation phases, see **[`PLAN.md`](PLAN.md)**.  
+For the live milestone progress tracker and task checklist, see **[`PROGRESS.md`](PROGRESS.md)** (or run `./scripts/status.sh`).
 
 ---
 
@@ -50,14 +51,20 @@ For the comprehensive research report, binary tuning parameters, and implementat
 
 ```
 .
+├── AGENTS.md            # Mandatory agent operating contract and gates
 ├── PLAN.md              # Complete architecture, protocol research & implementation plan
+├── PROGRESS.md          # Live milestone roadmap, task checklist & activity log
 ├── README.md            # Project documentation and quick start guide
 ├── manifest.json        # Omarchy plugin descriptor (jaj.tidal)
 ├── BarWidget.qml        # Top bar widget button & popup player card
 ├── Service.qml          # Quickshell background IPC service
 ├── install.sh           # Plugin installer and shell registration helper
 ├── scripts/
-│   └── build.sh         # Release build script with binary size optimizations
+│   ├── build.sh         # Release build script with binary size optimizations
+│   ├── status.sh        # Terminal dashboard for current progress
+│   ├── verify.sh        # Global test & verification runner
+│   ├── verify-size.sh   # Binary size & symbol stripping auditor
+│   └── verify-omarchy-compliance.sh # Omarchy official compliance auditor
 └── backend/
     ├── Cargo.toml       # Rust crate manifest with size profile
     └── src/
