@@ -181,6 +181,36 @@ pub fn cover_url(hash: &str) -> String {
     )
 }
 
+fn encode_query(value: &str) -> String {
+    let mut encoded = String::new();
+    for byte in value.bytes() {
+        if byte.is_ascii_alphanumeric() || b"-._~".contains(&byte) {
+            encoded.push(byte as char);
+        } else {
+            encoded.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    encoded
+}
+
+#[derive(Deserialize)]
+struct SearchResponse {
+    #[serde(default)]
+    tracks: Option<SearchPage>,
+}
+
+#[derive(Deserialize)]
+struct SearchPage {
+    #[serde(default)]
+    items: Vec<TrackItem>,
+}
+
+pub fn parse_search_results(json: &str) -> Result<Vec<TrackItem>, String> {
+    let parsed: SearchResponse = serde_json::from_str(json)
+        .map_err(|e| format!("Failed to parse search response: {e}"))?;
+    Ok(parsed.tracks.map(|page| page.items).unwrap_or_default())
+}
+
 #[derive(Deserialize)]
 struct FavoritesPage {
     items: Vec<FavoriteEntry>,
@@ -325,35 +355,13 @@ impl TidalApiClient {
         })
     }
 
-    #[allow(dead_code)]
     pub fn search(&self, query: &str) -> Result<Vec<TrackItem>, String> {
-        let url = format!("{API_BASE}/search");
+        let url = format!("{API_BASE}/search?query={}&types=TRACKS%2CALBUMS%2CPLAYLISTS&limit=20&countryCode={}", encode_query(query), encode_query(&self.country_code));
         let resp = self
-            .request(
-                ureq::get(&url)
-                    .query("query", query)
-                    .query("types", "TRACKS")
-                    .query("limit", "20")
-                    .query("countryCode", &self.country_code),
-                "/v1/search",
-            )
+            .request(ureq::get(&url), "/v1/search")
             .map_err(|e| format!("Search request failed: {}", e.message))?;
-
-        #[derive(Deserialize)]
-        struct SearchWrapper {
-            tracks: Option<TracksPage>,
-        }
-
-        #[derive(Deserialize)]
-        struct TracksPage {
-            items: Vec<TrackItem>,
-        }
-
-        let parsed: SearchWrapper = resp
-            .into_json()
-            .map_err(|e| format!("Failed to parse search response: {e}"))?;
-
-        Ok(parsed.tracks.map(|t| t.items).unwrap_or_default())
+        let json = resp.into_string().map_err(|e| format!("Failed to read search response: {e}"))?;
+        parse_search_results(&json)
     }
 }
 
@@ -389,6 +397,22 @@ mod tests {
             playback_url(42, true),
             "https://api.tidal.com/v1/tracks/42/playbackinfo"
         );
+    }
+
+    #[test]
+    fn test_search_query_encoding() {
+        assert_eq!(encode_query("Björk & the Sugarcubes"), "Bj%C3%B6rk%20%26%20the%20Sugarcubes");
+        assert_eq!(encode_query("a+b/c"), "a%2Bb%2Fc");
+    }
+
+    #[test]
+    fn test_search_response_parsing() {
+        let tracks = parse_search_results(r#"{"tracks":{"items":[{"id":7,"title":"Song","duration":123,"artists":[{"name":"Artist"}],"album":{"title":"Record","cover":"aa-bb"}}]}}"#).unwrap();
+        assert_eq!(tracks.len(), 1);
+        assert_eq!(tracks[0].id, 7);
+        assert_eq!(tracks[0].artist_name(), "Artist");
+        assert_eq!(tracks[0].album_title(), "Record");
+        assert_eq!(cover_url(tracks[0].cover()), "https://resources.tidal.com/images/aa/bb/640x640.jpg");
     }
 
     #[test]

@@ -186,6 +186,20 @@ fn load_favorites(
     Ok(())
 }
 
+fn search_catalog(auth: &AuthManager, ipc: &IpcServer, query: Option<String>) -> Result<(), String> {
+    let query = query.unwrap_or_default();
+    if query.trim().is_empty() {
+        ipc.broadcast(&PlayerMessage::SearchResults { results: Vec::new() });
+        return Ok(());
+    }
+    let (api, _) = api_client(auth)?;
+    let tracks = api.search(query.trim())?;
+    ipc.broadcast(&PlayerMessage::SearchResults {
+        results: tracks.iter().map(FavoriteTrack::from).collect(),
+    });
+    Ok(())
+}
+
 fn play_track(
     auth: &AuthManager,
     player: &Mutex<Player>,
@@ -482,7 +496,7 @@ fn main() {
                             let command = match cmd.command.as_str() {
                                 "get_status" | "get_auth_status" | "get_favorites"
                                 | "play_track" | "toggle_play" | "play" | "pause" | "seek"
-                                | "next" | "previous" | "resume" | "start_auth" | "logout" => cmd.command.as_str(),
+                                | "next" | "previous" | "resume" | "search" | "start_auth" | "logout" => cmd.command.as_str(),
                                 _ => "unknown",
                             };
                             log::write(&format!("IPC command: {command}"));
@@ -499,6 +513,12 @@ fn main() {
                                         ipc_ref.broadcast(&PlayerMessage::FavoritesError {
                                             error: &error,
                                         });
+                                    }
+                                }
+                                "search" => {
+                                    if let Err(error) = search_catalog(&auth_ref, &ipc_ref, cmd.query) {
+                                        log::write(&format!("Search failed: {error}"));
+                                        ipc_ref.broadcast(&PlayerMessage::SearchError { error: &error });
                                     }
                                 }
                                 "play_track" => {

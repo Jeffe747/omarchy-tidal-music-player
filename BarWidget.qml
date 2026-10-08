@@ -427,12 +427,42 @@ Panel {
 
           PanelSeparator { width: parent.width }
 
-          PanelSectionHeader { text: "FAVORITES" }
+          PanelSectionHeader { text: (searchField.text.trim() !== "" ? "SEARCH RESULTS" : "FAVORITES") }
+
+          Timer {
+            id: searchDebounce
+            interval: 350
+            repeat: false
+            onTriggered: {
+              if (tidalService && searchField.text.trim() !== "") tidalService.search(searchField.text.trim())
+            }
+          }
+
+          Ui.TextField {
+            id: searchField
+            width: parent.width
+            placeholderText: "Search tracks, albums, playlists..."
+            onTextChanged: {
+              if (tidalService) tidalService.clearSearch()
+              searchDebounce.stop()
+              if (text.trim() !== "") searchDebounce.start()
+            }
+          }
+
+          Ui.Button {
+            visible: searchField.text.trim() !== ""
+            text: "← Back to favorites"
+            onClicked: {
+              searchDebounce.stop()
+              searchField.text = ""
+              if (tidalService) tidalService.clearSearch()
+            }
+          }
 
           Text {
             objectName: "tidalFavoritesState"
             width: parent.width
-            visible: tidalService && (tidalService.favoritesLoading || tidalService.favoritesError !== "" || tidalService.favorites.length === 0)
+            visible: searchField.text.trim() === "" && tidalService && (tidalService.favoritesLoading || tidalService.favoritesError !== "" || tidalService.favorites.length === 0)
             text: !tidalService ? "" : (tidalService.favoritesLoading ? "Loading favorites..." : (tidalService.favoritesError || "No favorite tracks yet. Add favorites in Tidal."))
             color: tidalService && tidalService.favoritesError !== "" ? Color.urgent : Color.muted
             font.pixelSize: Style.font.caption
@@ -440,7 +470,7 @@ Panel {
           }
 
           Ui.Button {
-            visible: tidalService && tidalService.favoritesError !== ""
+            visible: searchField.text.trim() === "" && tidalService && tidalService.favoritesError !== ""
             text: "Retry favorites"
             onClicked: if (tidalService) tidalService.loadFavorites()
           }
@@ -450,6 +480,7 @@ Panel {
             objectName: "tidalFavoritesList"
             width: parent.width
             height: Math.min(contentHeight, Style.space(280))
+            visible: searchField.text.trim() === ""
             clip: true
             spacing: Style.space(4)
             model: tidalService ? tidalService.favorites : []
@@ -526,37 +557,48 @@ Panel {
             }
           }
 
-          PanelSeparator { width: parent.width }
-
-          // Search Section
-          PanelSectionHeader { text: "SEARCH TIDAL" }
-
-          Ui.TextField {
-            id: searchField
-            width: parent.width
-            placeholderText: "Search songs, albums, artists..."
-            onAccepted: {
-              if (text.trim() !== "" && tidalService) {
-                tidalService.search(text.trim())
-              }
-            }
-          }
-
           // Search Results
           Column {
             width: parent.width
             spacing: Style.space(4)
-            visible: tidalService && tidalService.searchResults && tidalService.searchResults.length > 0
+            visible: searchField.text.trim() !== ""
+
+            Text {
+              visible: tidalService && (tidalService.searching || tidalService.searchError !== "" || (!tidalService.searching && tidalService.searchResults.length === 0))
+              text: !tidalService ? "" : (tidalService.searching ? "Searching..." : (tidalService.searchError || (tidalService.searchResults.length === 0 ? "No tracks found" : "")))
+              color: tidalService && tidalService.searchError !== "" ? Color.urgent : Color.muted
+              font.pixelSize: Style.font.caption
+            }
 
             Repeater {
-              model: (tidalService && tidalService.searchResults) ? tidalService.searchResults.slice(0, 5) : []
-              delegate: Ui.Button {
+              model: (tidalService && tidalService.searchResults) ? tidalService.searchResults : []
+              delegate: Rectangle {
+                required property var modelData
                 width: parent.width
-                leftAlign: true
-                text: (modelData.title || "") + " • " + (modelData.artist || "")
-                onClicked: {
-                  if (tidalService) tidalService.playTrack(modelData.id)
+                height: Style.space(60)
+                radius: Style.cornerRadius
+                color: Color.background
+                Row {
+                  anchors.fill: parent
+                  anchors.margins: Style.space(6)
+                  spacing: Style.space(8)
+                  Rectangle {
+                    width: Style.space(48); height: Style.space(48); radius: Style.cornerRadius
+                    color: Qt.rgba(Color.foreground.r, Color.foreground.g, Color.foreground.b, 0.08)
+                    clip: true
+                    Image { anchors.fill: parent; source: modelData.art_url || ""; fillMode: Image.PreserveAspectCrop; asynchronous: true }
+                    Text { anchors.centerIn: parent; visible: !modelData.art_url; text: "󰝚"; color: Color.muted; font.pixelSize: Style.font.title }
+                  }
+                  Column {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: parent.width - Style.space(64) - searchDuration.width
+                    spacing: Style.space(3)
+                    Text { width: parent.width; text: modelData.title || ""; font.pixelSize: Style.font.body; color: Color.foreground; elide: Text.ElideRight }
+                    Text { width: parent.width; text: (modelData.artist || "") + (modelData.album ? " • " + modelData.album : ""); font.pixelSize: Style.font.caption; color: Color.muted; elide: Text.ElideRight }
+                  }
+                  Text { id: searchDuration; anchors.verticalCenter: parent.verticalCenter; text: root.formatTime(modelData.duration || 0); color: Color.muted; font.pixelSize: Style.font.caption }
                 }
+                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: if (tidalService) tidalService.playTrack(modelData.id) }
               }
             }
           }

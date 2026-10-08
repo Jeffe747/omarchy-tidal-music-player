@@ -52,6 +52,7 @@ Item {
 
   property var searchResults: []
   property bool searching: false
+  property string searchError: ""
   property var pendingCommands: []
   readonly property var daemonSocket: socketLoader.item
 
@@ -252,7 +253,12 @@ Item {
       root.authError = msg.error || "Authentication error"
     } else if (msg.type === "search_results") {
       root.searching = false
+      root.searchError = ""
       root.searchResults = msg.results || []
+    } else if (msg.type === "search_error") {
+      root.searching = false
+      root.searchError = msg.error || "Search failed"
+      root.searchResults = []
     } else if (msg.type === "favorites_loaded") {
       root.favoritesLoading = false
       root.favoritesError = ""
@@ -307,7 +313,14 @@ Item {
 
   function search(query) {
     root.searching = true
+    root.searchError = ""
     sendCommand({ "command": "search", "query": query })
+  }
+
+  function clearSearch() {
+    root.searchResults = []
+    root.searchError = ""
+    root.searching = false
   }
 
   function playTrack(trackId) {

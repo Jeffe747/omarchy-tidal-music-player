@@ -36,6 +36,8 @@ impl<'a> From<&'a TrackItem> for FavoriteTrack<'a> {
 pub enum PlayerMessage<'a> {
     FavoritesLoaded { tracks: Vec<FavoriteTrack<'a>> },
     FavoritesError { error: &'a str },
+    SearchResults { results: Vec<FavoriteTrack<'a>> },
+    SearchError { error: &'a str },
     PlaybackStarted { track_id: u64 },
     PlaybackError { error: &'a str },
 }
@@ -235,5 +237,9 @@ mod tests {
                 serde_json::json!({"type":kind,"error":"No session"})
             );
         }
+        let search = PlayerMessage::SearchResults { results: vec![FavoriteTrack::from(&track)] };
+        let value = serde_json::to_value(search).unwrap();
+        assert_eq!(value["type"], "search_results");
+        assert_eq!(value["results"][0]["id"], 42);
     }
 }

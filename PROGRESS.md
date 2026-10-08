@@ -1,7 +1,7 @@
 # Project Progress & Roadmap Tracker
 
 Last Updated: **2026-10-08**  
-Current Status: **Milestone 4 complete; implementation, desktop integration, and verification gate passed**
+Current Status: **Milestone 5 complete; implementation, live search/playback, and verification gate passed**
 
 ---
 
@@ -14,7 +14,7 @@ Current Status: **Milestone 4 complete; implementation, desktop integration, and
 | **M2** | **Favorites List & Core Audio Playback** | 🟢 **Done** | 6 / 6 |
 | **M3** | **Interactive Controls, Seeking & Auto-Advance** | 🟢 **Done** | 4 / 4 |
 | **M4** | **MPRIS D-Bus & Desktop Integration** | 🟢 **Done** | 5 / 5 |
-| **M5** | **Catalog Search & Discovery** | ⚪ Queued | 0 / 3 |
+| **M5** | **Catalog Search & Discovery** | 🟢 **Done** | 4 / 4 |
 | **M6** | **User Playlists & Audio Quality Tiers** | ⚪ Queued | 0 / 4 |
 | **M7** | **Binary Minimization & Theme Polish** | ⚪ Queued | 0 / 4 |
 
@@ -81,11 +81,11 @@ passed; M3 remains queued.
 
 ---
 
-### Milestone 5: Catalog Search & Discovery ⚪
-- [ ] Implement search API endpoint (`/v1/search?query=...&types=TRACKS,ALBUMS`).
-- [ ] Implement debounced search input field (`TextField`) in flyout panel.
-- [ ] Implement single-click playback from search results.
-- [ ] **Gate Verification:** Pass Gate M5 (search query latency < 500ms, instant playback).
+### Milestone 5: Catalog Search & Discovery 🟢
+- [x] Implement authenticated search API endpoint with encoded query, session country code, track/album/playlist types, and structured track/artwork parsing.
+- [x] Implement 350ms debounced search input and a results view with navigation back to favorites.
+- [x] Implement single-click playback of arbitrary search tracks through the existing playback manifest pipeline.
+- [x] **Gate Verification:** `./scripts/build.sh` and `./scripts/verify.sh` passed (40 Rust tests; stripped 1,675,624-byte bundle). Live authenticated searches returned 20 tracks in 274ms and 285ms; playing a returned search track emitted `playback_started`. QML runtime validation was skipped because no Quickshell/Omarchy Wayland session is active.
 
 ---
 
@@ -106,6 +106,8 @@ passed; M3 remains queued.
 ---
 
 ## Activity Log
+
+| 2026-10-08 | This change | Implemented catalog search API, query encoding and parsing tests, search IPC events, 350ms flyout debounce, results with artwork/metadata/duration, favorites/search navigation, and one-click playback for catalog tracks. `./scripts/build.sh`, `./scripts/verify.sh`, QML verification script, and `git diff --check` passed; 40 Rust tests passed and the stripped bundle is 1,675,624 bytes. Live authenticated searches returned 20 results in 274ms and 285ms; playback of a returned search result started successfully. QML runtime was skipped without an active Wayland session. | Codex |
 
 | Date | Commit | Description | Author |
 | :--- | :--- | :--- | :--- |
