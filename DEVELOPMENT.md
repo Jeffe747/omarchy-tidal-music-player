@@ -2,6 +2,12 @@
 
 This document details the toolchains, system runtime packages, development workflow, and verification suites required to develop, build, test, and contribute to **Omarchy Tidal Music Player (`jaj.tidal`)**.
 
+End-user installation is zero-dependency with respect to build tools: the tracked
+Linux x86-64 `bin/tidal-daemon` works out of the box on a compatible Omarchy system,
+without Rust, Cargo, or compilation. Existing system runtime libraries,
+Omarchy/Quickshell, `mpv`, PipeWire, and `xdg-open` are still required.
+The toolchain and audit utilities below are for development and verification.
+
 ---
 
 ## 1. Toolchain Manager: `mise` (mise-en-place)
@@ -114,6 +120,10 @@ Compiles `tidal-daemon` in release mode with size optimization profiles:
 - Applies Cargo profile: `opt-level = "z"`, `lto = true`, `codegen-units = 1`, `panic = "abort"`.
 - Automatically strips debug symbols and `.comment` / `.note` sections using `strip`.
 - Outputs binary to `backend/target/release/tidal-daemon`.
+- Copies the stripped release artifact to tracked `bin/tidal-daemon` with mode
+  `755`, then verifies the bundle is at most **1,800,000 bytes (1.8 MB)**.
+- Commit the updated bundle with backend changes. `Service.qml` checks this
+  executable first, falling back to the development release path if unavailable.
 
 ### 2. Running Unit Tests (`cargo test`)
 Runs the comprehensive Rust unit test suite:
@@ -150,15 +160,21 @@ Checks:
 - Ban on internal symlinks (prevents path traversal escapes in shell plugins).
 - Invocation of official `omarchy plugin validate` or `omarchy-plugin-validate` if installed.
 - Dynamic theming compliance (all QML colors bound to `qs.Commons.Color`, zero hardcoded hex codes).
+- Bundled `bin/tidal-daemon` must exist, be executable, be a stripped ELF binary,
+  and be at most 1.8 MB; this requirement cannot be skipped.
 
 #### Binary Size & Symbol Auditor (`./scripts/verify-size.sh`)
 Enforces the binary size budget:
 ```bash
 ./scripts/verify-size.sh
 ```
-- Maximum budget limit: **2.5 MB** (`MAX_SIZE_KB=2560`).
-- Target budget: **< 1.8 MB** (`TARGET_SIZE_KB=1800`).
-- Verifies that debug symbols are stripped (`file` check).
+- Mandatory bundled binary limit: **<= 1.8 MB**, exactly **1,800,000 bytes**;
+  checks use bytes without rounding.
+- Requires an executable, stripped ELF at `bin/tidal-daemon`, not merely absence
+  of debug information (`file` check).
+- If a development release artifact exists, also enforces its original
+  **2.5 MiB** (`2560 * 1024` bytes) ceiling and byte-for-byte bundle agreement.
+- Works on a fresh clone with no `backend/target` directory.
 
 #### Project Status Dashboard (`./scripts/status.sh`)
 Prints a quick terminal summary of milestone progress, completed tasks, and active goals:
@@ -201,7 +217,9 @@ To test the plugin live in your local Omarchy desktop environment:
    ./scripts/build.sh
    ./install.sh
    ```
-   This copies the source and release daemon to `~/.config/omarchy/plugins/jaj.tidal`.
+   This refreshes the tracked bundle and copies the source and `bin/tidal-daemon`
+   to `~/.config/omarchy/plugins/jaj.tidal`. For an unchanged checkout, installation
+   needs only `./install.sh`, with no build or Rust toolchain.
    Run `./install.sh` again after source edits or backend rebuilds.
 
 2. **Enable plugin in status bar**:

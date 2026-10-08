@@ -4,40 +4,47 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BIN_PATH="$SCRIPT_DIR/backend/target/release/tidal-daemon"
-MAX_SIZE_KB=2560 # 2.5 MB maximum budget
-TARGET_SIZE_KB=1800 # 1.8 MB target
+BIN_PATH="$SCRIPT_DIR/bin/tidal-daemon"
+RELEASE_BIN="$SCRIPT_DIR/backend/target/release/tidal-daemon"
+MAX_SIZE_BYTES=1800000 # 1.8 MB bundled binary limit (decimal bytes)
 
 echo "==> Verifying binary size & symbols for tidal-daemon..."
 
-if [[ ! -f "$BIN_PATH" ]]; then
-  echo "Error: Binary not found at $BIN_PATH. Run ./scripts/build.sh first."
-  exit 1
-fi
+verify_binary() {
+  local path="$1" max_bytes="$2" size_bytes description
 
-# Measure size in KB
-SIZE_BYTES=$(stat -c%s "$BIN_PATH" 2>/dev/null || stat -f%z "$BIN_PATH")
-SIZE_KB=$((SIZE_BYTES / 1024))
-SIZE_HUMAN=$(du -h "$BIN_PATH" | cut -f1)
+  if [[ ! -f "$path" || ! -x "$path" ]]; then
+    echo "  [FAIL] Binary must exist and be executable: $path. Run ./scripts/build.sh." >&2
+    return 1
+  fi
 
-echo "  Current binary size: ${SIZE_HUMAN} (${SIZE_KB} KB)"
+  size_bytes=$(stat -c%s "$path")
+  description=$(file -b "$path")
+  echo "  $path: $size_bytes bytes"
 
-# Verify debug symbols are stripped
-if file "$BIN_PATH" | grep -q "with debug_info"; then
-  echo "  [FAIL] Binary still contains debug symbols!"
-  exit 1
-else
-  echo "  [PASS] Debug symbols stripped."
-fi
+  if [[ "$description" != ELF* || "$description" != *", stripped"* \
+      || "$description" == *"not stripped"* || "$description" == *"with debug_info"* ]]; then
+    echo "  [FAIL] Binary must be a stripped ELF executable: $description" >&2
+    return 1
+  fi
 
-# Check against maximum budget
-if (( SIZE_KB > MAX_SIZE_KB )); then
-  echo "  [FAIL] Binary size (${SIZE_KB} KB) exceeds maximum budget (${MAX_SIZE_KB} KB)!"
-  exit 1
-elif (( SIZE_KB > TARGET_SIZE_KB )); then
-  echo "  [WARN] Binary size (${SIZE_KB} KB) passes budget but exceeds ideal target (${TARGET_SIZE_KB} KB)."
-else
-  echo "  [PASS] Binary size within ideal budget (< ${TARGET_SIZE_KB} KB)."
+  if (( size_bytes > max_bytes )); then
+    echo "  [FAIL] Binary size ($size_bytes bytes) exceeds budget ($max_bytes bytes)!" >&2
+    return 1
+  fi
+  echo "  [PASS] Executable, stripped ELF within $max_bytes-byte budget."
+}
+
+verify_binary "$BIN_PATH" "$MAX_SIZE_BYTES"
+
+# A fresh plugin clone needs no Cargo build artifacts.
+if [[ -f "$RELEASE_BIN" ]]; then
+  verify_binary "$RELEASE_BIN" "$((2560 * 1024))"
+  if ! cmp -s "$BIN_PATH" "$RELEASE_BIN"; then
+    echo "  [FAIL] Bundled daemon differs from the release build. Run ./scripts/build.sh." >&2
+    exit 1
+  fi
+  echo "  [PASS] Bundled daemon matches the release build."
 fi
 
 echo "==> Binary verification passed successfully."

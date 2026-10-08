@@ -9,7 +9,7 @@
 - **Lossless & Hi-Res Audio:** Streams unencrypted FLAC (16-bit / 44.1 kHz) and Hi-Res Lossless (up to 24-bit / 192 kHz) via PipeWire and headless `mpv`.
 - **System Theme Integration:** 100% reactive to Omarchy themes (`catppuccin`, `tokyo-night`, `nord`, etc.) via `qs.Commons.Color`.
 - **Zero-Friction Device Login:** Seamless OAuth 2.0 device pairing via `link.tidal.com` directly from the bar popup.
-- **Compact Standalone Binary:** Lean Rust backend daemon (`tidal-daemon`) built with LTO, size optimization (`opt-level = "z"`), and symbol stripping (~1.5 MB).
+- **Bundled Standalone Binary:** Tracked, executable `bin/tidal-daemon`, stripped and limited to 1.8 MB; installation needs no Rust toolchain or compilation.
 - **MPRIS Desktop Integration:** Registers `org.mpris.MediaPlayer2.Tidal` on D-Bus, seamlessly connecting to Omarchy's `omarchy.media` widget and keyboard media keys.
 
 ---
@@ -61,6 +61,8 @@ For the live milestone progress tracker and task checklist, see **[`PROGRESS.md`
 ├── BarWidget.qml        # Top bar widget button & popup player card
 ├── Service.qml          # Quickshell background IPC service
 ├── install.sh           # Plugin installer and shell registration helper
+├── bin/
+│   └── tidal-daemon     # Bundled stripped Linux x86-64 release daemon (<= 1.8 MB)
 ├── scripts/
 │   ├── build.sh         # Release build script with binary size optimizations
 │   ├── status.sh        # Terminal dashboard for current progress
@@ -87,25 +89,38 @@ Install and enable the plugin directly using the official `omarchy` CLI:
 omarchy plugin add https://github.com/Jeffe747/omarchy-tidal-music-player.git --enable
 ```
 
+The repository includes `bin/tidal-daemon` for **zero-dependency out-of-the-box
+installation on a compatible Linux x86-64 Omarchy system**: no Cargo, Rust, or
+build step is required. The daemon uses the system's runtime libraries;
+Omarchy/Quickshell, `mpv`, PipeWire, and `xdg-open` remain runtime requirements.
+`Service.qml` prefers the executable bundle and falls back to
+`backend/target/release/tidal-daemon` only in development checkouts.
+
 ---
 
 ### Option 2: Local / Manual Installation
 
-#### 1. Build the Backend Daemon
-Requires Rust (managed via [`mise`](DEVELOPMENT.md), `omarchy pkg add rust`, or `rustup`):
+#### 1. Clone the Repository
 ```bash
-./scripts/build.sh
+git clone https://github.com/Jeffe747/omarchy-tidal-music-player.git
+cd omarchy-tidal-music-player
 ```
+
+The bundled daemon is ready to use. Only developers changing the Rust backend
+need Rust (via [`mise`](DEVELOPMENT.md), `omarchy pkg add rust`, or `rustup`) and
+`./scripts/build.sh`, which also refreshes `bin/tidal-daemon`.
 
 #### 2. Install the Standalone Plugin
 ```bash
 ./install.sh
 ```
 
-The installer copies the plugin and release binary into
+The installer requires the executable, stripped bundle to be at most
+1,800,000 bytes, then copies the plugin and `bin/tidal-daemon` into
 `~/.config/omarchy/plugins/jaj.tidal`, without Git metadata or build caches.
 Omarchy rejects symlinked plugin directories. Run `./install.sh` again after
 editing the source or rebuilding the daemon.
+Contributors must commit the refreshed bundle alongside backend changes.
 
 > [!TIP]
 > For complete development toolchains, system package setup, and dependencies, see **[`DEVELOPMENT.md`](DEVELOPMENT.md)**.

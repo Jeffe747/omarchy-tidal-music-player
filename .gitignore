@@ -3,6 +3,10 @@ backend/target/
 **/*.rs.bk
 Cargo.lock
 
+# Ship the executable daemon for out-of-the-box installation
+!bin/
+!bin/tidal-daemon
+
 # Omarchy local state & logs
 *.log
 .local/

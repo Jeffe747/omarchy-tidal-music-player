@@ -249,7 +249,17 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 10. Summary
+# 10. Bundled Daemon Deployment Contract
+# -----------------------------------------------------------------------------
+echo "--> 10. Checking bundled daemon (executable, stripped, <= 1.8 MB)..."
+if "$SCRIPT_DIR/scripts/verify-size.sh"; then
+  pass "bin/tidal-daemon is ready for installation without a Rust toolchain"
+else
+  fail "Bundled daemon verification failed"
+fi
+
+# -----------------------------------------------------------------------------
+# 11. Summary
 # -----------------------------------------------------------------------------
 echo ""
 if (( FAILED != 0 )); then

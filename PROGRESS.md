@@ -98,6 +98,7 @@ Current Status: **Milestone 1: Authentication & Session Management Completed -> 
 
 | Date | Commit | Description | Author |
 | :--- | :--- | :--- | :--- |
+| 2026-10-08 | This change | Bundled tracked, executable, stripped `bin/tidal-daemon` (1,792,536 bytes; limit 1,800,000) for out-of-the-box installation without Rust/Cargo or compilation. Builds refresh the bundle; the service prefers it with a development fallback; installation and verification enforce the bundle contract. Full `scripts/verify.sh` gate passed, including four daemon-resolution QML scenarios and all nine Rust tests; exact size-boundary and invalid-bundle checks passed. System runtime requirements remain unchanged; no milestone advanced. | Copilot |
 | 2026-10-08 | `e2b8d35` | Initial project scaffolding, `PLAN.md`, QML UI components, and Rust daemon skeleton. | jaj |
 | 2026-10-08 | `173cc4e` | Added 7-milestone progression plan, verification gates, unit tests, and size audit script. | jaj |
 | 2026-10-08 | `d70a175` | Added `AGENTS.md` operational contract and agent gate. | jaj |

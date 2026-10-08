@@ -7,8 +7,11 @@ Item {
 
   property var shell: null
   readonly property string socketPath: Quickshell.env("XDG_RUNTIME_DIR") + "/tidal.sock"
-  readonly property string binaryPath: Qt.resolvedUrl("backend/target/release/tidal-daemon").toString().replace(/^file:\/\//, "")
-  readonly property string buildScriptMessage: "Backend daemon not found. Run ~/.config/omarchy/plugins/jaj.tidal/scripts/build.sh to build."
+  readonly property string bundledBinaryPath: Qt.resolvedUrl("bin/tidal-daemon").toString().replace(/^file:\/\//, "")
+  readonly property string developmentBinaryPath: Qt.resolvedUrl("backend/target/release/tidal-daemon").toString().replace(/^file:\/\//, "")
+  property string selectedBinaryPath: bundledBinaryPath
+  readonly property string binaryPath: selectedBinaryPath
+  readonly property string buildScriptMessage: "Tidal daemon missing or not executable. Reinstall the plugin to restore bin/tidal-daemon, or run scripts/build.sh in a development checkout."
 
   // Reactive state properties exposed to BarWidget & Omarchy UI
   property bool authenticated: false
@@ -36,10 +39,14 @@ Item {
   // Check daemon binary existence
   Process {
     id: binaryCheckProc
-    command: ["test", "-x", root.binaryPath]
+    command: ["sh", "-c",
+      'for path do if test -f "$path" && test -x "$path"; then printf "%s\\n" "$path"; exit 0; fi; done; exit 1',
+      "tidal-binary-check", root.bundledBinaryPath, root.developmentBinaryPath]
+    stdout: StdioCollector { id: binaryCheckOutput }
     running: false
     onExited: function(exitCode) {
       root.daemonBinaryExists = (exitCode === 0)
+      if (root.daemonBinaryExists) root.selectedBinaryPath = binaryCheckOutput.text.trim()
       if (exitCode !== 0) {
         root.authError = root.buildScriptMessage
         root.pendingCommands = []

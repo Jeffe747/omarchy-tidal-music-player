@@ -47,7 +47,9 @@ This project is a first-class, lightweight **Tidal music streaming plugin for th
 2. **The Verification Gate Rule**:
    - **NEVER** mark a milestone complete or move to the next milestone without running `./scripts/verify.sh` and verifying that all tests and checks pass.
 3. **Binary Size Discipline**:
-   - The compiled release binary `tidal-daemon` must strictly remain under **2.5 MB** (`MAX_SIZE_KB=2560`), with an ideal target of **< 1.8 MB**.
+   - The development release binary retains its **2.5 MiB** ceiling (`2560 * 1024` bytes). The tracked **`bin/tidal-daemon`** is mandatory, executable, stripped ELF, and must be **<= 1.8 MB (1,800,000 bytes)**.
+   - `./scripts/build.sh` must refresh the bundle from `backend/target/release/tidal-daemon` with executable permissions. Commit the refreshed bundle alongside backend changes; keep `.gitignore` compatible with tracking it.
+   - Installation must work out of the box without Rust, Cargo, or compilation on compatible Linux x86-64 Omarchy systems. Existing system runtime requirements still apply. `Service.qml` must prefer the executable bundle and retain the development-path fallback.
    - Do **NOT** pull in bloated dependencies (e.g., full `reqwest` with OpenSSL, massive web runtimes, or bundled FFmpeg libraries).
    - Use `ureq`, `serde`, and coordinate with system `mpv` for audio decoding.
 4. **Omarchy Theming & Style Compliance**:
@@ -67,12 +69,12 @@ Every agent must use these standard project scripts:
 | Command | Action |
 | :--- | :--- |
 | `./scripts/status.sh` | Prints live milestone status, completed tasks, and active goals. |
-| `./scripts/build.sh` | Compiles `tidal-daemon` in release mode with size optimizations and stripping. |
+| `./scripts/build.sh` | Compiles and strips the release daemon, refreshes executable `bin/tidal-daemon`, and audits the bundle. |
 | `(cd backend && cargo test)` | Runs all unit tests. |
 | `./scripts/verify-omarchy-compliance.sh` | Audits 100% of official Omarchy security, schema, symlink, and theming rules. |
-| `./scripts/verify-size.sh` | Audits release binary size (< 2.5 MB) and verifies symbol stripping. |
+| `./scripts/verify-size.sh` | Requires executable, stripped `bin/tidal-daemon` <= 1,800,000 bytes; checks any development release and bundle agreement. |
 | `./scripts/verify.sh` | **Full gate runner:** runs Omarchy compliance audit, unit tests, and binary size audit. |
-| `./install.sh` | Copies a standalone plugin to `~/.config/omarchy/plugins/jaj.tidal`, validates it, and triggers shell rescan. |
+| `./install.sh` | Verifies the bundle, copies a standalone plugin without build caches or compilation, validates it, and triggers shell rescan. |
 
 ---
 

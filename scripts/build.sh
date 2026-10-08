@@ -19,15 +19,17 @@ cd "$BACKEND_DIR"
 cargo build --release
 
 TARGET_BIN="$BACKEND_DIR/target/release/tidal-daemon"
+BUNDLED_BIN="$SCRIPT_DIR/bin/tidal-daemon"
 
-if [[ -f "$TARGET_BIN" ]]; then
-  echo "==> Stripping binary..."
-  strip --strip-all --remove-section=.comment --remove-section=.note* "$TARGET_BIN" 2>/dev/null || true
+echo "==> Stripping binary..."
+strip --strip-all --remove-section=.comment --remove-section='.note*' "$TARGET_BIN"
 
-  SIZE=$(du -h "$TARGET_BIN" | cut -f1)
-  echo "==> Build successful! Binary size: $SIZE ($TARGET_BIN)"
+install -Dm755 "$TARGET_BIN" "$BUNDLED_BIN"
+"$SCRIPT_DIR/scripts/verify-size.sh"
 
-  if command -v upx >/dev/null 2>&1; then
-    echo "  [i] UPX available. Run 'upx --best --lzma $TARGET_BIN' for sub-megabyte compression."
-  fi
+SIZE=$(du -h "$BUNDLED_BIN" | cut -f1)
+echo "==> Build successful! Bundled binary size: $SIZE ($BUNDLED_BIN)"
+
+if command -v upx >/dev/null 2>&1; then
+  echo "  [i] UPX available. After optional compression, update bin/tidal-daemon and re-run verification."
 fi

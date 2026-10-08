@@ -34,11 +34,7 @@ fi
 # 3. Binary Size & Stripping Audit
 echo ""
 echo "--> 3. Checking binary size and symbols..."
-if [[ -f "$SCRIPT_DIR/backend/target/release/tidal-daemon" ]]; then
-  "$SCRIPT_DIR/scripts/verify-size.sh"
-else
-  echo "    [SKIP] Release binary not built yet. Run ./scripts/build.sh to build."
-fi
+"$SCRIPT_DIR/scripts/verify-size.sh"
 
 echo ""
 echo "=========================================================="

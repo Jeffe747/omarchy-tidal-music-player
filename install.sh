@@ -10,16 +10,15 @@ TARGET_PLUGIN_DIR="$HOME/.config/omarchy/plugins/jaj.tidal"
 
 echo "==> Installing Tidal Omarchy Plugin..."
 
+# The tracked bundle makes installation independent of Cargo and build caches.
+"$SCRIPT_DIR/scripts/verify-size.sh"
+
 # 1. Stage a standalone plugin; Omarchy rejects symlinked plugin roots.
 if [[ "$SCRIPT_DIR" != "$(realpath -m "$TARGET_PLUGIN_DIR")" || -L "$TARGET_PLUGIN_DIR" ]]; then
   STAGING_DIR="$(mktemp -d)"
   trap 'rm -rf "$STAGING_DIR"' EXIT
   tar -C "$SCRIPT_DIR" --exclude='./.git' --exclude='./backend/target' -cf - . \
     | tar -C "$STAGING_DIR" -xf -
-  if [[ -f "$SCRIPT_DIR/backend/target/release/tidal-daemon" ]]; then
-    mkdir -p "$STAGING_DIR/backend/target/release"
-    cp "$SCRIPT_DIR/backend/target/release/tidal-daemon" "$STAGING_DIR/backend/target/release/"
-  fi
   if command -v omarchy >/dev/null 2>&1; then
     omarchy plugin validate "$STAGING_DIR"
   fi
@@ -30,6 +29,8 @@ if [[ "$SCRIPT_DIR" != "$(realpath -m "$TARGET_PLUGIN_DIR")" || -L "$TARGET_PLUG
   cp -a "$STAGING_DIR/." "$TARGET_PLUGIN_DIR/"
 fi
 echo "  [✓] Installed standalone plugin to $TARGET_PLUGIN_DIR"
+cmp "$SCRIPT_DIR/bin/tidal-daemon" "$TARGET_PLUGIN_DIR/bin/tidal-daemon"
+echo "  [✓] Bundled daemon installed; no Rust toolchain or build step required"
 
 # 2. Validate Plugin
 if command -v omarchy >/dev/null 2>&1; then
