@@ -1,8 +1,8 @@
 import QtQuick
 import Quickshell
-import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import qs.Ui as Ui
 
 Panel {
   id: root
@@ -15,9 +15,8 @@ Panel {
       var s = bar.shell.serviceFor("jaj.tidal")
       if (s) return s
     }
-    return localService
+    return null
   }
-  Service { id: localService }
 
   readonly property bool isAuthenticated: tidalService ? tidalService.authenticated === true : false
 
@@ -149,7 +148,7 @@ Panel {
             }
 
             // Disconnect / Logout Button
-            Button {
+            Ui.Button {
               visible: root.isAuthenticated
               anchors.verticalCenter: parent.verticalCenter
               text: "Logout"
@@ -199,6 +198,15 @@ Panel {
             font.pixelSize: Style.font.body
           }
 
+          Text {
+            visible: !tidalService
+            text: "Tidal service is unavailable. Unlock the desktop and restart Omarchy shell."
+            wrapMode: Text.WordWrap
+            width: parent.width
+            color: Color.urgent
+            font.pixelSize: Style.font.caption
+          }
+
           Column {
             visible: tidalService && tidalService.authPending
             width: parent.width
@@ -235,7 +243,7 @@ Panel {
               width: parent.width
             }
 
-            Button {
+            Ui.Button {
               width: parent.width
               text: "Open link.tidal.com in Browser"
               iconText: "󰌹"
@@ -256,8 +264,9 @@ Panel {
             width: parent.width
           }
 
-          Button {
+          Ui.Button {
             visible: !tidalService || !tidalService.authPending
+            enabled: tidalService !== null
             width: parent.width
             text: "Login with Tidal"
             iconText: "󰓇"
@@ -343,6 +352,7 @@ Panel {
 
             PanelSlider {
               width: parent.width
+              bar: root.bar
               value: (tidalService && tidalService.trackDuration > 0) ? (tidalService.trackPosition / tidalService.trackDuration) : 0
               onMoved: function(val) {
                 if (tidalService) {
@@ -377,14 +387,14 @@ Panel {
             anchors.horizontalCenter: parent.horizontalCenter
             spacing: Style.space(16)
 
-            Button {
+            Ui.Button {
               text: "⏮"
               onClicked: {
                 if (tidalService) tidalService.previous()
               }
             }
 
-            Button {
+            Ui.Button {
               text: (tidalService && tidalService.isPlaying) ? "⏸" : "▶"
               selected: true
               onClicked: {
@@ -392,7 +402,7 @@ Panel {
               }
             }
 
-            Button {
+            Ui.Button {
               text: "⏭"
               onClicked: {
                 if (tidalService) tidalService.next()
@@ -405,7 +415,7 @@ Panel {
           // Search Section
           PanelSectionHeader { text: "SEARCH TIDAL" }
 
-          TextField {
+          Ui.TextField {
             id: searchField
             width: parent.width
             placeholderText: "Search songs, albums, artists..."
@@ -424,7 +434,7 @@ Panel {
 
             Repeater {
               model: (tidalService && tidalService.searchResults) ? tidalService.searchResults.slice(0, 5) : []
-              delegate: Button {
+              delegate: Ui.Button {
                 width: parent.width
                 leftAlign: true
                 text: (modelData.title || "") + " • " + (modelData.artist || "")

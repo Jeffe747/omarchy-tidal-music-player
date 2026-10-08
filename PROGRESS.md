@@ -103,3 +103,4 @@ Current Status: **Milestone 1: Authentication & Session Management Completed -> 
 | 2026-10-08 | `d70a175` | Added `AGENTS.md` operational contract and agent gate. | jaj |
 | 2026-10-08 | `f8a8aef` | Added official Omarchy compliance validator (`scripts/verify-omarchy-compliance.sh`). | jaj |
 | 2026-10-08 | `4aaa8fa` | Implemented Milestone 1: OAuth 2.0 Device Flow, token polling, session persistence, and UI integration. | jaj |
+| 2026-10-08 | This change | Investigated cached bar-widget loading failure; qualified panel controls, removed duplicate service, and fixed failed-socket recovery and deferred commands. Added QML runtime verification. Live shell restart remains blocked by the locked desktop session; no milestone advanced. | Copilot |

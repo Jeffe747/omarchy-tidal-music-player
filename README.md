@@ -140,6 +140,18 @@ Before submitting changes or marking milestones complete, run the full verificat
 - **Audit binary size & symbols:** `./scripts/verify-size.sh`
 - **Track roadmap progress:** `./scripts/status.sh`
 
+The verification gate also loads the widget in a separate Quickshell instance
+when Omarchy is installed and a Wayland session is available. It checks the bar
+slot's visibility and dimensions, shared service lookup, and panel controls.
+Run `WAYLAND_DISPLAY=wayland-1 ./scripts/verify-qml.sh` to run this check alone.
+
+If the bar reports an old QML loading error after an update, unlock the desktop
+and run `omarchy restart shell`, then inspect
+`WAYLAND_DISPLAY=wayland-1 quickshell log -p /usr/share/omarchy/shell`.
+The Tidal icon stays visible before login and when its service is unavailable;
+widgets use the shell's shared service rather than starting a second client.
+Commands issued while the daemon connects are delivered after connection.
+
 ---
 
 ## License

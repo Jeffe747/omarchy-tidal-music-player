@@ -16,6 +16,11 @@ echo ""
 echo "--> 1. Running Omarchy Official Compliance Audit..."
 "$SCRIPT_DIR/scripts/verify-omarchy-compliance.sh"
 
+# Load the actual QML types, bindings, and delegates in Quickshell.
+echo ""
+echo "--> Checking QML runtime integration..."
+"$SCRIPT_DIR/scripts/verify-qml.sh"
+
 # 2. Rust Unit Tests
 echo ""
 echo "--> 2. Running Rust unit test suite..."

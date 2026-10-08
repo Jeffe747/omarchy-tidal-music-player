@@ -30,6 +30,8 @@ Item {
 
   property var searchResults: []
   property bool searching: false
+  property var pendingCommands: []
+  readonly property var daemonSocket: socketLoader.item
 
   // Check daemon binary existence
   Process {
@@ -38,10 +40,16 @@ Item {
     running: false
     onExited: function(exitCode) {
       root.daemonBinaryExists = (exitCode === 0)
-      if (exitCode !== 0 && !root.authenticated) {
+      if (exitCode !== 0) {
         root.authError = root.buildScriptMessage
+        root.pendingCommands = []
+        root.authPending = false
+        root.searching = false
       } else if (root.authError === root.buildScriptMessage) {
         root.authError = ""
+      }
+      if (root.daemonBinaryExists && root.pendingCommands.length > 0) {
+        root.ensureDaemonRunning()
       }
     }
   }
@@ -57,27 +65,56 @@ Item {
     id: daemonProcess
     command: [root.binaryPath]
     running: false
+    onExited: function(exitCode) {
+      if (exitCode !== 0) {
+        root.authError = "Tidal daemon exited with code " + exitCode
+        root.pendingCommands = []
+        root.authPending = false
+        root.searching = false
+        console.warn("Tidal Service:", root.authError)
+      }
+    }
   }
 
   // Socket communication with daemon
-  Socket {
-    id: daemonSocket
-    path: root.socketPath
-    connected: false
+  Loader {
+    id: socketLoader
+    sourceComponent: socketComponent
+  }
 
-    onConnectedChanged: {
-      if (connected) {
-        sendCommand({ "command": "get_status" })
+  Component {
+    id: socketComponent
+
+    Socket {
+      path: root.socketPath
+      connected: true
+
+      onError: {
+        if (root.pendingCommands.length > 0) {
+          root.authError = "Unable to connect to Tidal daemon; retrying..."
+        }
+        // Quickshell 0.3.1 retains failed sockets, so retries need a new instance.
+        Qt.callLater(function() { socketLoader.active = false })
       }
-    }
 
-    parser: SplitParser {
-      onRead: function(line) {
-        try {
-          var msg = JSON.parse(line)
-          root.handleDaemonMessage(msg)
-        } catch (e) {
-          console.warn("Tidal Service: Failed to parse message:", line)
+      onConnectionStateChanged: {
+        if (connected) {
+          if (root.authError === "Unable to connect to Tidal daemon; retrying...") {
+            root.authError = ""
+          }
+          // Loader.item is not published until construction has finished.
+          Qt.callLater(root.flushCommands)
+        }
+      }
+
+      parser: SplitParser {
+        onRead: function(line) {
+          try {
+            var msg = JSON.parse(line)
+            root.handleDaemonMessage(msg)
+          } catch (e) {
+            console.warn("Tidal Service: Failed to parse message:", line)
+          }
         }
       }
     }
@@ -87,18 +124,18 @@ Item {
     id: reconnectTimer
     interval: 3000
     repeat: true
-    running: !daemonSocket.connected
+    running: !root.daemonSocket || !root.daemonSocket.connected
     onTriggered: {
       checkDaemonBinary()
-      if (!daemonSocket.connected && daemonBinaryExists) {
-        daemonSocket.connected = true
+      if (daemonBinaryExists) {
+        if (!socketLoader.active) socketLoader.active = true
+        else if (root.daemonSocket) root.daemonSocket.connected = true
       }
     }
   }
 
   Component.onCompleted: {
     checkDaemonBinary()
-    daemonSocket.connected = true
   }
 
   function ensureDaemonRunning() {
@@ -106,16 +143,32 @@ Item {
       root.authError = root.buildScriptMessage
       return
     }
-    if (!daemonSocket.connected && !daemonProcess.running) {
+    if ((!daemonSocket || !daemonSocket.connected) && !daemonProcess.running) {
       daemonProcess.running = true
     }
   }
 
   function sendCommand(obj) {
-    if (daemonSocket.connected) {
+    if (daemonSocket && daemonSocket.connected) {
       daemonSocket.write(JSON.stringify(obj) + "\n")
+      daemonSocket.flush()
     } else {
-      ensureDaemonRunning()
+      root.pendingCommands = root.pendingCommands.concat([obj])
+      if (daemonBinaryExists) {
+        ensureDaemonRunning()
+      } else {
+        checkDaemonBinary()
+      }
+    }
+  }
+
+  function flushCommands() {
+    if (!daemonSocket || !daemonSocket.connected) return
+    sendCommand({ "command": "get_status" })
+    var commands = root.pendingCommands
+    root.pendingCommands = []
+    for (var i = 0; i < commands.length; i++) {
+      sendCommand(commands[i])
     }
   }
 
@@ -164,12 +217,6 @@ Item {
 
   // Public control APIs
   function startAuth() {
-    checkDaemonBinary()
-    if (!daemonBinaryExists) {
-      root.authError = root.buildScriptMessage
-      return
-    }
-    ensureDaemonRunning()
     sendCommand({ "command": "start_auth" })
   }
 
