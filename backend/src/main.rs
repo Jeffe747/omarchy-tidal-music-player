@@ -166,7 +166,14 @@ fn play_track(
         Some(track) => track.clone(),
         None => api.get_track(id)?,
     };
-    let info = api.get_playback_info(id, "LOSSLESS")?;
+    let preferred_quality = track.audio_quality.as_deref().unwrap_or("LOSSLESS");
+    log::write(&format!(
+        "Playback track: id={id}; title={}; artist={}; catalog audio quality={:?}",
+        track.title,
+        track.artist_name(),
+        track.audio_quality
+    ));
+    let info = api.get_playback_info(id, preferred_quality)?;
     let mime = match info.manifest_mime_type.as_str() {
         "application/vnd.tidal.bts" | "application/dash+xml" => info.manifest_mime_type.as_str(),
         _ => "unsupported",

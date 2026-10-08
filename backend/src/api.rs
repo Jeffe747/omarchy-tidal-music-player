@@ -22,10 +22,19 @@ impl ApiFailure {
         };
         let user_message = body["userMessage"].as_str().unwrap_or("");
         let lower = user_message.to_ascii_lowercase();
-        let quality_related = matches!(status, 401 | 403 | 404)
-            && ["quality", "lossless", "hires", "hi-res", "hi res"]
+        let quality_related = body["subStatus"].as_i64() == Some(4005)
+            || (matches!(status, 401 | 403 | 404)
+                && [
+                    "asset is not ready",
+                    "not ready for playback",
+                    "quality",
+                    "lossless",
+                    "hires",
+                    "hi-res",
+                    "hi res",
+                ]
                 .iter()
-                .any(|term| lower.contains(term));
+                .any(|term| lower.contains(term)));
         let mut message = format!("HTTP {status}");
         if let Some(sub_status) = body["subStatus"].as_i64() {
             message.push_str(&format!("; subStatus={sub_status}"));
@@ -62,26 +71,42 @@ fn playback_with_fallback(
     quality: &str,
     mut request: impl FnMut(bool, &str) -> Result<PlaybackInfoResponse, ApiFailure>,
 ) -> Result<PlaybackInfoResponse, String> {
-    let mut requested = quality;
+    let qualities = [quality, "HIGH", "LOW"];
+    let qualities = match quality {
+        "HIGH" => &qualities[1..],
+        "LOW" => &qualities[2..],
+        _ => &qualities[..],
+    };
+    let mut index = 0;
     loop {
+        let requested = qualities[index];
+        crate::log::write(&format!(
+            "Playback attempt: playbackinfopostpaywall quality={requested}"
+        ));
         let mut result = request(false, requested);
-        let mut quality_rejected = false;
         if let Err(error) = &result {
-            quality_rejected = error.quality_related;
-            if error.status == Some(404) {
-                crate::log::write("Playback endpoint HTTP 404; retrying legacy playbackinfo");
+            crate::log::write(&format!("Playback attempt failed: {}", error.message));
+            if matches!(error.status, Some(401 | 404)) || error.quality_related {
+                crate::log::write(&format!(
+                    "Playback retry: legacy playbackinfo quality={requested}"
+                ));
                 result = request(true, requested);
             }
         }
         match result {
             Ok(info) => return Ok(info),
             Err(error) => {
-                if requested != "HIGH" && (quality_rejected || error.quality_related) {
-                    crate::log::write("Playback quality rejected; retrying HIGH");
-                    requested = "HIGH";
-                } else {
+                crate::log::write(&format!("Playback attempt failed: {}", error.message));
+                let retryable =
+                    error.quality_related || matches!(error.status, Some(401 | 403 | 404));
+                if !retryable || index + 1 == qualities.len() {
                     return Err(format!("Playback info request failed: {}", error.message));
                 }
+                crate::log::write(&format!(
+                    "Playback quality rejected; retrying {}",
+                    qualities[index + 1]
+                ));
+                index += 1;
             }
         }
     }
@@ -287,6 +312,8 @@ impl TidalApiClient {
                     .query("audioquality", requested)
                     .query("playbackmode", "STREAM")
                     .query("assetpresentation", "FULL")
+                    .query("immersiveaudio", "false")
+                    .query("immersiveAudio", "false")
                     .query("countryCode", &self.country_code),
                 url.trim_start_matches("https://api.tidal.com"),
             )?;
@@ -393,6 +420,74 @@ mod tests {
     }
 
     #[test]
+    fn test_asset_not_ready_is_quality_related() {
+        let failure = ApiFailure::from_body(
+            401,
+            r#"{"subStatus":4005,"userMessage":"Asset is not ready for playback"}"#,
+            "",
+        );
+        assert!(failure.quality_related);
+        assert!(failure.message.contains("subStatus=4005"));
+        assert!(ApiFailure::from_body(400, r#"{"subStatus":4005}"#, "").quality_related);
+        for status in [401, 403, 404] {
+            for message in ["Asset is not ready", "Not ready for playback"] {
+                let body = serde_json::json!({"userMessage":message}).to_string();
+                assert!(ApiFailure::from_body(status, &body, "").quality_related);
+            }
+        }
+    }
+
+    #[test]
+    fn test_asset_not_ready_falls_back_to_high_and_low() {
+        for (status, body) in [
+            (
+                401,
+                r#"{"subStatus":4005,"userMessage":"Asset is not ready for playback"}"#,
+            ),
+            (401, r#"{"userMessage":"Unauthorized"}"#),
+            (404, "<html>Not found</html>"),
+        ] {
+            for successful_quality in ["HIGH", "LOW"] {
+                let mut calls = Vec::new();
+                let info = playback_with_fallback("LOSSLESS", |legacy, quality| {
+                    calls.push((legacy, quality.to_string()));
+                    if quality == successful_quality {
+                        let mut info = playback_fixture();
+                        info.audio_quality = quality.to_string();
+                        Ok(info)
+                    } else {
+                        Err(ApiFailure::from_body(status, body, ""))
+                    }
+                })
+                .unwrap();
+                assert_eq!(info.audio_quality, successful_quality);
+                let mut expected = vec![
+                    (false, "LOSSLESS".into()),
+                    (true, "LOSSLESS".into()),
+                    (false, "HIGH".into()),
+                ];
+                if successful_quality == "LOW" {
+                    expected.extend([(true, "HIGH".into()), (false, "LOW".into())]);
+                }
+                assert_eq!(calls, expected);
+            }
+        }
+    }
+
+    #[test]
+    fn test_catalog_quality_is_attempted_first() {
+        for quality in ["HI_RES_LOSSLESS", "LOSSLESS", "HIGH", "LOW"] {
+            let mut calls = Vec::new();
+            playback_with_fallback(quality, |legacy, requested| {
+                calls.push((legacy, requested.to_string()));
+                Ok(playback_fixture())
+            })
+            .unwrap();
+            assert_eq!(calls, [(false, quality.to_string())]);
+        }
+    }
+
+    #[test]
     fn test_playback_legacy_retry_once() {
         let mut calls = Vec::new();
         let result = playback_with_fallback("LOSSLESS", |legacy, quality| {
@@ -459,23 +554,24 @@ mod tests {
             })
             .unwrap();
             assert_eq!(calls.last(), Some(&(false, "HIGH".into())));
-            assert_eq!(calls.len(), if status == 404 { 3 } else { 2 });
+            assert_eq!(calls.len(), 3);
         }
     }
 
     #[test]
     fn test_playback_retries_are_bounded_and_quality_specific() {
         for (status, body, quality, expected) in [
-            (401, r#"{"userMessage":"Not authenticated"}"#, "LOSSLESS", 1),
-            (403, r#"{"userMessage":"No subscription"}"#, "LOSSLESS", 1),
-            (404, r#"{"userMessage":"Track not found"}"#, "LOSSLESS", 2),
+            (401, r#"{"userMessage":"Not authenticated"}"#, "LOSSLESS", 6),
+            (403, r#"{"userMessage":"No subscription"}"#, "LOSSLESS", 3),
+            (404, r#"{"userMessage":"Track not found"}"#, "LOSSLESS", 6),
             (500, r#"{"userMessage":"quality"}"#, "LOSSLESS", 1),
-            (401, r#"{"userMessage":"quality unavailable"}"#, "HIGH", 1),
+            (401, r#"{"userMessage":"quality unavailable"}"#, "HIGH", 4),
+            (401, r#"{"userMessage":"quality unavailable"}"#, "LOW", 2),
             (
                 404,
                 r#"{"userMessage":"quality unavailable"}"#,
                 "LOSSLESS",
-                4,
+                6,
             ),
         ] {
             let mut calls = 0;
@@ -487,6 +583,39 @@ mod tests {
             assert_eq!(calls, expected);
             assert!(error.contains(&format!("HTTP {status}")));
         }
+    }
+
+    #[test]
+    fn test_playback_stops_on_non_retryable_legacy_failure() {
+        for status in [400, 429, 500] {
+            let mut calls = Vec::new();
+            let error = playback_with_fallback("LOSSLESS", |legacy, quality| {
+                calls.push((legacy, quality.to_string()));
+                Err(ApiFailure::from_body(
+                    if legacy { status } else { 401 },
+                    r#"{"userMessage":"Request failed"}"#,
+                    "",
+                ))
+            })
+            .unwrap_err();
+            assert_eq!(
+                calls,
+                [(false, "LOSSLESS".into()), (true, "LOSSLESS".into())]
+            );
+            assert!(error.contains(&format!("HTTP {status}")));
+        }
+        let mut calls = 0;
+        let error = playback_with_fallback("LOSSLESS", |_, _| {
+            calls += 1;
+            Err(ApiFailure {
+                status: None,
+                quality_related: false,
+                message: "HTTP transport failure".into(),
+            })
+        })
+        .unwrap_err();
+        assert_eq!(calls, 1);
+        assert!(error.contains("HTTP transport failure"));
     }
 
     #[test]
