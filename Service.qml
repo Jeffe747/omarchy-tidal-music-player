@@ -7,6 +7,7 @@ Item {
 
   property var shell: null
   readonly property string socketPath: Quickshell.env("XDG_RUNTIME_DIR") + "/tidal.sock"
+  readonly property string sessionPath: Quickshell.env("TIDAL_SESSION_PATH") || (Quickshell.env("HOME") + "/.local/state/omarchy/tidal/session.json")
   readonly property string bundledBinaryPath: Qt.resolvedUrl("bin/tidal-daemon").toString().replace(/^file:\/\//, "")
   readonly property string developmentBinaryPath: Qt.resolvedUrl("backend/target/release/tidal-daemon").toString().replace(/^file:\/\//, "")
   property string selectedBinaryPath: bundledBinaryPath
@@ -21,6 +22,7 @@ Item {
   property string authError: ""
 
   property bool daemonBinaryExists: false
+  property bool savedSessionExists: false
 
   property bool isPlaying: false
   property string trackTitle: ""
@@ -80,6 +82,7 @@ Item {
       if (root.daemonBinaryExists && root.pendingCommands.length > 0) {
         root.ensureDaemonRunning()
       }
+      if (root.daemonBinaryExists) root.checkSavedSession()
     }
   }
 
@@ -87,6 +90,30 @@ Item {
     if (!binaryCheckProc.running) {
       binaryCheckProc.running = true
     }
+  }
+
+  Process {
+    id: sessionCheckProc
+    command: ["sh", "-c", 'test -s "$1"', "tidal-session-check", root.sessionPath]
+    running: false
+    onExited: function(exitCode) {
+      root.savedSessionExists = (exitCode === 0)
+      if (root.savedSessionExists && root.daemonBinaryExists) {
+        root.ensureDaemonRunning()
+        if (root.daemonSocket && root.daemonSocket.connected) {
+          root.sendCommand({ "command": "get_status" })
+        }
+      }
+    }
+  }
+
+  function checkSavedSession() {
+    if (!sessionCheckProc.running) sessionCheckProc.running = true
+  }
+
+  function initializeForWidget() {
+    checkDaemonBinary()
+    checkSavedSession()
   }
 
   // Start background daemon process if needed
@@ -167,6 +194,7 @@ Item {
     running: !root.daemonSocket || !root.daemonSocket.connected
     onTriggered: {
       checkDaemonBinary()
+      checkSavedSession()
       if (daemonBinaryExists) {
         if (!socketLoader.active) socketLoader.active = true
         else if (root.daemonSocket) root.daemonSocket.connected = true

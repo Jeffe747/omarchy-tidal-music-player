@@ -63,7 +63,8 @@ Panel {
     contentHeight: panel.fittedContentHeight(mainColumn.implicitHeight)
     onOpenChanged: {
       if (open && tidalService && typeof tidalService.checkDaemonBinary === "function") {
-        tidalService.checkDaemonBinary()
+        if (typeof tidalService.initializeForWidget === "function") tidalService.initializeForWidget()
+        else tidalService.checkDaemonBinary()
       }
     }
 

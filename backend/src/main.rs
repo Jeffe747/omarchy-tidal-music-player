@@ -559,6 +559,18 @@ fn main() {
                                     }
                                 }
                                 "start_auth" => {
+                                    let restored_session = auth_ref
+                                        .get_valid_session()
+                                        .is_ok_and(|session| !session.access_token.is_empty());
+                                    if restored_session {
+                                        log::write("Valid saved session found; restoring authentication");
+                                        ipc_ref.broadcast(&serde_json::json!({ "type": "auth_success" }));
+                                        broadcast_status(&auth_ref, &player_ref, &ipc_ref);
+                                        if let Err(error) = load_favorites(&auth_ref, &player_ref, &ipc_ref) {
+                                            log::write(&format!("Favorites failed during session restoration: {error}"));
+                                            ipc_ref.broadcast(&PlayerMessage::FavoritesError { error: &error });
+                                        }
+                                    } else {
                                     if auth_flag.swap(true, Ordering::SeqCst) {
                                         println!(
                                             "  [i] Auth already in progress, requesting fresh code..."
@@ -651,6 +663,7 @@ fn main() {
                                             });
                                             ipc_ref.broadcast(&err_msg);
                                         }
+                                    }
                                     }
                                 }
                                 "logout" => {
