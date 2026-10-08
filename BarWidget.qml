@@ -32,19 +32,17 @@ Panel {
   }
 
   function barLabelText() {
-    if (!tidalService || !root.isAuthenticated) return ""
-    if (tidalService.trackTitle) {
-      var icon = tidalService.isPlaying ? "󰐊 " : "󰏤 "
-      return icon + tidalService.trackTitle + " • " + tidalService.trackArtist
+    if (tidalService && root.isAuthenticated && tidalService.trackTitle) {
+      return (tidalService.isPlaying ? "󰐊 " : "󰏤 ") + tidalService.trackTitle + " • " + tidalService.trackArtist
     }
     return ""
   }
 
-  BarIconButton {
+  WidgetButton {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: root.barLabelText()
+    text: root.barLabelText() || "󰓇"
     tooltipText: (tidalService && tidalService.trackTitle) ? (tidalService.trackTitle + " - " + tidalService.trackArtist) : "Tidal Music"
     onPressed: function(b) {
       if (b === Qt.RightButton) {
