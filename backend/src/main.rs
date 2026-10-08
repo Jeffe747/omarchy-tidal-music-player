@@ -25,6 +25,7 @@ struct Player {
     current: Option<TrackItem>,
     quality: String,
     eof_handled_track: Option<u64>,
+    track_has_started: bool,
 }
 
 impl Player {
@@ -35,6 +36,7 @@ impl Player {
             current: None,
             quality: "LOSSLESS".to_string(),
             eof_handled_track: None,
+            track_has_started: false,
         }
     }
 }
@@ -222,6 +224,7 @@ fn play_track(
     player.current = Some(track);
     player.quality = info.audio_quality;
     player.eof_handled_track = None;
+    player.track_has_started = false;
     ipc.broadcast(&PlayerMessage::PlaybackStarted { track_id: id });
     ipc.broadcast(&build_status_message(auth, &player));
     Ok(())
@@ -254,13 +257,39 @@ fn start_position_ticker(auth: Arc<AuthManager>, player: Arc<Mutex<Player>>, ipc
                 Ok(mut state) => {
                     let track_id = state.current.as_ref().map(|t| t.id);
                     if let Some(id) = track_id {
-                        match state.engine.eof_reached() {
-                            Ok(true) if state.eof_handled_track != Some(id) => { state.eof_handled_track = Some(id); (None, None, false, Some(id)) },
-                            _ => {
-                                let playing = !state.engine.property("idle-active").ok().and_then(|v| v.as_bool()).unwrap_or(true)
-                                    && !state.engine.property("pause").ok().and_then(|v| v.as_bool()).unwrap_or(true);
-                                (state.engine.position().ok(), state.engine.duration().ok(), playing, None)
-                            },
+                        let idle_active = state
+                            .engine
+                            .property("idle-active")
+                            .ok()
+                            .and_then(|value| value.as_bool())
+                            .unwrap_or(true);
+                        let eof_reached = state.engine.eof_reached().unwrap_or(false);
+
+                        if !idle_active {
+                            state.track_has_started = true;
+                        }
+
+                        if state.track_has_started
+                            && (eof_reached || idle_active)
+                            && state.eof_handled_track != Some(id)
+                        {
+                            state.eof_handled_track = Some(id);
+                            state.track_has_started = false;
+                            (None, None, false, Some(id))
+                        } else {
+                            let playing = !idle_active
+                                && !state
+                                    .engine
+                                    .property("pause")
+                                    .ok()
+                                    .and_then(|value| value.as_bool())
+                                    .unwrap_or(true);
+                            (
+                                state.engine.position().ok(),
+                                state.engine.duration().ok(),
+                                playing,
+                                None,
+                            )
                         }
                     } else { (None, None, false, None) }
                 },
