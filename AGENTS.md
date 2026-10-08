@@ -68,8 +68,9 @@ Every agent must use these standard project scripts:
 | :--- | :--- |
 | `./scripts/build.sh` | Compiles `tidal-daemon` in release mode with size optimizations and stripping. |
 | `(cd backend && cargo test)` | Runs all unit tests. |
+| `./scripts/verify-omarchy-compliance.sh` | Audits 100% of official Omarchy security, schema, symlink, and theming rules. |
 | `./scripts/verify-size.sh` | Audits release binary size (< 2.5 MB) and verifies symbol stripping. |
-| `./scripts/verify.sh` | **Full gate runner:** runs manifest validation, unit tests, and binary size audit. |
+| `./scripts/verify.sh` | **Full gate runner:** runs Omarchy compliance audit, unit tests, and binary size audit. |
 | `./install.sh` | Links plugin to `~/.config/omarchy/plugins/jaj.tidal` and triggers shell rescan. |
 
 ---

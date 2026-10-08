@@ -9,15 +9,10 @@ echo "=========================================================="
 echo "  Omarchy Tidal Music Player - Verification Suite"
 echo "=========================================================="
 
-# 1. Omarchy Plugin Manifest Validation
+# 1. Omarchy Official Compliance Audit
 echo ""
-echo "--> 1. Validating Omarchy plugin manifest..."
-if command -v omarchy >/dev/null 2>&1; then
-  omarchy plugin validate "$SCRIPT_DIR"
-  echo "    [PASS] Plugin manifest is valid."
-else
-  echo "    [SKIP] 'omarchy' CLI not found on PATH."
-fi
+echo "--> 1. Running Omarchy Official Compliance Audit..."
+"$SCRIPT_DIR/scripts/verify-omarchy-compliance.sh"
 
 # 2. Rust Unit Tests
 echo ""
