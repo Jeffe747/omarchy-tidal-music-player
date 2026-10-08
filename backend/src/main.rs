@@ -1,6 +1,7 @@
 mod api;
 mod auth;
 mod ipc;
+mod log;
 mod playback;
 
 use api::{cover_url, TidalApiClient, TrackItem};
@@ -99,7 +100,7 @@ fn build_status_message(auth_manager: &AuthManager, player: &Player) -> IpcState
         })();
         match state {
             Ok(active) => playing = active,
-            Err(error) => eprintln!("Failed to read playback status: {error}"),
+            Err(error) => log::write(&format!("Failed to read playback status: {error}")),
         }
     }
     let track = player.current.as_ref();
@@ -121,14 +122,17 @@ fn build_status_message(auth_manager: &AuthManager, player: &Player) -> IpcState
 fn broadcast_status(auth: &AuthManager, player: &Mutex<Player>, ipc: &IpcServer) {
     match player.lock() {
         Ok(player) => ipc.broadcast(&build_status_message(auth, &player)),
-        Err(error) => eprintln!("Failed to lock player: {error}"),
+        Err(error) => log::write(&format!("Failed to lock player: {error}")),
     }
 }
 
 fn api_client(auth: &AuthManager) -> Result<(TidalApiClient, Option<u64>), String> {
-    let session = auth.get_valid_session()?;
+    let session = auth.get_api_session()?;
     Ok((
-        TidalApiClient::new(session.access_token, session.country_code),
+        TidalApiClient::new(
+            session.access_token,
+            session.country_code.ok_or("Session country is missing")?,
+        ),
         session.user_id,
     ))
 }
@@ -163,10 +167,21 @@ fn play_track(
         None => api.get_track(id)?,
     };
     let info = api.get_playback_info(id, "LOSSLESS")?;
+    let mime = match info.manifest_mime_type.as_str() {
+        "application/vnd.tidal.bts" | "application/dash+xml" => info.manifest_mime_type.as_str(),
+        _ => "unsupported",
+    };
+    log::write(&format!("Playback manifest MIME: {mime}"));
     let url = player
         .engine
         .resolve_stream_url(&info.manifest_mime_type, &info.manifest)?;
-    player.engine.load_url(&url)?;
+    match player.engine.load_url(&url) {
+        Ok(()) => log::write("mpv load result: success"),
+        Err(error) => {
+            log::write(&format!("mpv load result: failed: {error}"));
+            return Err(error);
+        }
+    }
     player.current = Some(track);
     player.quality = info.audio_quality;
     ipc.broadcast(&PlayerMessage::PlaybackStarted { track_id: id });
@@ -230,38 +245,39 @@ fn main() {
         std::process::exit(0);
     }
 
-    println!("==> Starting Omarchy Tidal Daemon (tidal-daemon)...");
+    if let Err(error) = log::init() {
+        eprintln!("Failed to initialize private daemon log: {error}");
+        std::process::exit(1);
+    }
+    log::write("Starting Omarchy Tidal Daemon");
     let player = Arc::new(Mutex::new(Player::new()));
     let ipc_server = IpcServer::new();
 
     // Check existing session
     match auth_manager.get_valid_session() {
         Ok(session) => {
-            println!(
-                "  [✓] Authenticated session found for User ID: {:?}",
+            log::write(&format!(
+                "Authenticated session found for User ID: {:?}",
                 session.user_id
-            );
+            ));
         }
         Err(_) => {
-            println!("  [i] No active session found. Ready for pairing via Quickshell.");
+            log::write("No active session found. Ready for pairing via Quickshell");
         }
     }
 
     let listener = match ipc_server.bind() {
         Ok(l) => l,
         Err(e) => {
-            eprintln!(
-                "Failed to bind IPC socket at {}: {e}",
-                ipc_server.socket_path().display()
-            );
+            log::write(&format!("Failed to bind IPC socket: {e}"));
             return;
         }
     };
 
-    println!(
+    log::write(&format!(
         "  [✓] Listening for Quickshell connections on {}",
         ipc_server.socket_path().display()
-    );
+    ));
 
     let auth_in_progress = Arc::new(AtomicBool::new(false));
 
@@ -277,7 +293,7 @@ fn main() {
         );
     }
     if let Err(error) = listener.set_nonblocking(true) {
-        eprintln!("Failed to configure IPC listener: {error}");
+        log::write(&format!("Failed to configure IPC listener: {error}"));
         return;
     }
     while !SHUTDOWN.load(Ordering::Relaxed) {
@@ -291,7 +307,7 @@ fn main() {
                 let write_stream = match stream.try_clone() {
                     Ok(s) => s,
                     Err(e) => {
-                        eprintln!("Failed to clone stream: {e}");
+                        log::write(&format!("Failed to clone stream: {e}"));
                         continue;
                     }
                 };
@@ -306,7 +322,7 @@ fn main() {
                             Ok(0) => break,
                             Ok(_) => {}
                             Err(error) => {
-                                eprintln!("Failed to read IPC command: {error}");
+                                log::write(&format!("Failed to read IPC command: {error}"));
                                 break;
                             }
                         }
@@ -317,7 +333,13 @@ fn main() {
                         }
 
                         if let Ok(cmd) = serde_json::from_str::<IpcCommand>(trimmed) {
-                            println!("  [IPC] Command: {}", cmd.command);
+                            let command = match cmd.command.as_str() {
+                                "get_status" | "get_auth_status" | "get_favorites"
+                                | "play_track" | "toggle_play" | "play" | "pause" | "seek"
+                                | "start_auth" | "logout" => cmd.command.as_str(),
+                                _ => "unknown",
+                            };
+                            log::write(&format!("IPC command: {command}"));
 
                             match cmd.command.as_str() {
                                 "get_status" | "get_auth_status" => {
@@ -327,6 +349,7 @@ fn main() {
                                     if let Err(error) =
                                         load_favorites(&auth_ref, &player_ref, &ipc_ref)
                                     {
+                                        log::write(&format!("Favorites failed: {error}"));
                                         ipc_ref.broadcast(&PlayerMessage::FavoritesError {
                                             error: &error,
                                         });
@@ -336,6 +359,7 @@ fn main() {
                                     if let Err(error) =
                                         play_track(&auth_ref, &player_ref, &ipc_ref, cmd.track_id)
                                     {
+                                        log::write(&format!("Playback failed: {error}"));
                                         ipc_ref.broadcast(&PlayerMessage::PlaybackError {
                                             error: &error,
                                         });
@@ -355,6 +379,7 @@ fn main() {
                                         }
                                     })();
                                     if let Err(error) = result {
+                                        log::write(&format!("Playback control failed: {error}"));
                                         ipc_ref.broadcast(&PlayerMessage::PlaybackError {
                                             error: &error,
                                         });
@@ -370,10 +395,7 @@ fn main() {
 
                                     match auth_ref.request_device_code() {
                                         Ok(auth_info) => {
-                                            println!(
-                                                "  [✓] Generated Device Code: {}",
-                                                auth_info.user_code
-                                            );
+                                            log::write("Device authorization code generated");
                                             let msg = serde_json::json!({
                                                 "type": "auth_code",
                                                 "user_code": auth_info.user_code,
@@ -407,6 +429,9 @@ fn main() {
                                                         if let Err(error) =
                                                             auth_worker.save_session(&session)
                                                         {
+                                                            log::write(&format!(
+                                                                "Failed to save session: {error}"
+                                                            ));
                                                             ipc_worker.broadcast(&serde_json::json!({
                                                                 "type": "auth_error", "error": error.to_string()
                                                             }));
@@ -428,6 +453,7 @@ fn main() {
                                                         );
                                                     }
                                                     Err(err) => {
+                                                        log::write("Device authorization expired or failed");
                                                         eprintln!(
                                                             "  [!] Device auth expired or failed: {err}"
                                                         );
@@ -442,6 +468,7 @@ fn main() {
                                             });
                                         }
                                         Err(e) => {
+                                            log::write("Device authorization request failed");
                                             eprintln!(
                                                 "  [!] Failed to request device authorization: {e}"
                                             );
@@ -466,6 +493,7 @@ fn main() {
                                         Ok::<(), String>(())
                                     })();
                                     if let Err(error) = result {
+                                        log::write(&format!("Logout failed: {error}"));
                                         ipc_ref.broadcast(
                                             &serde_json::json!({"type":"auth_error","error":error}),
                                         );
@@ -473,9 +501,11 @@ fn main() {
                                     broadcast_status(&auth_ref, &player_ref, &ipc_ref);
                                 }
                                 _ => {
-                                    println!("  [i] Unhandled IPC command: {}", cmd.command);
+                                    log::write("Unhandled IPC command");
                                 }
                             }
+                        } else {
+                            log::write("Invalid IPC command JSON");
                         }
                         line.clear();
                     }
@@ -484,15 +514,16 @@ fn main() {
             Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                 thread::sleep(std::time::Duration::from_millis(25));
             }
-            Err(e) => eprintln!("IPC connection error: {e}"),
+            Err(e) => log::write(&format!("IPC connection error: {e}")),
         }
     }
     if let Ok(mut player) = player.lock() {
         if let Err(error) = player.engine.stop() {
-            eprintln!("Failed to stop playback: {error}");
+            log::write(&format!("Failed to stop playback: {error}"));
         }
     }
     if let Err(error) = std::fs::remove_file(ipc_server.socket_path()) {
-        eprintln!("Failed to remove IPC socket: {error}");
+        log::write(&format!("Failed to remove IPC socket: {error}"));
     }
+    log::write("Daemon stopped");
 }

@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use std::sync::Mutex;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 #[cfg(unix)]
@@ -84,6 +85,7 @@ struct OAuthErrorResponse {
 pub struct AuthManager {
     client_id: String,
     client_secret: Option<String>,
+    session_country: Mutex<Option<(String, String)>>,
 }
 
 pub fn current_unix_timestamp() -> u64 {
@@ -112,6 +114,7 @@ impl AuthManager {
         Self {
             client_id: id,
             client_secret: secret,
+            session_country: Mutex::new(None),
         }
     }
 
@@ -120,6 +123,7 @@ impl AuthManager {
         Self {
             client_id,
             client_secret,
+            session_country: Mutex::new(None),
         }
     }
 
@@ -163,6 +167,10 @@ impl AuthManager {
         if path.exists() {
             fs::remove_file(path)?;
         }
+        *self
+            .session_country
+            .lock()
+            .map_err(|_| std::io::Error::other("Failed to lock session country cache"))? = None;
         Ok(())
     }
 
@@ -193,17 +201,25 @@ impl AuthManager {
         }
 
         // Try primary device_authorization endpoint, fallback if necessary
+        crate::log::write("API POST /v1/oauth2/device_authorization");
         let resp = match ureq::post(AUTH_URL)
             .set("Content-Type", "application/x-www-form-urlencoded")
             .send_form(&form_data)
         {
             Ok(r) => Ok(r),
-            Err(ureq::Error::Status(404, _)) => ureq::post(FALLBACK_AUTH_URL)
-                .set("Content-Type", "application/x-www-form-urlencoded")
-                .send_form(&form_data),
+            Err(ureq::Error::Status(404, _)) => {
+                crate::log::write("API POST /v1/oauth2/device_authorization failed: HTTP 404");
+                crate::log::write("API POST /v1/oauth2/device/authorization");
+                ureq::post(FALLBACK_AUTH_URL)
+                    .set("Content-Type", "application/x-www-form-urlencoded")
+                    .send_form(&form_data)
+            }
             Err(e) => Err(e),
         }
-        .map_err(|e| format!("Device authorization request failed: {e}"))?;
+        .map_err(|e| {
+            crate::log::http_failure("device authorization", &e);
+            format!("Device authorization request failed: {e}")
+        })?;
 
         let mut info: DeviceAuthInfo = resp
             .into_json()
@@ -230,6 +246,7 @@ impl AuthManager {
             form_data.push(("client_secret", secret.as_str()));
         }
 
+        crate::log::write("API POST /v1/oauth2/token");
         match ureq::post(TOKEN_URL)
             .set("Content-Type", "application/x-www-form-urlencoded")
             .send_form(&form_data)
@@ -258,6 +275,9 @@ impl AuthManager {
                 Err(e) => PollResult::Error(format!("Failed to parse token response: {e}")),
             },
             Err(ureq::Error::Status(status_code, resp)) => {
+                crate::log::write(&format!(
+                    "API POST /v1/oauth2/token failed: HTTP {status_code}"
+                ));
                 if let Ok(err_resp) = resp.into_json::<OAuthErrorResponse>() {
                     let err_type = err_resp.error.as_deref().unwrap_or("");
                     match err_type {
@@ -305,6 +325,7 @@ impl AuthManager {
                 PollResult::Expired => return Err("Device authorization code expired".to_string()),
                 PollResult::Denied => return Err("User denied authorization".to_string()),
                 PollResult::Error(err) => {
+                    crate::log::write("Warning during device authorization polling");
                     eprintln!("  [!] Warning during token poll: {err}");
                 }
             }
@@ -324,10 +345,14 @@ impl AuthManager {
             form_data.push(("client_secret", secret.as_str()));
         }
 
+        crate::log::write("API POST /v1/oauth2/token (refresh)");
         let resp = ureq::post(TOKEN_URL)
             .set("Content-Type", "application/x-www-form-urlencoded")
             .send_form(&form_data)
-            .map_err(|e| format!("Token refresh request failed: {e}"))?;
+            .map_err(|e| {
+                crate::log::http_failure("/v1/oauth2/token", &e);
+                format!("Token refresh request failed: {e}")
+            })?;
 
         let raw: RawTokenResponse = resp
             .into_json()
@@ -369,7 +394,7 @@ impl AuthManager {
 
         if self.is_token_expired(&session) {
             if let Some(ref refresh_tok) = session.refresh_token {
-                println!("  [i] Access token expired. Refreshing using refresh_token...");
+                crate::log::write("Session expired; refreshing authentication");
                 self.refresh_session(refresh_tok)
             } else {
                 Err("Session expired and no refresh token available to refresh".to_string())
@@ -377,6 +402,34 @@ impl AuthManager {
         } else {
             Ok(session)
         }
+    }
+
+    pub fn get_api_session(&self) -> Result<Session, String> {
+        self.get_api_session_with(crate::api::TidalApiClient::session_country)
+    }
+
+    fn get_api_session_with(
+        &self,
+        fetch_country: impl FnOnce(String) -> Result<String, String>,
+    ) -> Result<Session, String> {
+        let mut session = self.get_valid_session()?;
+        let mut cache = self
+            .session_country
+            .lock()
+            .map_err(|_| "Failed to lock session country cache")?;
+        let country = match cache.as_ref() {
+            Some((token, country)) if token == &session.access_token => country.clone(),
+            _ => {
+                let country = fetch_country(session.access_token.clone())?;
+                session.country_code = Some(country.clone());
+                self.save_session(&session)
+                    .map_err(|e| format!("Failed to cache session country: {e}"))?;
+                *cache = Some((session.access_token.clone(), country.clone()));
+                country
+            }
+        };
+        session.country_code = Some(country);
+        Ok(session)
     }
 }
 
@@ -497,6 +550,43 @@ mod tests {
         let loaded = auth.load_session().expect("Failed to load saved session");
         assert_eq!(loaded.access_token, "token_123");
         assert_eq!(loaded.user_id, Some(42));
+
+        let mut session = session;
+        session.country_code = Some("US".into());
+        auth.save_session(&session).unwrap();
+        assert_eq!(
+            auth.get_api_session_with(|token| {
+                assert_eq!(token, "token_123");
+                Ok("DK".into())
+            })
+            .unwrap()
+            .country_code
+            .as_deref(),
+            Some("DK")
+        );
+        assert_eq!(
+            auth.load_session().unwrap().country_code.as_deref(),
+            Some("DK")
+        );
+        assert_eq!(
+            auth.get_api_session_with(|_| panic!("Country should be cached"))
+                .unwrap()
+                .country_code
+                .as_deref(),
+            Some("DK")
+        );
+        session.access_token = "new-token".into();
+        auth.save_session(&session).unwrap();
+        assert!(auth
+            .get_api_session_with(|_| Err("country lookup failed".into()))
+            .is_err());
+        assert_eq!(
+            auth.get_api_session_with(|_| Ok("GB".into()))
+                .unwrap()
+                .country_code
+                .as_deref(),
+            Some("GB")
+        );
 
         assert!(auth.delete_session().is_ok());
         assert!(!auth.is_authenticated());

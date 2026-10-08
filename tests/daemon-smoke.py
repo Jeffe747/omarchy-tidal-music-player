@@ -9,7 +9,8 @@ import time
 
 binary = Path(__file__).resolve().parents[1] / "bin/tidal-daemon"
 with tempfile.TemporaryDirectory(prefix="tidal-daemon-smoke-") as runtime:
-    env = dict(os.environ, XDG_RUNTIME_DIR=runtime, TIDAL_SESSION_PATH=runtime + "/session.json")
+    env = dict(os.environ, HOME=runtime, XDG_RUNTIME_DIR=runtime,
+               TIDAL_SESSION_PATH=runtime + "/session.json")
     daemon = subprocess.Popen([binary], env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     try:
         path = runtime + "/tidal.sock"
@@ -55,4 +56,12 @@ with tempfile.TemporaryDirectory(prefix="tidal-daemon-smoke-") as runtime:
             raise RuntimeError((stdout + stderr).decode())
     assert not Path(runtime, "tidal.sock").exists(), "Daemon must clean up its socket"
     assert not Path(runtime, "tidal-mpv.sock").exists()
+    log = Path(runtime, ".local/state/omarchy/tidal/daemon.log")
+    assert log.stat().st_mode & 0o777 == 0o600
+    assert log.parent.stat().st_mode & 0o777 == 0o700
+    lines = log.read_text()
+    for command in ["get_status", "get_favorites", "play_track"]:
+        assert f"IPC command: {command}" in lines
+    assert "Playback failed: No active session found" in lines
+    assert "Daemon stopped" in lines
     print("Daemon smoke passed: status, favorites/playback errors, responsive IPC, clean shutdown")

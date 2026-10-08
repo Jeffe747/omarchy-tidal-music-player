@@ -76,6 +76,7 @@ For the live milestone progress tracker and task checklist, see **[`PROGRESS.md`
         ├── auth.rs      # OAuth 2.0 Device Authorization flow
         ├── api.rs       # Tidal REST API catalog client
         ├── playback.rs  # Manifest parser & mpv IPC controller
+        ├── log.rs       # Private, redacted persistent daemon diagnostics
         └── ipc.rs       # Unix domain socket communications
 ```
 
@@ -178,7 +179,20 @@ After login, the popup automatically fetches all favorite tracks, newest first.
 Click a favorite to request lossless playback through headless `mpv` and PipeWire;
 the hero card and bar label show its artwork and metadata. Favorites can be
 retried after errors; unsupported encrypted BTS streams produce an explicit
-playback error. Session country codes are used when available, otherwise `US`.
+playback error. The daemon fetches the real country from `/v1/sessions` before
+catalog/playback requests, caches it for the active token, and persists it in
+the session file; it never substitutes `US`. Playback uses
+`playbackinfopostpaywall`, retries the legacy `playbackinfo` endpoint once on
+HTTP 404, and retries with `HIGH` if Tidal explicitly rejects the requested
+audio quality. The displayed quality reflects the actual response.
+
+Private diagnostics are appended to
+`~/.local/state/omarchy/tidal/daemon.log` (directory mode `0700`, file mode
+`0600`). A log larger than 256 KiB is truncated at daemon startup. It records
+IPC command names, API paths, HTTP failures with Tidal's `userMessage` and
+`subStatus`, manifest MIME types, and mpv load results, without authorization
+headers, tokens, or signed stream URLs. Country lookup failures are reported
+instead of silently using the wrong region.
 
 The local gate covers favorites parsing, stream resolution with fixtures, real
 mpv startup/stale-socket recovery/cleanup, and QML rendering and click dispatch.

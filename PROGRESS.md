@@ -44,17 +44,17 @@ Current Status: **Milestone 2 implementation verified locally; live playback gat
 
 ### Milestone 2: Favorites List & Core Audio Playback 🟡
 - [x] Implement Tidal API client endpoint for fetching user favorite tracks.
-- [x] Implement `playbackinfo` manifest resolver (`application/vnd.tidal.bts` unencrypted FLAC).
+- [x] Implement `playbackinfopostpaywall` manifest resolver (`application/vnd.tidal.bts` unencrypted FLAC), with legacy endpoint and quality-rejection fallbacks.
 - [x] Launch headless `mpv` background runner with PipeWire audio sink (`--ao=pipewire`).
 - [x] Connect playback IPC commands (`play_track`, `favorites_loaded`).
 - [x] Render scrollable favorites list and now-playing artwork card in `BarWidget.qml`.
 - [ ] **Gate Verification:** Pass Gate M2 (audio verified through PipeWire via `pw-cli`, metadata in UI).
 
-Local verification passed: 19 Rust tests, four QML runtime scenarios (including
+Local verification passed: 28 Rust tests, four QML runtime scenarios (including
 favorites loading/empty/error states, click dispatch, and now-playing artwork),
 bundled-daemon IPC smoke, Omarchy compliance, and the binary size audit. Real mpv
 startup arguments, stale-socket recovery, and child reaping were verified.
-The stripped bundle is 1,766,752 bytes, using stable ELF relative-relocation
+The stripped bundle is 1,786,456 bytes, using stable ELF relative-relocation
 packing and no UPX. There is no local Tidal session: authenticated favorites
 fetching, live stream resolution, and distortion-free PipeWire playback with
 `pw-cli` remain pending on the remote laptop. M2 is not fully passed, and M3 has
@@ -108,6 +108,7 @@ not been advanced.
 
 | Date | Commit | Description | Author |
 | :--- | :--- | :--- | :--- |
+| 2026-10-08 | This change | Fixed playback HTTP 404 by using `playbackinfopostpaywall`, retrying legacy `playbackinfo` once on 404, and retrying `HIGH` only for quality-related 401/403/404 errors. Resolved and cached the real country from `/v1/sessions`, replacing the hardcoded US fallback. Added redacted HTTP status/`userMessage`/`subStatus` diagnostics and private persistent `daemon.log` (0700 directory, 0600 file, startup truncation above 256 KiB), including IPC/API/MIME/mpv events. `scripts/build.sh` and `WAYLAND_DISPLAY=wayland-1 scripts/verify.sh` passed: 28 Rust tests, four QML scenarios, isolated daemon/log smoke, compliance, and stripped 1,786,456-byte bundle. M2 live playback gate remains pending on the remote laptop; no milestone advanced. | Copilot |
 | 2026-10-08 | This change | Implemented M2 favorites pagination/parsing and artwork, session-country fallback, lossless BTS resolution with encryption rejection, shared playback state/IPC events, robust headless mpv lifecycle, and favorites/now-playing UI. Full `scripts/verify.sh` passed: 19 Rust tests, four QML runtime scenarios, isolated daemon smoke, compliance, and stripped 1,766,752-byte bundle. Live Tidal/PipeWire/`pw-cli` audio verification remains pending on the remote laptop; no milestone advanced. | Copilot |
 | 2026-10-08 | This change | Bundled tracked, executable, stripped `bin/tidal-daemon` (1,792,536 bytes; limit 1,800,000) for out-of-the-box installation without Rust/Cargo or compilation. Builds refresh the bundle; the service prefers it with a development fallback; installation and verification enforce the bundle contract. Full `scripts/verify.sh` gate passed, including four daemon-resolution QML scenarios and all nine Rust tests; exact size-boundary and invalid-bundle checks passed. System runtime requirements remain unchanged; no milestone advanced. | Copilot |
 | 2026-10-08 | `e2b8d35` | Initial project scaffolding, `PLAN.md`, QML UI components, and Rust daemon skeleton. | jaj |
