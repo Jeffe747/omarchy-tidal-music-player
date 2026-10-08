@@ -81,12 +81,22 @@ For the live milestone progress tracker and task checklist, see **[`PROGRESS.md`
 
 ## Installation & Setup
 
-### 1. Install the Plugin into Omarchy Shell
+### Option 1: Official Omarchy CLI (Recommended)
+Install and enable the plugin directly using the official `omarchy` CLI:
+```bash
+omarchy plugin add https://github.com/Jeffe747/omarchy-tidal-music-player.git --enable
+```
+
+---
+
+### Option 2: Local / Manual Installation
+
+#### 1. Install Plugin Link
 ```bash
 ./install.sh
 ```
 
-### 2. Build the Backend Daemon
+#### 2. Build the Backend Daemon
 Requires Rust (managed via [`mise`](DEVELOPMENT.md), `omarchy pkg add rust`, or `rustup`):
 ```bash
 ./scripts/build.sh
@@ -95,7 +105,7 @@ Requires Rust (managed via [`mise`](DEVELOPMENT.md), `omarchy pkg add rust`, or 
 > [!TIP]
 > For complete development toolchains, system package setup, and dependencies, see **[`DEVELOPMENT.md`](DEVELOPMENT.md)**.
 
-### 3. Enable in Status Bar
+#### 3. Enable in Status Bar
 Add `"jaj.tidal"` to your status bar layout in `~/.config/omarchy/shell.json`:
 ```json
 {
