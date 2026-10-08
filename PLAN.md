@@ -9,6 +9,8 @@ This document outlines the complete architectural design, protocol research, bin
 ### 1.1 Authentication & Authorization
 Tidal uses OAuth 2.0. For a desktop desktop/panel widget, two authentication pathways are feasible:
 
+- **Built-in public client credentials:** The daemon defaults to the public client ID `4N3n6Q1x95LL5K7p` and includes a zero-configuration built-in token fallback, so users can authenticate without supplying client credentials. `TIDAL_CLIENT_SECRET` is an optional environment override for deployments using a custom client ID (`TIDAL_CLIENT_ID`).
+
 1. **OAuth 2.0 Device Authorization Grant (`link.tidal.com`) [Primary]**:
    - Ideal for a desktop status bar panel without requiring local port forwarding or browser redirect hurdles.
    - **Step 1:** The daemon requests a device code:
@@ -40,11 +42,14 @@ Tidal provides REST endpoints (`api.tidal.com/v1/` and `openapi.tidal.com/v2/`):
 
 ### 1.3 Audio Streaming & DRM Reality
 - **Playback Info Endpoint:**
-  `GET https://api.tidal.com/v1/tracks/{trackId}/playbackinfo`
+  `GET https://api.tidal.com/v1/tracks/{trackId}/playbackinfopostpaywall`
+  - If the modern endpoint returns HTTP 404, retry the legacy `GET /v1/tracks/{trackId}/playbackinfo` endpoint.
   - Parameters:
     - `audioquality`: `LOSSLESS` (16-bit / 44.1 kHz FLAC), `HI_RES_LOSSLESS` (24-bit / up to 192 kHz FLAC), `HIGH` (320 kbps AAC), `LOW` (96 kbps AAC).
     - `playbackmode`: `STREAM`
     - `assetpresentation`: `FULL`
+    - `immersiveaudio=false` to request a stereo stream.
+  - **Quality fallback:** Start with the catalog's preferred quality, then try `LOSSLESS`, `HIGH`, and `LOW` in order when Tidal reports `subStatus=4005` (`Asset is not ready for playback`).
 - **Manifest Payload:**
   The API returns a base64-encoded manifest:
   1. `application/vnd.tidal.bts`:
@@ -187,10 +192,11 @@ The UI binds dynamically to Omarchy's color singleton:
   - Automatic transition to "Connected" state upon browser confirmation.
 
 ### Milestone 2: Favorites List & Core Audio Playback
+- **Status: Completed and verified live on Rimegale**, including authenticated stream resolution and PipeWire audio playback.
 - **Objective:** Fetch user favorite tracks and stream lossless audio through PipeWire.
 - **Backend:**
   - Fetch favorites: `GET /v1/users/{userId}/favorites/tracks` (titles, artists, albums, durations, artwork IDs).
-  - Stream resolver: `GET /v1/tracks/{trackId}/playbackinfo` parsing `application/vnd.tidal.bts` (direct HTTPS FLAC/AAC) and `application/dash+xml` (MPEG-DASH).
+  - Stream resolver: `GET /v1/tracks/{trackId}/playbackinfopostpaywall` with legacy `/playbackinfo` fallback on 404; parse `application/vnd.tidal.bts` (direct HTTPS FLAC/AAC) and `application/dash+xml` (MPEG-DASH), with catalog-quality -> `LOSSLESS` -> `HIGH` -> `LOW` fallback for `subStatus=4005`.
   - Audio output: Headless `mpv` background process managed via Unix IPC (`--idle=yes --no-video --ao=pipewire`).
 - **IPC Protocol:**
   - Commands: `get_favorites`, `play_track { track_id }`.
@@ -270,7 +276,7 @@ The verification script `scripts/verify.sh` runs the following automated checks:
 | Milestone | Automated Tests | Integration & Hardware Checks | Pre-requisite Gate to Proceed |
 | :--- | :--- | :--- | :--- |
 | **M1: Login** | Unit tests for `auth.rs` (device code deserialization, token poll parser, expiry calculation). | CLI test runner (`--test-auth`) initiates device flow; visiting `link.tidal.com` issues tokens to `~/.local/state/omarchy/tidal/session.json`. | Tokens successfully acquired, stored, and auto-refreshed. UI shows "Connected". |
-| **M2: Favorites & Playback** | Unit tests for `api.rs` (favorites parser) and `playback.rs` (manifest decoding). | Stream verification: headless `mpv` plays resolved stream through PipeWire; audio verified via `pw-cli info`. | Clean audio playback from user favorites with artwork and title in UI. |
+| **M2: Favorites & Playback** | Unit tests for `api.rs` (favorites parser) and `playback.rs` (manifest decoding). | Verified live on Rimegale: authenticated stream playback through headless `mpv` and PipeWire. | Complete; clean audio playback from user favorites with artwork and title in UI. |
 | **M3: Controls & Seek** | Unit tests for time formatting, position bounds clamping, and queue index logic. | Interactive slider seek latency < 100ms; simulated `eof-reached` auto-advances to next track. | Pause, resume, seek, and auto-advance verified with zero stutter. |
 | **M4: MPRIS & Media Keys** | D-Bus interface schema and property compliance tests. | `playerctl status` and `playerctl metadata` report track details; keyboard media keys control player. | Global keyboard shortcuts and Omarchy desktop widgets control Tidal. |
 | **M5: Search** | Unit tests for search query escaping and result structure parsing. | Debounced search queries complete in < 500ms; one-click play from search results verified. | Search returns accurate results and immediately plays selected song. |
