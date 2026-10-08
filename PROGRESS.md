@@ -1,7 +1,7 @@
 # Project Progress & Roadmap Tracker
 
 Last Updated: **2026-10-08**  
-Current Status: **Milestone 1: Authentication & Session Management Completed -> Ready for Milestone 2**
+Current Status: **Milestone 2 implementation verified locally; live playback gate pending on the remote laptop**
 
 ---
 
@@ -11,7 +11,7 @@ Current Status: **Milestone 1: Authentication & Session Management Completed -> 
 | :---: | :--- | :---: | :---: |
 | **M0** | **Foundation & Scaffolding** | 🟢 **Done** | 6 / 6 |
 | **M1** | **Authentication & Session Management (Login)** | 🟢 **Done** | 5 / 5 |
-| **M2** | **Favorites List & Core Audio Playback** | 🟡 **Active** | 0 / 5 |
+| **M2** | **Favorites List & Core Audio Playback** | 🟡 **Live gate pending** | 5 / 5 |
 | **M3** | **Interactive Controls, Seeking & Auto-Advance** | ⚪ Queued | 0 / 4 |
 | **M4** | **MPRIS D-Bus & Desktop Integration** | ⚪ Queued | 0 / 4 |
 | **M5** | **Catalog Search & Discovery** | ⚪ Queued | 0 / 3 |
@@ -42,13 +42,23 @@ Current Status: **Milestone 1: Authentication & Session Management Completed -> 
 
 ---
 
-### Milestone 2: Favorites List & Core Audio Playback ⚪
-- [ ] Implement Tidal API client endpoint for fetching user favorite tracks.
-- [ ] Implement `playbackinfo` manifest resolver (`application/vnd.tidal.bts` unencrypted FLAC).
-- [ ] Launch headless `mpv` background runner with PipeWire audio sink (`--ao=pipewire`).
-- [ ] Connect playback IPC commands (`play_track`, `favorites_loaded`).
-- [ ] Render scrollable favorites list and now-playing artwork card in `BarWidget.qml`.
+### Milestone 2: Favorites List & Core Audio Playback 🟡
+- [x] Implement Tidal API client endpoint for fetching user favorite tracks.
+- [x] Implement `playbackinfo` manifest resolver (`application/vnd.tidal.bts` unencrypted FLAC).
+- [x] Launch headless `mpv` background runner with PipeWire audio sink (`--ao=pipewire`).
+- [x] Connect playback IPC commands (`play_track`, `favorites_loaded`).
+- [x] Render scrollable favorites list and now-playing artwork card in `BarWidget.qml`.
 - [ ] **Gate Verification:** Pass Gate M2 (audio verified through PipeWire via `pw-cli`, metadata in UI).
+
+Local verification passed: 19 Rust tests, four QML runtime scenarios (including
+favorites loading/empty/error states, click dispatch, and now-playing artwork),
+bundled-daemon IPC smoke, Omarchy compliance, and the binary size audit. Real mpv
+startup arguments, stale-socket recovery, and child reaping were verified.
+The stripped bundle is 1,766,752 bytes, using stable ELF relative-relocation
+packing and no UPX. There is no local Tidal session: authenticated favorites
+fetching, live stream resolution, and distortion-free PipeWire playback with
+`pw-cli` remain pending on the remote laptop. M2 is not fully passed, and M3 has
+not been advanced.
 
 ---
 
@@ -98,6 +108,7 @@ Current Status: **Milestone 1: Authentication & Session Management Completed -> 
 
 | Date | Commit | Description | Author |
 | :--- | :--- | :--- | :--- |
+| 2026-10-08 | This change | Implemented M2 favorites pagination/parsing and artwork, session-country fallback, lossless BTS resolution with encryption rejection, shared playback state/IPC events, robust headless mpv lifecycle, and favorites/now-playing UI. Full `scripts/verify.sh` passed: 19 Rust tests, four QML runtime scenarios, isolated daemon smoke, compliance, and stripped 1,766,752-byte bundle. Live Tidal/PipeWire/`pw-cli` audio verification remains pending on the remote laptop; no milestone advanced. | Copilot |
 | 2026-10-08 | This change | Bundled tracked, executable, stripped `bin/tidal-daemon` (1,792,536 bytes; limit 1,800,000) for out-of-the-box installation without Rust/Cargo or compilation. Builds refresh the bundle; the service prefers it with a development fallback; installation and verification enforce the bundle contract. Full `scripts/verify.sh` gate passed, including four daemon-resolution QML scenarios and all nine Rust tests; exact size-boundary and invalid-bundle checks passed. System runtime requirements remain unchanged; no milestone advanced. | Copilot |
 | 2026-10-08 | `e2b8d35` | Initial project scaffolding, `PLAN.md`, QML UI components, and Rust daemon skeleton. | jaj |
 | 2026-10-08 | `173cc4e` | Added 7-milestone progression plan, verification gates, unit tests, and size audit script. | jaj |

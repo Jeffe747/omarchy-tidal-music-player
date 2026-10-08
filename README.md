@@ -172,6 +172,21 @@ The Tidal icon stays visible before login and when its service is unavailable;
 widgets use the shell's shared service rather than starting a second client.
 Commands issued while the daemon connects are delivered after connection.
 
+### Favorites & Playback (M2)
+
+After login, the popup automatically fetches all favorite tracks, newest first.
+Click a favorite to request lossless playback through headless `mpv` and PipeWire;
+the hero card and bar label show its artwork and metadata. Favorites can be
+retried after errors; unsupported encrypted BTS streams produce an explicit
+playback error. Session country codes are used when available, otherwise `US`.
+
+The local gate covers favorites parsing, stream resolution with fixtures, real
+mpv startup/stale-socket recovery/cleanup, and QML rendering and click dispatch.
+Authenticated Tidal playback and the live PipeWire/`pw-cli` audio check remain
+pending on the remote laptop; M2 is not yet a fully passed milestone. Continuous
+position updates, queue navigation/auto-advance, search, and MPRIS remain later
+milestones.
+
 ---
 
 ## License

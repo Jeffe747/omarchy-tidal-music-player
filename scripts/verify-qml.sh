@@ -19,6 +19,8 @@ mkdir -p "$TEST_DIR/plugin/bin" "$TEST_DIR/plugin/backend/target/release" "$TEST
 chmod 700 "$TEST_DIR/runtime"
 cp "$SCRIPT_DIR/Service.qml" "$TEST_DIR/plugin/Service.qml"
 cp "$SCRIPT_DIR/tests/qml/fake-daemon.py" "$TEST_DIR/plugin/backend/target/release/tidal-daemon"
+cp "$SCRIPT_DIR/tests/qml/cover.svg" "$TEST_DIR/plugin/backend/target/release/cover.svg"
+cp "$SCRIPT_DIR/tests/qml/cover.svg" "$TEST_DIR/plugin/bin/cover.svg"
 chmod +x "$TEST_DIR/plugin/backend/target/release/tidal-daemon"
 
 DISPLAY_PATH="$WAYLAND_DISPLAY"

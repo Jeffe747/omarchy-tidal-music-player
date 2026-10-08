@@ -118,6 +118,11 @@ Compiles `tidal-daemon` in release mode with size optimization profiles:
 ./scripts/build.sh
 ```
 - Applies Cargo profile: `opt-level = "z"`, `lto = true`, `codegen-units = 1`, `panic = "abort"`.
+- Disables unused ureq gzip support and packs ELF relative relocations via
+  `backend/.cargo/config.toml`. Build from `backend/` (as `build.sh` does) so Cargo
+  loads that configuration. This uses stable linker options, no CPU-specific
+  instructions or UPX, and requires glibc 2.36+ at runtime (stock Omarchy meets
+  this requirement).
 - Automatically strips debug symbols and `.comment` / `.note` sections using `strip`.
 - Outputs binary to `backend/target/release/tidal-daemon`.
 - Copies the stripped release artifact to tracked `bin/tidal-daemon` with mode
@@ -134,8 +139,12 @@ cargo test --manifest-path backend/Cargo.toml
 ```
 Covers:
 - `auth::tests`: Device authorization JSON parsing, session token persistence, expiration checks.
-- `playback::tests`: Base64 BTS playbackinfo manifest decoding and error handling.
-- `ipc::tests`: JSON-RPC IPC message serialization and deserialization.
+- `api::tests`: Favorites parsing, optional metadata, artist fallback, cover URLs,
+  and playbackinfo-to-BTS stream resolution.
+- `playback::tests`: Manifest encryption/error handling, mock command responses,
+  actual mpv startup and stale-socket recovery, and child-process cleanup.
+  These tests require system `mpv` and Python 3; they do not stream Tidal audio.
+- `ipc::tests`: Command, status, favorites, and playback event shapes.
 
 ### 3. Running Verification Suites
 
@@ -146,8 +155,13 @@ Runs all checks required by the project's gate policy before completing mileston
 ```
 Executes:
 1. Omarchy Official Compliance Audit
-2. Backend unit tests (`cargo test`)
-3. Release binary size and debug symbol audit
+2. QML runtime integration when a Wayland session is available (including favorites
+   loading/empty/error states, artwork rendering, and favorite-click dispatch)
+3. Backend unit tests (`cargo test`)
+4. Release binary size and debug symbol audit
+5. Bundled daemon IPC smoke test (`python3 tests/daemon-smoke.py`), using an isolated
+   runtime/session path and checking status, unauthenticated error events, and
+   clean shutdown
 
 #### Omarchy Compliance Audit (`./scripts/verify-omarchy-compliance.sh`)
 Validates that the plugin complies 100% with Omarchy desktop shell standards:

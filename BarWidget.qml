@@ -289,13 +289,14 @@ Panel {
 
             // Album Artwork Placeholder / Image
             Rectangle {
-              width: Style.space(72)
-              height: Style.space(72)
+              width: Style.space(96)
+              height: Style.space(96)
               radius: Style.cornerRadius
               color: Qt.rgba(Color.foreground.r, Color.foreground.g, Color.foreground.b, 0.08)
               clip: true
 
               Image {
+                objectName: "tidalNowPlayingArt"
                 anchors.fill: parent
                 source: (tidalService && tidalService.trackArtUrl) || ""
                 fillMode: Image.PreserveAspectCrop
@@ -314,12 +315,13 @@ Panel {
             // Track Details
             Column {
               anchors.verticalCenter: parent.verticalCenter
-              width: parent.width - Style.space(84)
+              width: parent.width - Style.space(108)
               spacing: Style.space(3)
 
               Text {
+                objectName: "tidalNowPlayingTitle"
                 text: (tidalService && tidalService.trackTitle) || "No Track Playing"
-                font.pixelSize: Style.font.body
+                font.pixelSize: Style.font.title
                 font.bold: true
                 color: Color.foreground
                 elide: Text.ElideRight
@@ -327,11 +329,21 @@ Panel {
               }
 
               Text {
-                text: (tidalService && tidalService.trackArtist) || "Select a song or search below"
+                text: (tidalService && tidalService.trackArtist) || "Select a favorite below"
                 font.pixelSize: Style.font.caption
                 color: Color.muted
                 elide: Text.ElideRight
                 width: parent.width
+              }
+
+              Text {
+                objectName: "tidalPlaybackError"
+                width: parent.width
+                visible: tidalService && tidalService.playbackError !== ""
+                text: tidalService ? tidalService.playbackError : ""
+                color: Color.urgent
+                font.pixelSize: Style.font.caption
+                wrapMode: Text.WordWrap
               }
 
               Text {
@@ -406,6 +418,107 @@ Panel {
               text: "⏭"
               onClicked: {
                 if (tidalService) tidalService.next()
+              }
+            }
+          }
+
+          PanelSeparator { width: parent.width }
+
+          PanelSectionHeader { text: "FAVORITES" }
+
+          Text {
+            objectName: "tidalFavoritesState"
+            width: parent.width
+            visible: tidalService && (tidalService.favoritesLoading || tidalService.favoritesError !== "" || tidalService.favorites.length === 0)
+            text: !tidalService ? "" : (tidalService.favoritesLoading ? "Loading favorites..." : (tidalService.favoritesError || "No favorite tracks yet. Add favorites in Tidal."))
+            color: tidalService && tidalService.favoritesError !== "" ? Color.urgent : Color.muted
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+          }
+
+          Ui.Button {
+            visible: tidalService && tidalService.favoritesError !== ""
+            text: "Retry favorites"
+            onClicked: if (tidalService) tidalService.loadFavorites()
+          }
+
+          ListView {
+            id: favoritesList
+            objectName: "tidalFavoritesList"
+            width: parent.width
+            height: Math.min(contentHeight, Style.space(280))
+            clip: true
+            spacing: Style.space(4)
+            model: tidalService ? tidalService.favorites : []
+            delegate: Rectangle {
+              required property var modelData
+              width: favoritesList.width
+              height: Style.space(60)
+              radius: Style.cornerRadius
+              readonly property bool current: tidalService && tidalService.currentTrackId === modelData.id
+              color: current ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.15) : Color.background
+              border.color: current ? Color.accent : Color.background
+
+              Row {
+                anchors.fill: parent
+                anchors.margins: Style.space(6)
+                spacing: Style.space(8)
+
+                Rectangle {
+                  width: Style.space(48)
+                  height: Style.space(48)
+                  radius: Style.cornerRadius
+                  color: Qt.rgba(Color.foreground.r, Color.foreground.g, Color.foreground.b, 0.08)
+                  clip: true
+                  Image {
+                    anchors.fill: parent
+                    source: modelData.art_url || ""
+                    fillMode: Image.PreserveAspectCrop
+                    asynchronous: true
+                  }
+                  Text {
+                    anchors.centerIn: parent
+                    visible: !modelData.art_url
+                    text: "󰝚"
+                    color: Color.muted
+                    font.pixelSize: Style.font.title
+                  }
+                }
+
+                Column {
+                  anchors.verticalCenter: parent.verticalCenter
+                  width: parent.width - Style.space(64) - favoriteDuration.width
+                  spacing: Style.space(3)
+                  Text {
+                    width: parent.width
+                    text: modelData.title || ""
+                    font.pixelSize: Style.font.body
+                    color: current ? Color.accent : Color.foreground
+                    elide: Text.ElideRight
+                  }
+                  Text {
+                    width: parent.width
+                    text: (modelData.artist || "") + (modelData.album ? " • " + modelData.album : "")
+                    font.pixelSize: Style.font.caption
+                    color: Color.muted
+                    elide: Text.ElideRight
+                  }
+                }
+
+                Text {
+                  id: favoriteDuration
+                  anchors.verticalCenter: parent.verticalCenter
+                  text: root.formatTime(modelData.duration || 0)
+                  color: Color.muted
+                  font.pixelSize: Style.font.caption
+                }
+              }
+
+              MouseArea {
+                objectName: "tidalFavoriteClick"
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: if (tidalService) tidalService.playTrack(modelData.id)
               }
             }
           }

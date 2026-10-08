@@ -30,6 +30,25 @@ Item {
   property real trackDuration: 0.0
   property real trackPosition: 0.0
   property string audioQuality: "LOSSLESS" // "HI_RES_LOSSLESS", "LOSSLESS", "HIGH"
+  property var favorites: []
+  property bool favoritesLoading: false
+  property string favoritesError: ""
+  property string playbackError: ""
+  property var currentTrackId: null
+  property bool favoritesRequested: false
+
+  onAuthenticatedChanged: {
+    if (authenticated) {
+      if (!favoritesRequested) loadFavorites()
+    } else {
+      favorites = []
+      favoritesLoading = false
+      favoritesRequested = false
+      favoritesError = ""
+      playbackError = ""
+      currentTrackId = null
+    }
+  }
 
   property var searchResults: []
   property bool searching: false
@@ -52,6 +71,8 @@ Item {
         root.pendingCommands = []
         root.authPending = false
         root.searching = false
+        root.favoritesLoading = false
+        root.favoritesError = root.buildScriptMessage
       } else if (root.authError === root.buildScriptMessage) {
         root.authError = ""
       }
@@ -78,6 +99,8 @@ Item {
         root.pendingCommands = []
         root.authPending = false
         root.searching = false
+        root.favoritesLoading = false
+        root.favoritesError = root.authError
         console.warn("Tidal Service:", root.authError)
       }
     }
@@ -97,6 +120,12 @@ Item {
       connected: true
 
       onError: {
+        if (root.authenticated) {
+          root.playbackError = "Disconnected from Tidal daemon; reconnecting..."
+          root.isPlaying = false
+        }
+        root.favoritesLoading = false
+        root.favoritesRequested = false
         if (root.pendingCommands.length > 0) {
           root.authError = "Unable to connect to Tidal daemon; retrying..."
         }
@@ -106,6 +135,9 @@ Item {
 
       onConnectionStateChanged: {
         if (connected) {
+          if (root.playbackError === "Disconnected from Tidal daemon; reconnecting...") {
+            root.playbackError = ""
+          }
           if (root.authError === "Unable to connect to Tidal daemon; retrying...") {
             root.authError = ""
           }
@@ -191,6 +223,7 @@ Item {
         root.authError = ""
       }
       root.isPlaying = msg.is_playing === true
+      root.currentTrackId = msg.track_id !== undefined ? msg.track_id : null
       root.trackTitle = msg.track_title || ""
       root.trackArtist = msg.track_artist || ""
       root.trackAlbum = msg.track_album || ""
@@ -209,6 +242,7 @@ Item {
       root.authCode = ""
       root.authUrl = ""
       root.authError = ""
+      if (!root.favoritesRequested) root.loadFavorites()
       sendCommand({ "command": "get_status" })
     } else if (msg.type === "auth_expired") {
       root.authPending = false
@@ -219,7 +253,20 @@ Item {
     } else if (msg.type === "search_results") {
       root.searching = false
       root.searchResults = msg.results || []
+    } else if (msg.type === "favorites_loaded") {
+      root.favoritesLoading = false
+      root.favoritesError = ""
+      root.favorites = msg.tracks || []
+    } else if (msg.type === "favorites_error") {
+      root.favoritesLoading = false
+      root.favoritesError = msg.error || "Unable to load favorites"
+    } else if (msg.type === "playback_started") {
+      root.currentTrackId = msg.track_id
+      root.playbackError = ""
+    } else if (msg.type === "playback_error") {
+      root.playbackError = msg.error || "Unable to play track"
     }
+    if (root.authenticated && !root.favoritesRequested) root.loadFavorites()
   }
 
   // Public control APIs
@@ -261,6 +308,15 @@ Item {
   }
 
   function playTrack(trackId) {
+    root.playbackError = ""
     sendCommand({ "command": "play_track", "track_id": trackId })
+  }
+
+  function loadFavorites() {
+    if (root.favoritesLoading) return
+    root.favoritesRequested = true
+    root.favoritesLoading = true
+    root.favoritesError = ""
+    sendCommand({ "command": "get_favorites" })
   }
 }

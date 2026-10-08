@@ -16,6 +16,33 @@ ShellRoot {
     }
   }
 
+  function findObject(object, name) {
+    if (!object) return null
+    if (Array.isArray(object) || (typeof object.length === "number" && !("objectName" in object))) {
+      for (var k = 0; k < object.length; k++) {
+        var entry = findObject(object[k], name)
+        if (entry) return entry
+      }
+      return null
+    }
+    if (object.objectName === name) return object
+    var children = object.children || []
+    for (var i = 0; i < children.length; i++) {
+      var found = findObject(children[i], name)
+      if (found) return found
+    }
+    var resources = object.resources || []
+    for (var j = 0; j < resources.length; j++) {
+      var resource = resources[j]
+      if (resource.objectName === name) return resource
+      if ("contentItem" in resource) {
+        var content = findObject(resource.contentItem, name)
+        if (content) return content
+      }
+    }
+    return null
+  }
+
   QtObject {
     id: shellApi
     property var sharedService: null
@@ -115,12 +142,15 @@ ShellRoot {
                    + ", exists=" + root.service.daemonBinaryExists + ", error=" + root.service.authError)
         root.check(root.service.pendingCommands.length === 0, "Commands must drain after connection")
         root.check(root.widget.isAuthenticated, "Widget must react to shared authentication state")
-        root.service.handleDaemonMessage({
-          type: "state_change", authenticated: true, is_playing: true,
-          track_title: "Test song", track_artist: "Test artist"
-        })
-        root.check(root.widget.barLabelText().indexOf("Test song") !== -1,
-                   "Now-playing label must react to shared metadata")
+        root.check(!root.service.favoritesLoading && root.service.favoritesError === "",
+                   "Favorites request must finish without error")
+        root.check(root.service.favorites.length === 1, "Favorites must load after authentication")
+        var list = findObject(root.widget, "tidalFavoritesList")
+        root.check(list !== null && list.count === 1 && list.height > 0 && list.clip,
+                   "Favorites must render in a bounded, clipped list")
+        var click = findObject(list, "tidalFavoriteClick")
+        root.check(click !== null, "Favorite row must expose a click target")
+        if (click) click.clicked(null)
         root.service.searchResults = [{ id: 42, title: "Test song", artist: "Test artist" }]
         delegateTimer.start()
       } else {
@@ -132,8 +162,35 @@ ShellRoot {
 
   Timer {
     id: delegateTimer
-    interval: 100
+    interval: 500
     onTriggered: {
+      root.check(root.service.currentTrackId === 42 && root.service.isPlaying,
+                 "Favorite click must dispatch play_track and receive playback_started")
+      root.check(root.widget.barLabelText().indexOf("Test song") !== -1,
+                 "Now-playing label must react to daemon metadata")
+      var title = findObject(root.widget, "tidalNowPlayingTitle")
+      var art = findObject(root.widget, "tidalNowPlayingArt")
+      root.check(title !== null && title.text === "Test song",
+                 "Hero card must render the current track title")
+      root.check(art !== null && art.source.toString() === root.service.trackArtUrl && art.status === Image.Ready,
+                 "Hero artwork must load and render without errors")
+      root.check(root.service.trackAlbum === "Test album" && root.service.trackDuration === 180,
+                 "Album and duration must follow playback status")
+      var state = findObject(root.widget, "tidalFavoritesState")
+      root.service.handleDaemonMessage({ type: "favorites_error", error: "Favorites unavailable" })
+      root.check(state !== null && state.visible && state.text === "Favorites unavailable",
+                 "Favorites errors must render visibly")
+      root.service.loadFavorites()
+      root.check(root.service.favoritesLoading && state.text === "Loading favorites...",
+                 "Retrying favorites must render the loading state")
+      root.service.handleDaemonMessage({ type: "favorites_loaded", tracks: [] })
+      root.check(!root.service.favoritesLoading && root.service.favoritesError === ""
+                 && state.text.indexOf("No favorite tracks") !== -1,
+                 "An empty favorites response must clear errors and show the empty state")
+      root.service.handleDaemonMessage({ type: "playback_error", error: "Stream unavailable" })
+      var playbackError = findObject(root.widget, "tidalPlaybackError")
+      root.check(playbackError !== null && playbackError.visible && playbackError.text === "Stream unavailable",
+                 "Playback failures must render visibly")
       root.check(root.widget.visible && slot.width > 0 && slot.height === barApi.barSize,
                  "Authenticated widget must keep a nonzero bar slot")
       barApi.vertical = true

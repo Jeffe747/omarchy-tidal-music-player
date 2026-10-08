@@ -3,13 +3,38 @@ mod auth;
 mod ipc;
 mod playback;
 
+use api::{cover_url, TidalApiClient, TrackItem};
 use auth::AuthManager;
-use ipc::{IpcCommand, IpcServer, IpcStateMessage};
+use ipc::{FavoriteTrack, IpcCommand, IpcServer, IpcStateMessage, PlayerMessage};
 use playback::PlaybackEngine;
 use std::io::{BufRead, BufReader};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::thread;
+
+static SHUTDOWN: AtomicBool = AtomicBool::new(false);
+
+extern "C" fn request_shutdown(_: libc::c_int) {
+    SHUTDOWN.store(true, Ordering::Relaxed);
+}
+
+struct Player {
+    engine: PlaybackEngine,
+    favorites: Vec<TrackItem>,
+    current: Option<TrackItem>,
+    quality: String,
+}
+
+impl Player {
+    fn new() -> Self {
+        Self {
+            engine: PlaybackEngine::new(),
+            favorites: Vec::new(),
+            current: None,
+            quality: "LOSSLESS".to_string(),
+        }
+    }
+}
 
 fn run_cli_auth(auth_manager: &AuthManager) -> Result<(), String> {
     println!("==========================================================");
@@ -51,24 +76,102 @@ fn run_cli_auth(auth_manager: &AuthManager) -> Result<(), String> {
     Ok(())
 }
 
-fn build_status_message(auth_manager: &AuthManager) -> IpcStateMessage {
+fn build_status_message(auth_manager: &AuthManager, player: &Player) -> IpcStateMessage {
     let authenticated = match auth_manager.get_valid_session() {
         Ok(s) => !s.access_token.is_empty(),
         Err(_) => false,
     };
 
+    let mut playing = false;
+    if player.current.is_some() {
+        let state = (|| {
+            let idle = player
+                .engine
+                .property("idle-active")?
+                .as_bool()
+                .ok_or("mpv returned invalid idle state")?;
+            let paused = player
+                .engine
+                .property("pause")?
+                .as_bool()
+                .ok_or("mpv returned invalid pause state")?;
+            Ok::<bool, String>(!idle && !paused)
+        })();
+        match state {
+            Ok(active) => playing = active,
+            Err(error) => eprintln!("Failed to read playback status: {error}"),
+        }
+    }
+    let track = player.current.as_ref();
     IpcStateMessage {
         msg_type: "status".to_string(),
         authenticated,
-        is_playing: false,
-        track_title: None,
-        track_artist: None,
-        track_album: None,
-        track_art_url: None,
-        duration: Some(0.0),
+        is_playing: playing,
+        track_id: track.map(|t| t.id),
+        track_title: track.map(|t| t.title.clone()),
+        track_artist: track.map(|t| t.artist_name().to_string()),
+        track_album: track.map(|t| t.album_title().to_string()),
+        track_art_url: track.map(|t| cover_url(t.cover())),
+        duration: Some(track.map(|t| t.duration as f64).unwrap_or(0.0)),
         position: Some(0.0),
-        audio_quality: Some("LOSSLESS".to_string()),
+        audio_quality: Some(player.quality.clone()),
     }
+}
+
+fn broadcast_status(auth: &AuthManager, player: &Mutex<Player>, ipc: &IpcServer) {
+    match player.lock() {
+        Ok(player) => ipc.broadcast(&build_status_message(auth, &player)),
+        Err(error) => eprintln!("Failed to lock player: {error}"),
+    }
+}
+
+fn api_client(auth: &AuthManager) -> Result<(TidalApiClient, Option<u64>), String> {
+    let session = auth.get_valid_session()?;
+    Ok((
+        TidalApiClient::new(session.access_token, session.country_code),
+        session.user_id,
+    ))
+}
+
+fn load_favorites(
+    auth: &AuthManager,
+    player: &Mutex<Player>,
+    ipc: &IpcServer,
+) -> Result<(), String> {
+    let (api, user_id) = api_client(auth)?;
+    let user_id = user_id.ok_or("Session has no user ID; please sign in again")?;
+    let tracks = api.get_favorites(user_id)?;
+    let mut player = player.lock().map_err(|e| e.to_string())?;
+    player.favorites = tracks;
+    ipc.broadcast(&PlayerMessage::FavoritesLoaded {
+        tracks: player.favorites.iter().map(FavoriteTrack::from).collect(),
+    });
+    Ok(())
+}
+
+fn play_track(
+    auth: &AuthManager,
+    player: &Mutex<Player>,
+    ipc: &IpcServer,
+    track_id: Option<u64>,
+) -> Result<(), String> {
+    let id = track_id.ok_or("play_track requires track_id")?;
+    let (api, _) = api_client(auth)?;
+    let mut player = player.lock().map_err(|e| e.to_string())?;
+    let track = match player.favorites.iter().find(|track| track.id == id) {
+        Some(track) => track.clone(),
+        None => api.get_track(id)?,
+    };
+    let info = api.get_playback_info(id, "LOSSLESS")?;
+    let url = player
+        .engine
+        .resolve_stream_url(&info.manifest_mime_type, &info.manifest)?;
+    player.engine.load_url(&url)?;
+    player.current = Some(track);
+    player.quality = info.audio_quality;
+    ipc.broadcast(&PlayerMessage::PlaybackStarted { track_id: id });
+    ipc.broadcast(&build_status_message(auth, &player));
+    Ok(())
 }
 
 fn main() {
@@ -128,7 +231,7 @@ fn main() {
     }
 
     println!("==> Starting Omarchy Tidal Daemon (tidal-daemon)...");
-    let mut _playback = PlaybackEngine::new();
+    let player = Arc::new(Mutex::new(Player::new()));
     let ipc_server = IpcServer::new();
 
     // Check existing session
@@ -162,12 +265,28 @@ fn main() {
 
     let auth_in_progress = Arc::new(AtomicBool::new(false));
 
-    for stream in listener.incoming() {
-        match stream {
-            Ok(stream) => {
+    // Signal handlers only set an atomic flag; cleanup runs on the main thread.
+    unsafe {
+        libc::signal(
+            libc::SIGTERM,
+            request_shutdown as *const () as libc::sighandler_t,
+        );
+        libc::signal(
+            libc::SIGINT,
+            request_shutdown as *const () as libc::sighandler_t,
+        );
+    }
+    if let Err(error) = listener.set_nonblocking(true) {
+        eprintln!("Failed to configure IPC listener: {error}");
+        return;
+    }
+    while !SHUTDOWN.load(Ordering::Relaxed) {
+        match listener.accept() {
+            Ok((stream, _)) => {
                 let auth_ref = Arc::clone(&auth_manager);
                 let ipc_ref = ipc_server.clone();
                 let auth_flag = Arc::clone(&auth_in_progress);
+                let player_ref = Arc::clone(&player);
 
                 let write_stream = match stream.try_clone() {
                     Ok(s) => s,
@@ -182,7 +301,15 @@ fn main() {
                     let mut reader = BufReader::new(stream);
                     let mut line = String::new();
 
-                    while reader.read_line(&mut line).unwrap_or(0) > 0 {
+                    loop {
+                        match reader.read_line(&mut line) {
+                            Ok(0) => break,
+                            Ok(_) => {}
+                            Err(error) => {
+                                eprintln!("Failed to read IPC command: {error}");
+                                break;
+                            }
+                        }
                         let trimmed = line.trim();
                         if trimmed.is_empty() {
                             line.clear();
@@ -194,8 +321,45 @@ fn main() {
 
                             match cmd.command.as_str() {
                                 "get_status" | "get_auth_status" => {
-                                    let status = build_status_message(&auth_ref);
-                                    ipc_ref.broadcast(&serde_json::to_value(status).unwrap());
+                                    broadcast_status(&auth_ref, &player_ref, &ipc_ref);
+                                }
+                                "get_favorites" => {
+                                    if let Err(error) =
+                                        load_favorites(&auth_ref, &player_ref, &ipc_ref)
+                                    {
+                                        ipc_ref.broadcast(&PlayerMessage::FavoritesError {
+                                            error: &error,
+                                        });
+                                    }
+                                }
+                                "play_track" => {
+                                    if let Err(error) =
+                                        play_track(&auth_ref, &player_ref, &ipc_ref, cmd.track_id)
+                                    {
+                                        ipc_ref.broadcast(&PlayerMessage::PlaybackError {
+                                            error: &error,
+                                        });
+                                    }
+                                }
+                                "toggle_play" | "play" | "pause" | "seek" => {
+                                    let result = (|| {
+                                        let player =
+                                            player_ref.lock().map_err(|e| e.to_string())?;
+                                        match cmd.command.as_str() {
+                                            "toggle_play" => player.engine.toggle_pause(),
+                                            "play" => player.engine.set_pause(false),
+                                            "pause" => player.engine.set_pause(true),
+                                            _ => player.engine.seek(
+                                                cmd.position.ok_or("seek requires position")?,
+                                            ),
+                                        }
+                                    })();
+                                    if let Err(error) = result {
+                                        ipc_ref.broadcast(&PlayerMessage::PlaybackError {
+                                            error: &error,
+                                        });
+                                    }
+                                    broadcast_status(&auth_ref, &player_ref, &ipc_ref);
                                 }
                                 "start_auth" => {
                                     if auth_flag.swap(true, Ordering::SeqCst) {
@@ -226,22 +390,30 @@ fn main() {
                                             let dev_code = auth_info.device_code.clone();
                                             let interval = auth_info.interval;
                                             let expires_in = auth_info.expires_in;
+                                            let player_worker = Arc::clone(&player_ref);
 
                                             thread::spawn(move || {
                                                 println!(
                                                     "  [i] Polling Tidal token for device code..."
                                                 );
-                                                match auth_worker.poll_token(
-                                                    &dev_code,
-                                                    interval,
-                                                    expires_in,
-                                                ) {
+                                                match auth_worker
+                                                    .poll_token(&dev_code, interval, expires_in)
+                                                {
                                                     Ok(session) => {
                                                         println!(
                                                             "  [✓] Successfully authenticated with Tidal! User: {:?}",
                                                             session.user_id
                                                         );
-                                                        let _ = auth_worker.save_session(&session);
+                                                        if let Err(error) =
+                                                            auth_worker.save_session(&session)
+                                                        {
+                                                            ipc_worker.broadcast(&serde_json::json!({
+                                                                "type": "auth_error", "error": error.to_string()
+                                                            }));
+                                                            flag_worker
+                                                                .store(false, Ordering::SeqCst);
+                                                            return;
+                                                        }
 
                                                         let success_msg = serde_json::json!({
                                                             "type": "auth_success",
@@ -249,10 +421,10 @@ fn main() {
                                                         });
                                                         ipc_worker.broadcast(&success_msg);
 
-                                                        let status =
-                                                            build_status_message(&auth_worker);
-                                                        ipc_worker.broadcast(
-                                                            &serde_json::to_value(status).unwrap(),
+                                                        broadcast_status(
+                                                            &auth_worker,
+                                                            &player_worker,
+                                                            &ipc_worker,
                                                         );
                                                     }
                                                     Err(err) => {
@@ -284,9 +456,21 @@ fn main() {
                                 }
                                 "logout" => {
                                     println!("  [i] User requested logout");
-                                    let _ = auth_ref.delete_session();
-                                    let status = build_status_message(&auth_ref);
-                                    ipc_ref.broadcast(&serde_json::to_value(status).unwrap());
+                                    let result = (|| {
+                                        auth_ref.delete_session().map_err(|e| e.to_string())?;
+                                        let mut player =
+                                            player_ref.lock().map_err(|e| e.to_string())?;
+                                        player.engine.stop()?;
+                                        player.current = None;
+                                        player.favorites.clear();
+                                        Ok::<(), String>(())
+                                    })();
+                                    if let Err(error) = result {
+                                        ipc_ref.broadcast(
+                                            &serde_json::json!({"type":"auth_error","error":error}),
+                                        );
+                                    }
+                                    broadcast_status(&auth_ref, &player_ref, &ipc_ref);
                                 }
                                 _ => {
                                     println!("  [i] Unhandled IPC command: {}", cmd.command);
@@ -297,7 +481,18 @@ fn main() {
                     }
                 });
             }
+            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                thread::sleep(std::time::Duration::from_millis(25));
+            }
             Err(e) => eprintln!("IPC connection error: {e}"),
         }
+    }
+    if let Ok(mut player) = player.lock() {
+        if let Err(error) = player.engine.stop() {
+            eprintln!("Failed to stop playback: {error}");
+        }
+    }
+    if let Err(error) = std::fs::remove_file(ipc_server.socket_path()) {
+        eprintln!("Failed to remove IPC socket: {error}");
     }
 }

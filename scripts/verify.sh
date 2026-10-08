@@ -37,6 +37,10 @@ echo "--> 3. Checking binary size and symbols..."
 "$SCRIPT_DIR/scripts/verify-size.sh"
 
 echo ""
+echo "--> Checking bundled daemon IPC without a session..."
+python3 "$SCRIPT_DIR/tests/daemon-smoke.py"
+
+echo ""
 echo "=========================================================="
 echo "  All verification checks passed!"
 echo "=========================================================="

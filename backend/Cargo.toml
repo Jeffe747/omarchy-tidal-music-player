@@ -8,8 +8,9 @@ description = "Lean background daemon for Omarchy Tidal music streaming and MPRI
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-ureq = { version = "2.10", features = ["json", "tls"] }
+ureq = { version = "2.10", default-features = false, features = ["json", "tls"] }
 base64 = "0.22"
+libc = "0.2"
 
 [profile.release]
 opt-level = "z"

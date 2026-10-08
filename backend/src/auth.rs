@@ -38,6 +38,12 @@ pub struct Session {
     pub expires_in: Option<u64>,
     #[serde(default)]
     pub expires_at: Option<u64>,
+    #[serde(
+        default,
+        alias = "countryCode",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub country_code: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -57,12 +63,16 @@ struct RawTokenResponse {
     expires_in: Option<u64>,
     user_id: Option<u64>,
     user: Option<RawUser>,
+    #[serde(default, rename = "countryCode")]
+    country_code: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 struct RawUser {
     #[serde(rename = "userId")]
     user_id: Option<u64>,
+    #[serde(default, rename = "countryCode")]
+    country_code: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -156,6 +166,7 @@ impl AuthManager {
         Ok(())
     }
 
+    #[cfg(test)]
     pub fn is_authenticated(&self) -> bool {
         self.load_session()
             .map(|s| !s.access_token.is_empty())
@@ -227,7 +238,12 @@ impl AuthManager {
                 Ok(raw) => {
                     let now = current_unix_timestamp();
                     let expires_at = raw.expires_in.map(|exp| now + exp);
-                    let user_id = raw.user_id.or_else(|| raw.user.and_then(|u| u.user_id));
+                    let user_id = raw
+                        .user_id
+                        .or_else(|| raw.user.as_ref().and_then(|u| u.user_id));
+                    let country_code = raw
+                        .country_code
+                        .or_else(|| raw.user.and_then(|u| u.country_code));
 
                     let session = Session {
                         access_token: raw.access_token,
@@ -235,6 +251,7 @@ impl AuthManager {
                         user_id,
                         expires_in: raw.expires_in,
                         expires_at,
+                        country_code,
                     };
                     PollResult::Success(session)
                 }
@@ -318,14 +335,25 @@ impl AuthManager {
 
         let now = current_unix_timestamp();
         let expires_at = raw.expires_in.map(|exp| now + exp);
-        let user_id = raw.user_id.or_else(|| raw.user.and_then(|u| u.user_id));
+        let previous = self.load_session();
+        let user_id = raw
+            .user_id
+            .or_else(|| raw.user.as_ref().and_then(|u| u.user_id))
+            .or_else(|| previous.as_ref().and_then(|s| s.user_id));
+        let country_code = raw
+            .country_code
+            .or_else(|| raw.user.and_then(|u| u.country_code))
+            .or_else(|| previous.and_then(|s| s.country_code));
 
         let new_session = Session {
             access_token: raw.access_token,
-            refresh_token: raw.refresh_token.or_else(|| Some(refresh_token.to_string())),
+            refresh_token: raw
+                .refresh_token
+                .or_else(|| Some(refresh_token.to_string())),
             user_id,
             expires_in: raw.expires_in,
             expires_at,
+            country_code,
         };
 
         self.save_session(&new_session)
@@ -383,6 +411,7 @@ mod tests {
             user_id: Some(987654321),
             expires_in: Some(3600),
             expires_at: Some(1700000000),
+            country_code: Some("DK".to_string()),
         };
 
         let serialized = serde_json::to_string(&session).unwrap();
@@ -391,6 +420,12 @@ mod tests {
         assert_eq!(deserialized.access_token, "test_access_token");
         assert_eq!(deserialized.user_id, Some(987654321));
         assert_eq!(deserialized.expires_at, Some(1700000000));
+        assert_eq!(deserialized.country_code.as_deref(), Some("DK"));
+        let legacy: Session = serde_json::from_str(r#"{"access_token":"token"}"#).unwrap();
+        assert_eq!(legacy.country_code, None);
+        let country: Session =
+            serde_json::from_str(r#"{"access_token":"token","countryCode":"GB"}"#).unwrap();
+        assert_eq!(country.country_code.as_deref(), Some("GB"));
     }
 
     #[test]
@@ -404,6 +439,7 @@ mod tests {
             user_id: None,
             expires_in: Some(3600),
             expires_at: Some(now + 1000),
+            country_code: None,
         };
         assert!(!auth.is_token_expired(&valid_session));
 
@@ -413,6 +449,7 @@ mod tests {
             user_id: None,
             expires_in: Some(3600),
             expires_at: Some(now - 10),
+            country_code: None,
         };
         assert!(auth.is_token_expired(&expired_session));
 
@@ -423,13 +460,15 @@ mod tests {
             user_id: None,
             expires_in: Some(3600),
             expires_at: Some(now + 30),
+            country_code: None,
         };
         assert!(auth.is_token_expired(&almost_expired));
     }
 
     #[test]
     fn test_session_file_save_and_load() {
-        let temp_dir = std::env::temp_dir().join(format!("tidal_test_{}", current_unix_timestamp()));
+        let temp_dir =
+            std::env::temp_dir().join(format!("tidal_test_{}", current_unix_timestamp()));
         let temp_file = temp_dir.join("session.json");
         std::env::set_var("TIDAL_SESSION_PATH", temp_file.to_str().unwrap());
 
@@ -442,6 +481,7 @@ mod tests {
             user_id: Some(42),
             expires_in: Some(3600),
             expires_at: Some(current_unix_timestamp() + 3600),
+            country_code: None,
         };
 
         assert!(auth.save_session(&session).is_ok());
@@ -471,7 +511,11 @@ mod tests {
         // Verifies real handshake with Tidal's Device Authorization endpoint
         let auth = AuthManager::new(None);
         let res = auth.request_device_code();
-        assert!(res.is_ok(), "Live request_device_code should succeed: {:?}", res.err());
+        assert!(
+            res.is_ok(),
+            "Live request_device_code should succeed: {:?}",
+            res.err()
+        );
         let info = res.unwrap();
         assert!(!info.device_code.is_empty());
         assert!(!info.user_code.is_empty());

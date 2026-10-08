@@ -1,9 +1,44 @@
+use crate::api::{cover_url, TrackItem};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
+
+#[derive(Serialize)]
+pub struct FavoriteTrack<'a> {
+    id: u64,
+    title: &'a str,
+    artist: &'a str,
+    album: &'a str,
+    duration: u64,
+    cover: &'a str,
+    art_url: String,
+}
+
+impl<'a> From<&'a TrackItem> for FavoriteTrack<'a> {
+    fn from(track: &'a TrackItem) -> Self {
+        Self {
+            id: track.id,
+            title: &track.title,
+            artist: track.artist_name(),
+            album: track.album_title(),
+            duration: track.duration,
+            cover: track.cover(),
+            art_url: cover_url(track.cover()),
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum PlayerMessage<'a> {
+    FavoritesLoaded { tracks: Vec<FavoriteTrack<'a>> },
+    FavoritesError { error: &'a str },
+    PlaybackStarted { track_id: u64 },
+    PlaybackError { error: &'a str },
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IpcCommand {
@@ -22,6 +57,8 @@ pub struct IpcStateMessage {
     pub msg_type: String,
     pub authenticated: bool,
     pub is_playing: bool,
+    #[serde(default)]
+    pub track_id: Option<u64>,
     #[serde(default)]
     pub track_title: Option<String>,
     #[serde(default)]
@@ -74,18 +111,28 @@ impl IpcServer {
     }
 
     pub fn register_client(&self, stream: UnixStream) {
+        if let Err(error) = stream.set_write_timeout(Some(std::time::Duration::from_secs(3))) {
+            eprintln!("Failed to configure IPC client: {error}");
+            return;
+        }
         if let Ok(mut clients) = self.clients.lock() {
             clients.push(stream);
         }
     }
 
-    pub fn broadcast(&self, msg: &serde_json::Value) {
-        let payload = format!("{}\n", msg);
+    pub fn broadcast(&self, msg: &impl Serialize) {
+        let mut payload = match serde_json::to_string(msg) {
+            Ok(payload) => payload,
+            Err(error) => {
+                eprintln!("Failed to serialize IPC message: {error}");
+                return;
+            }
+        };
+        payload.push('\n');
         let bytes = payload.as_bytes();
         if let Ok(mut clients) = self.clients.lock() {
-            clients.retain_mut(|client| {
-                client.write_all(bytes).and_then(|_| client.flush()).is_ok()
-            });
+            clients
+                .retain_mut(|client| client.write_all(bytes).and_then(|_| client.flush()).is_ok());
         }
     }
 
@@ -122,6 +169,7 @@ mod tests {
             msg_type: "status".to_string(),
             authenticated: true,
             is_playing: false,
+            track_id: Some(42),
             track_title: Some("Song Title".to_string()),
             track_artist: Some("Artist Name".to_string()),
             track_album: Some("Album Name".to_string()),
@@ -137,5 +185,45 @@ mod tests {
 
         let deserialized: IpcStateMessage = serde_json::from_str(&serialized).unwrap();
         assert_eq!(deserialized, msg);
+    }
+
+    #[test]
+    fn test_player_message_shapes() {
+        let track: TrackItem = serde_json::from_str(r#"{"id":42,"title":"Song","duration":180,"artists":[{"name":"Artist"}],"album":{"title":"Album","cover":"ab-cd"}}"#).unwrap();
+        let msg = PlayerMessage::FavoritesLoaded {
+            tracks: vec![FavoriteTrack::from(&track)],
+        };
+        let value = serde_json::to_value(msg).unwrap();
+        assert_eq!(value["type"], "favorites_loaded");
+        assert_eq!(
+            value["tracks"][0],
+            serde_json::json!({
+                "id":42,"title":"Song","artist":"Artist","album":"Album","duration":180,
+                "cover":"ab-cd","art_url":"https://resources.tidal.com/images/ab/cd/640x640.jpg"
+            })
+        );
+        assert_eq!(
+            serde_json::to_value(PlayerMessage::PlaybackStarted { track_id: 42 }).unwrap(),
+            serde_json::json!({"type":"playback_started","track_id":42})
+        );
+        for (message, kind) in [
+            (
+                PlayerMessage::FavoritesError {
+                    error: "No session",
+                },
+                "favorites_error",
+            ),
+            (
+                PlayerMessage::PlaybackError {
+                    error: "No session",
+                },
+                "playback_error",
+            ),
+        ] {
+            assert_eq!(
+                serde_json::to_value(message).unwrap(),
+                serde_json::json!({"type":kind,"error":"No session"})
+            );
+        }
     }
 }

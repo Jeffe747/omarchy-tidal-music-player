@@ -86,7 +86,7 @@ Implementation is strictly phased into 7 milestones:
 | # | Milestone | Status | Gate Pre-requisite to Advance |
 | :---: | :--- | :---: | :--- |
 | **M1** | **Authentication & Session Management (Login)** | 🟢 **Done** | Unit tests pass for `auth.rs`; device code generated; tokens persisted to `~/.local/state/omarchy/tidal/session.json`; UI shows "Connected". |
-| **M2** | **Favorites List & Core Audio Playback** | 🟡 **Next** | Favorites API parsed; unencrypted FLAC manifest resolved; headless `mpv` streams audio to PipeWire; now-playing artwork/title renders in UI. |
+| **M2** | **Favorites List & Core Audio Playback** | 🟡 **Live gate pending** | Local implementation verified; authenticated stream and PipeWire audio verification remain pending on the remote laptop. |
 | **M3** | **Interactive Controls, Seeking & Auto-Advance** | ⚪ Queued | Seek slider latency < 100ms; pause/play/next transport works; EOF auto-advances to next favorite; right-click toggles on bar. |
 | **M4** | **MPRIS D-Bus & Desktop Integration** | ⚪ Queued | `org.mpris.MediaPlayer2.Tidal` on session bus; media keys and `playerctl` control playback; Omarchy media widgets sync. |
 | **M5** | **Catalog Search & Discovery** | ⚪ Queued | Debounced search queries complete in < 500ms; one-click play from search results. |
@@ -114,11 +114,11 @@ Before an agent claims a milestone as complete, it **must** run the correspondin
 ```bash
 ./scripts/verify.sh
 ```
-- [ ] `playback::tests::test_parse_bts_manifest` passes.
-- [ ] Unit tests for favorites JSON parsing pass.
-- [ ] Daemon resolves direct stream URL from `playbackinfo`.
+- [x] `playback::tests::test_parse_bts_manifest` passes.
+- [x] Unit tests for favorites JSON parsing pass.
+- [ ] Daemon resolves direct stream URL from live `playbackinfo` (fixture resolution verified; authenticated request pending on remote laptop).
 - [ ] Audio stream plays through PipeWire without distortion.
-- [ ] Album artwork and track metadata render on `BarWidget.qml`.
+- [x] Album artwork and track metadata render on `BarWidget.qml` (QML runtime fixtures verified).
 
 ### Gate M3: Controls & Seeking Verification
 - [ ] Seeking through `PanelSlider` repositions stream within 100ms.
