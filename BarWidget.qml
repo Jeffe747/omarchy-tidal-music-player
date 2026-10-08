@@ -44,7 +44,7 @@ Panel {
     text: root.barLabelText() || "󰓇"
     tooltipText: (tidalService && tidalService.trackTitle) ? (tidalService.trackTitle + " - " + tidalService.trackArtist) : "Tidal Music"
     onPressed: function(b) {
-      if (b === Qt.RightButton) {
+      if (b === Qt.RightButton || b === Qt.MiddleButton) {
         if (tidalService) tidalService.togglePlay()
       } else {
         root.toggle()
@@ -365,7 +365,7 @@ Panel {
             PanelSlider {
               width: parent.width
               bar: root.bar
-              value: (tidalService && tidalService.trackDuration > 0) ? (tidalService.trackPosition / tidalService.trackDuration) : 0
+              value: (tidalService && tidalService.trackDuration > 0) ? Math.max(0, Math.min(1, tidalService.trackPosition / tidalService.trackDuration)) : 0
               onMoved: function(val) {
                 if (tidalService) {
                   tidalService.seek(val * tidalService.trackDuration)
@@ -401,6 +401,7 @@ Panel {
 
             Ui.Button {
               text: "⏮"
+              tooltipText: "Previous track (or restart current track)"
               onClicked: {
                 if (tidalService) tidalService.previous()
               }
@@ -409,6 +410,7 @@ Panel {
             Ui.Button {
               text: (tidalService && tidalService.isPlaying) ? "⏸" : "▶"
               selected: true
+              tooltipText: (tidalService && tidalService.isPlaying) ? "Pause" : "Play"
               onClicked: {
                 if (tidalService) tidalService.togglePlay()
               }
@@ -416,6 +418,7 @@ Panel {
 
             Ui.Button {
               text: "⏭"
+              tooltipText: "Next track"
               onClicked: {
                 if (tidalService) tidalService.next()
               }

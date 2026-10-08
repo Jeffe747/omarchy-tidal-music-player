@@ -24,6 +24,7 @@ struct Player {
     favorites: Vec<TrackItem>,
     current: Option<TrackItem>,
     quality: String,
+    eof_handled_track: Option<u64>,
 }
 
 impl Player {
@@ -33,6 +34,7 @@ impl Player {
             favorites: Vec::new(),
             current: None,
             quality: "LOSSLESS".to_string(),
+            eof_handled_track: None,
         }
     }
 }
@@ -114,7 +116,7 @@ fn build_status_message(auth_manager: &AuthManager, player: &Player) -> IpcState
         track_album: track.map(|t| t.album_title().to_string()),
         track_art_url: track.map(|t| cover_url(t.cover())),
         duration: Some(track.map(|t| t.duration as f64).unwrap_or(0.0)),
-        position: Some(0.0),
+        position: if playing { player.engine.position().ok() } else { Some(0.0) },
         audio_quality: Some(player.quality.clone()),
     }
 }
@@ -219,9 +221,66 @@ fn play_track(
     }
     player.current = Some(track);
     player.quality = info.audio_quality;
+    player.eof_handled_track = None;
     ipc.broadcast(&PlayerMessage::PlaybackStarted { track_id: id });
     ipc.broadcast(&build_status_message(auth, &player));
     Ok(())
+}
+
+fn navigate(auth: &AuthManager, player: &Mutex<Player>, ipc: &IpcServer, forward: bool) -> Result<(), String> {
+    let target = {
+        let state = player.lock().map_err(|e| e.to_string())?;
+        let current = state.current.as_ref().ok_or("No current track")?;
+        if !forward && state.engine.position().unwrap_or(0.0) > 3.0 {
+            state.engine.seek(0.0)?;
+            drop(state);
+            broadcast_status(auth, player, ipc);
+            return Ok(());
+        }
+        let index = state.favorites.iter().position(|t| t.id == current.id).ok_or("Current track is not in favorites")?;
+        let len = state.favorites.len();
+        if len == 0 { return Err("Favorites queue is empty".to_string()); }
+        if forward { (index + 1) % len } else { (index + len - 1) % len }
+    };
+    let id = player.lock().map_err(|e| e.to_string())?.favorites[target].id;
+    play_track(auth, player, ipc, Some(id))
+}
+
+fn start_position_ticker(auth: Arc<AuthManager>, player: Arc<Mutex<Player>>, ipc: IpcServer) {
+    thread::spawn(move || {
+        while !SHUTDOWN.load(Ordering::Relaxed) {
+            thread::sleep(std::time::Duration::from_millis(250));
+            let (position, duration, is_playing, eof_track) = match player.lock() {
+                Ok(mut state) => {
+                    let track_id = state.current.as_ref().map(|t| t.id);
+                    if let Some(id) = track_id {
+                        match state.engine.eof_reached() {
+                            Ok(true) if state.eof_handled_track != Some(id) => { state.eof_handled_track = Some(id); (None, None, false, Some(id)) },
+                            _ => {
+                                let playing = !state.engine.property("idle-active").ok().and_then(|v| v.as_bool()).unwrap_or(true)
+                                    && !state.engine.property("pause").ok().and_then(|v| v.as_bool()).unwrap_or(true);
+                                (state.engine.position().ok(), state.engine.duration().ok(), playing, None)
+                            },
+                        }
+                    } else { (None, None, false, None) }
+                },
+                Err(_) => continue,
+            };
+            if let Some(id) = eof_track {
+                let result = navigate(&auth, &player, &ipc, true);
+                if let Err(error) = result {
+                    log::write(&format!("Auto-advance failed for {id}: {error}"));
+                    ipc.broadcast(&PlayerMessage::PlaybackError { error: &error });
+                }
+                continue;
+            }
+            if is_playing {
+                if let Some(position) = position {
+                    ipc.broadcast(&serde_json::json!({"type":"position_changed", "position":position, "duration":duration}));
+                }
+            }
+        }
+    });
 }
 
 fn main() {
@@ -307,6 +366,7 @@ fn main() {
     log::write("Starting Omarchy Tidal Daemon");
     let player = Arc::new(Mutex::new(Player::new()));
     let ipc_server = IpcServer::new();
+    start_position_ticker(Arc::clone(&auth_manager), Arc::clone(&player), ipc_server.clone());
 
     // Check existing session
     match auth_manager.get_valid_session() {
@@ -391,7 +451,7 @@ fn main() {
                             let command = match cmd.command.as_str() {
                                 "get_status" | "get_auth_status" | "get_favorites"
                                 | "play_track" | "toggle_play" | "play" | "pause" | "seek"
-                                | "start_auth" | "logout" => cmd.command.as_str(),
+                                | "next" | "previous" | "resume" | "start_auth" | "logout" => cmd.command.as_str(),
                                 _ => "unknown",
                             };
                             log::write(&format!("IPC command: {command}"));
@@ -420,13 +480,13 @@ fn main() {
                                         });
                                     }
                                 }
-                                "toggle_play" | "play" | "pause" | "seek" => {
+                                "toggle_play" | "play" | "resume" | "pause" | "seek" => {
                                     let result = (|| {
                                         let player =
                                             player_ref.lock().map_err(|e| e.to_string())?;
                                         match cmd.command.as_str() {
                                             "toggle_play" => player.engine.toggle_pause(),
-                                            "play" => player.engine.set_pause(false),
+                                            "play" | "resume" => player.engine.set_pause(false),
                                             "pause" => player.engine.set_pause(true),
                                             _ => player.engine.seek(
                                                 cmd.position.ok_or("seek requires position")?,
@@ -440,6 +500,12 @@ fn main() {
                                         });
                                     }
                                     broadcast_status(&auth_ref, &player_ref, &ipc_ref);
+                                }
+                                "next" | "previous" => {
+                                    if let Err(error) = navigate(&auth_ref, &player_ref, &ipc_ref, cmd.command == "next") {
+                                        log::write(&format!("Navigation failed: {error}"));
+                                        ipc_ref.broadcast(&PlayerMessage::PlaybackError { error: &error });
+                                    }
                                 }
                                 "start_auth" => {
                                     if auth_flag.swap(true, Ordering::SeqCst) {

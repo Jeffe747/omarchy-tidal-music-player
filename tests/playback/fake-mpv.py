@@ -11,6 +11,9 @@ with open(path + ".args", "w") as output:
 time.sleep(0.2)
 paused = True
 idle = True
+position = 0.0
+duration = 180.0
+eof = False
 with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
     server.bind(path)
     server.listen()
@@ -34,7 +37,10 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
                 paused = command[2]
             elif command[:2] == ["cycle", "pause"]:
                 paused = not paused
+            elif command[0] == "seek":
+                position = max(0.0, float(command[1]))
             elif command[0] == "get_property":
-                response["data"] = {"pause": paused, "idle-active": idle}[command[1]]
+                response["data"] = {"pause": paused, "idle-active": idle, "time-pos": position,
+                                    "duration": duration, "eof-reached": eof}[command[1]]
             connection.sendall(b'{"event":"idle"}\n')
             connection.sendall((json.dumps(response) + "\n").encode())

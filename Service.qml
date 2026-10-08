@@ -263,6 +263,9 @@ Item {
     } else if (msg.type === "playback_started") {
       root.currentTrackId = msg.track_id
       root.playbackError = ""
+    } else if (msg.type === "position_changed") {
+      root.trackPosition = Math.max(0, Number(msg.position) || 0)
+      if (msg.duration !== undefined) root.trackDuration = Math.max(0, Number(msg.duration) || 0)
     } else if (msg.type === "playback_error") {
       root.playbackError = msg.error || "Unable to play track"
     }

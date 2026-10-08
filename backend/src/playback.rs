@@ -212,7 +212,20 @@ impl PlaybackEngine {
         Ok(())
     }
 
+    pub fn duration(&self) -> Result<f64, String> {
+        self.property("duration")?.as_f64().ok_or_else(|| "mpv returned invalid duration".to_string())
+    }
+
+    pub fn position(&self) -> Result<f64, String> {
+        Ok(self.property("time-pos")?.as_f64().unwrap_or(0.0).max(0.0))
+    }
+
+    pub fn eof_reached(&self) -> Result<bool, String> {
+        Ok(self.property("eof-reached")?.as_bool().unwrap_or(false))
+    }
+
     pub fn seek(&self, seconds: f64) -> Result<(), String> {
+        if !seconds.is_finite() || seconds < 0.0 { return Err("seek position must be a finite non-negative number".to_string()); }
         let cmd = serde_json::json!({
             "command": ["seek", seconds, "absolute"]
         });
@@ -289,6 +302,7 @@ mod tests {
             favorites: Vec::new(),
             current: Some(serde_json::from_str(r#"{"id":42,"title":"Song","duration":180,"artist":{"name":"Artist"},"album":{"title":"Album","cover":"ab-cd"}}"#).unwrap()),
             quality: "LOSSLESS".to_string(),
+            eof_handled_track: None,
         };
         let auth = crate::auth::AuthManager::new(None);
         let status = crate::build_status_message(&auth, &player);
@@ -302,10 +316,15 @@ mod tests {
             Some("https://resources.tidal.com/images/ab/cd/640x640.jpg")
         );
         assert_eq!(status.duration, Some(180.0));
+        assert_eq!(status.position, Some(0.0));
         player.engine.toggle_pause().unwrap();
         assert!(!crate::build_status_message(&auth, &player).is_playing);
         engine = player.engine;
         assert_eq!(engine.property("pause").unwrap(), true);
+        engine.seek(15.25).unwrap();
+        assert_eq!(engine.position().unwrap(), 15.25);
+        assert_eq!(engine.duration().unwrap(), 180.0);
+        assert!(!engine.eof_reached().unwrap());
         assert!(engine
             .load_url("fail")
             .unwrap_err()

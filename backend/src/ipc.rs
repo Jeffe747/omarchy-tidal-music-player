@@ -164,6 +164,16 @@ mod tests {
     }
 
     #[test]
+    fn test_transport_command_shapes() {
+        for command in ["pause", "resume", "play", "toggle_play", "next", "previous"] {
+            let parsed: IpcCommand = serde_json::from_value(serde_json::json!({"command": command})).unwrap();
+            assert_eq!(parsed.command, command);
+        }
+        let seek: IpcCommand = serde_json::from_str(r#"{"command":"seek","position":12.5}"#).unwrap();
+        assert_eq!(seek.position, Some(12.5));
+    }
+
+    #[test]
     fn test_ipc_state_message_serialization() {
         let msg = IpcStateMessage {
             msg_type: "status".to_string(),
