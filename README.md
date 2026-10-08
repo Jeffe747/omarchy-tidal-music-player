@@ -55,6 +55,8 @@ For the live milestone progress tracker and task checklist, see **[`PROGRESS.md`
 ├── PLAN.md              # Complete architecture, protocol research & implementation plan
 ├── PROGRESS.md          # Live milestone roadmap, task checklist & activity log
 ├── README.md            # Project documentation and quick start guide
+├── DEVELOPMENT.md       # Development requirements, toolchains & workflow guide
+├── mise.toml            # mise-en-place toolchain definition (pins rust = "stable")
 ├── manifest.json        # Omarchy plugin descriptor (jaj.tidal)
 ├── BarWidget.qml        # Top bar widget button & popup player card
 ├── Service.qml          # Quickshell background IPC service
@@ -85,10 +87,13 @@ For the live milestone progress tracker and task checklist, see **[`PROGRESS.md`
 ```
 
 ### 2. Build the Backend Daemon
-Requires Rust (can be installed via `omarchy pkg add rust` or rustup):
+Requires Rust (managed via [`mise`](DEVELOPMENT.md), `omarchy pkg add rust`, or `rustup`):
 ```bash
 ./scripts/build.sh
 ```
+
+> [!TIP]
+> For complete development toolchains, system package setup, and dependencies, see **[`DEVELOPMENT.md`](DEVELOPMENT.md)**.
 
 ### 3. Enable in Status Bar
 Add `"jaj.tidal"` to your status bar layout in `~/.config/omarchy/shell.json`:
@@ -107,6 +112,23 @@ Or run:
 ```bash
 omarchy plugin enable jaj.tidal
 ```
+
+---
+
+## Development & Contributing
+
+For detailed setup instructions, toolchain configuration (`mise`, `rustup`), runtime dependencies (`mpv`, `pipewire`, `quickshell`), and verification scripts, see **[`DEVELOPMENT.md`](DEVELOPMENT.md)**.
+
+### Quick Verification Run
+Before submitting changes or marking milestones complete, run the full verification gate:
+```bash
+./scripts/verify.sh
+```
+
+- **Run unit tests:** `cargo test --manifest-path backend/Cargo.toml`
+- **Verify Omarchy compliance:** `./scripts/verify-omarchy-compliance.sh`
+- **Audit binary size & symbols:** `./scripts/verify-size.sh`
+- **Track roadmap progress:** `./scripts/status.sh`
 
 ---
 
