@@ -8,6 +8,7 @@ Item {
   property var shell: null
   readonly property string socketPath: Quickshell.env("XDG_RUNTIME_DIR") + "/tidal.sock"
   readonly property string binaryPath: Qt.resolvedUrl("backend/target/release/tidal-daemon").toString().replace(/^file:\/\//, "")
+  readonly property string buildScriptMessage: "Backend daemon not found. Run ~/.config/omarchy/plugins/jaj.tidal/scripts/build.sh to build."
 
   // Reactive state properties exposed to BarWidget & Omarchy UI
   property bool authenticated: false
@@ -15,6 +16,8 @@ Item {
   property string authCode: ""
   property bool authPending: false
   property string authError: ""
+
+  property bool daemonBinaryExists: false
 
   property bool isPlaying: false
   property string trackTitle: ""
@@ -27,6 +30,27 @@ Item {
 
   property var searchResults: []
   property bool searching: false
+
+  // Check daemon binary existence
+  Process {
+    id: binaryCheckProc
+    command: ["test", "-x", root.binaryPath]
+    running: false
+    onExited: function(exitCode) {
+      root.daemonBinaryExists = (exitCode === 0)
+      if (exitCode !== 0 && !root.authenticated) {
+        root.authError = root.buildScriptMessage
+      } else if (root.authError === root.buildScriptMessage) {
+        root.authError = ""
+      }
+    }
+  }
+
+  function checkDaemonBinary() {
+    if (!binaryCheckProc.running) {
+      binaryCheckProc.running = true
+    }
+  }
 
   // Start background daemon process if needed
   Process {
@@ -65,17 +89,23 @@ Item {
     repeat: true
     running: !daemonSocket.connected
     onTriggered: {
-      if (!daemonSocket.connected) {
+      checkDaemonBinary()
+      if (!daemonSocket.connected && daemonBinaryExists) {
         daemonSocket.connected = true
       }
     }
   }
 
   Component.onCompleted: {
+    checkDaemonBinary()
     daemonSocket.connected = true
   }
 
   function ensureDaemonRunning() {
+    if (!daemonBinaryExists) {
+      root.authError = root.buildScriptMessage
+      return
+    }
     if (!daemonSocket.connected && !daemonProcess.running) {
       daemonProcess.running = true
     }
@@ -134,6 +164,11 @@ Item {
 
   // Public control APIs
   function startAuth() {
+    checkDaemonBinary()
+    if (!daemonBinaryExists) {
+      root.authError = root.buildScriptMessage
+      return
+    }
     ensureDaemonRunning()
     sendCommand({ "command": "start_auth" })
   }

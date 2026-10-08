@@ -10,8 +10,16 @@ Panel {
   ipcTarget: "jaj.tidal.widget"
 
   // Service lookup
-  readonly property var tidalService: bar?.shell?.firstPartyServiceFor ? bar.shell.firstPartyServiceFor("jaj.tidal") : localService
+  readonly property var tidalService: {
+    if (bar && bar.shell && typeof bar.shell.serviceFor === "function") {
+      var s = bar.shell.serviceFor("jaj.tidal")
+      if (s) return s
+    }
+    return localService
+  }
   Service { id: localService }
+
+  readonly property bool isAuthenticated: tidalService ? tidalService.authenticated === true : false
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -24,7 +32,7 @@ Panel {
   }
 
   function barLabelText() {
-    if (!tidalService.authenticated) return "󰓇"
+    if (!tidalService || !root.isAuthenticated) return ""
     if (tidalService.trackTitle) {
       var icon = tidalService.isPlaying ? "󰐊 " : "󰏤 "
       return icon + tidalService.trackTitle + " • " + tidalService.trackArtist
@@ -36,11 +44,11 @@ Panel {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: root.barLabelText()
-    tooltipText: tidalService.trackTitle ? (tidalService.trackTitle + " - " + tidalService.trackArtist) : "Tidal Music"
+    text: root.barLabelText() || "󰓇"
+    tooltipText: (tidalService && tidalService.trackTitle) ? (tidalService.trackTitle + " - " + tidalService.trackArtist) : "Tidal Music"
     onPressed: function(b) {
       if (b === Qt.RightButton) {
-        tidalService.togglePlay()
+        if (tidalService) tidalService.togglePlay()
       } else {
         root.toggle()
       }
@@ -56,6 +64,11 @@ Panel {
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(380))
     contentHeight: panel.fittedContentHeight(mainColumn.implicitHeight)
+    onOpenChanged: {
+      if (open && tidalService && typeof tidalService.checkDaemonBinary === "function") {
+        tidalService.checkDaemonBinary()
+      }
+    }
 
     PanelKeyCatcher {
       id: keyCatcher
@@ -102,10 +115,10 @@ Panel {
               }
 
               Text {
-                text: tidalService.authenticated ? "Connected" : (tidalService.authPending ? "Waiting for Login..." : "Not Logged In")
+                text: root.isAuthenticated ? "Connected" : ((tidalService && tidalService.authPending) ? "Waiting for Login..." : "Not Logged In")
                 font.family: root.bar ? root.bar.fontFamily : Style.font.family
                 font.pixelSize: Style.font.caption
-                color: tidalService.authenticated ? Color.accent : Color.muted
+                color: root.isAuthenticated ? Color.accent : Color.muted
               }
             }
           }
@@ -118,7 +131,7 @@ Panel {
 
             // Audio Quality Badge
             Rectangle {
-              visible: tidalService.authenticated && tidalService.trackTitle !== ""
+              visible: root.isAuthenticated && (tidalService && tidalService.trackTitle !== "")
               anchors.verticalCenter: parent.verticalCenter
               radius: Style.radiusSmall
               color: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.15)
@@ -130,7 +143,7 @@ Panel {
               Text {
                 id: qualityText
                 anchors.centerIn: parent
-                text: tidalService.audioQuality === "HI_RES_LOSSLESS" ? "HI-RES FLAC" : (tidalService.audioQuality === "LOSSLESS" ? "LOSSLESS" : "HIGH AAC")
+                text: (tidalService && tidalService.audioQuality === "HI_RES_LOSSLESS") ? "HI-RES FLAC" : ((tidalService && tidalService.audioQuality === "LOSSLESS") ? "LOSSLESS" : "HIGH AAC")
                 font.pixelSize: Style.font.caption
                 font.bold: true
                 color: Color.accent
@@ -139,11 +152,13 @@ Panel {
 
             // Disconnect / Logout Button
             Button {
-              visible: tidalService.authenticated
+              visible: root.isAuthenticated
               anchors.verticalCenter: parent.verticalCenter
               text: "Logout"
               iconText: "󰍃"
-              onClicked: tidalService.logout()
+              onClicked: {
+                if (tidalService) tidalService.logout()
+              }
             }
           }
         }
@@ -152,9 +167,31 @@ Panel {
 
         // Unauthenticated State: Device Pairing
         Column {
-          visible: !tidalService.authenticated
+          visible: !root.isAuthenticated
           width: parent.width
           spacing: Style.space(12)
+
+          // Helpful banner when backend daemon binary is missing
+          Rectangle {
+            id: missingBinaryBanner
+            visible: tidalService && (!tidalService.daemonBinaryExists || tidalService.authError === "Backend daemon not found. Run ~/.config/omarchy/plugins/jaj.tidal/scripts/build.sh to build.")
+            width: parent.width
+            radius: Style.radiusMedium
+            color: Qt.rgba(Color.urgent.r, Color.urgent.g, Color.urgent.b, 0.12)
+            border.color: Color.urgent
+            border.width: 1
+            implicitHeight: missingBinaryText.implicitHeight + Style.space(16)
+
+            Text {
+              id: missingBinaryText
+              anchors.fill: parent
+              anchors.margins: Style.space(8)
+              text: "Backend daemon not found. Run ~/.config/omarchy/plugins/jaj.tidal/scripts/build.sh to build."
+              wrapMode: Text.WordWrap
+              color: Color.urgent
+              font.pixelSize: Style.font.caption
+            }
+          }
 
           Text {
             text: "Sign in with Tidal to stream high-fidelity audio directly from Omarchy."
@@ -165,7 +202,7 @@ Panel {
           }
 
           Column {
-            visible: tidalService.authPending
+            visible: tidalService && tidalService.authPending
             width: parent.width
             spacing: Style.space(10)
 
@@ -185,7 +222,7 @@ Panel {
 
               Text {
                 anchors.centerIn: parent
-                text: tidalService.authCode || "FETCHING..."
+                text: (tidalService && tidalService.authCode) ? tidalService.authCode : "FETCHING..."
                 font.pixelSize: Style.space(26)
                 font.bold: true
                 color: Color.accent
@@ -205,7 +242,7 @@ Panel {
               text: "Open link.tidal.com in Browser"
               iconText: "󰌹"
               onClicked: {
-                if (tidalService.authUrl) {
+                if (tidalService && tidalService.authUrl) {
                   Quickshell.execDetached(["xdg-open", tidalService.authUrl])
                 }
               }
@@ -213,8 +250,8 @@ Panel {
           }
 
           Text {
-            visible: tidalService.authError !== "" && !tidalService.authPending
-            text: tidalService.authError
+            visible: tidalService && tidalService.authError !== "" && !tidalService.authPending && (!missingBinaryBanner.visible || tidalService.authError !== "Backend daemon not found. Run ~/.config/omarchy/plugins/jaj.tidal/scripts/build.sh to build.")
+            text: tidalService ? tidalService.authError : ""
             color: Color.urgent
             font.pixelSize: Style.font.caption
             wrapMode: Text.WordWrap
@@ -222,17 +259,19 @@ Panel {
           }
 
           Button {
-            visible: !tidalService.authPending
+            visible: !tidalService || !tidalService.authPending
             width: parent.width
             text: "Login with Tidal"
             iconText: "󰓇"
-            onClicked: tidalService.startAuth()
+            onClicked: {
+              if (tidalService) tidalService.startAuth()
+            }
           }
         }
 
         // Authenticated State: Now Playing & Controls
         Column {
-          visible: tidalService.authenticated
+          visible: root.isAuthenticated
           width: parent.width
           spacing: Style.space(12)
 
@@ -251,14 +290,14 @@ Panel {
 
               Image {
                 anchors.fill: parent
-                source: tidalService.trackArtUrl
+                source: (tidalService && tidalService.trackArtUrl) || ""
                 fillMode: Image.PreserveAspectCrop
-                visible: tidalService.trackArtUrl !== ""
+                visible: tidalService && tidalService.trackArtUrl !== ""
               }
 
               Text {
                 anchors.centerIn: parent
-                visible: tidalService.trackArtUrl === ""
+                visible: !tidalService || tidalService.trackArtUrl === ""
                 text: "󰝚"
                 font.pixelSize: Style.space(32)
                 color: Color.muted
@@ -272,7 +311,7 @@ Panel {
               spacing: Style.space(3)
 
               Text {
-                text: tidalService.trackTitle || "No Track Playing"
+                text: (tidalService && tidalService.trackTitle) || "No Track Playing"
                 font.pixelSize: Style.font.body
                 font.bold: true
                 color: Color.foreground
@@ -281,7 +320,7 @@ Panel {
               }
 
               Text {
-                text: tidalService.trackArtist || "Select a song or search below"
+                text: (tidalService && tidalService.trackArtist) || "Select a song or search below"
                 font.pixelSize: Style.font.caption
                 color: Color.muted
                 elide: Text.ElideRight
@@ -289,12 +328,12 @@ Panel {
               }
 
               Text {
-                text: tidalService.trackAlbum || ""
+                text: (tidalService && tidalService.trackAlbum) || ""
                 font.pixelSize: Style.font.caption
                 color: Color.muted
                 elide: Text.ElideRight
                 width: parent.width
-                visible: tidalService.trackAlbum !== ""
+                visible: tidalService && tidalService.trackAlbum !== ""
               }
             }
           }
@@ -306,9 +345,11 @@ Panel {
 
             PanelSlider {
               width: parent.width
-              value: tidalService.trackDuration > 0 ? (tidalService.trackPosition / tidalService.trackDuration) : 0
+              value: (tidalService && tidalService.trackDuration > 0) ? (tidalService.trackPosition / tidalService.trackDuration) : 0
               onMoved: function(val) {
-                tidalService.seek(val * tidalService.trackDuration)
+                if (tidalService) {
+                  tidalService.seek(val * tidalService.trackDuration)
+                }
               }
             }
 
@@ -319,14 +360,14 @@ Panel {
               Text {
                 id: timeCurrent
                 anchors.left: parent.left
-                text: root.formatTime(tidalService.trackPosition)
+                text: root.formatTime(tidalService ? tidalService.trackPosition : 0)
                 font.pixelSize: Style.font.caption
                 color: Color.muted
               }
 
               Text {
                 anchors.right: parent.right
-                text: root.formatTime(tidalService.trackDuration)
+                text: root.formatTime(tidalService ? tidalService.trackDuration : 0)
                 font.pixelSize: Style.font.caption
                 color: Color.muted
               }
@@ -340,18 +381,24 @@ Panel {
 
             Button {
               text: "⏮"
-              onClicked: tidalService.previous()
+              onClicked: {
+                if (tidalService) tidalService.previous()
+              }
             }
 
             Button {
-              text: tidalService.isPlaying ? "⏸" : "▶"
+              text: (tidalService && tidalService.isPlaying) ? "⏸" : "▶"
               selected: true
-              onClicked: tidalService.togglePlay()
+              onClicked: {
+                if (tidalService) tidalService.togglePlay()
+              }
             }
 
             Button {
               text: "⏭"
-              onClicked: tidalService.next()
+              onClicked: {
+                if (tidalService) tidalService.next()
+              }
             }
           }
 
@@ -365,7 +412,7 @@ Panel {
             width: parent.width
             placeholderText: "Search songs, albums, artists..."
             onAccepted: {
-              if (text.trim() !== "") {
+              if (text.trim() !== "" && tidalService) {
                 tidalService.search(text.trim())
               }
             }
@@ -375,14 +422,16 @@ Panel {
           Column {
             width: parent.width
             spacing: Style.space(4)
-            visible: tidalService.searchResults && tidalService.searchResults.length > 0
+            visible: tidalService && tidalService.searchResults && tidalService.searchResults.length > 0
 
             Repeater {
-              model: tidalService.searchResults.slice(0, 5)
+              model: (tidalService && tidalService.searchResults) ? tidalService.searchResults.slice(0, 5) : []
               delegate: WidgetButton {
                 width: parent.width
                 text: (modelData.title || "") + " • " + (modelData.artist || "")
-                onClicked: tidalService.playTrack(modelData.id)
+                onClicked: {
+                  if (tidalService) tidalService.playTrack(modelData.id)
+                }
               }
             }
           }
