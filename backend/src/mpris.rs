@@ -112,6 +112,31 @@ fn properties(iface: &str, player: &Player) -> Vec<(&'static str, MessageItem)> 
 fn dict(props: Vec<(&str, MessageItem)>) -> MessageItem {
     map(props)
 }
+fn parse_seek_args(
+    member: &str,
+    args: &[MessageItem],
+) -> Result<(Option<String>, i64), &'static str> {
+    let (track, position) = if member == "Seek" {
+        (None, args.first())
+    } else {
+        let track = args.first().and_then(|v| {
+            if let MessageItem::ObjectPath(path) = v {
+                Some(path.to_string())
+            } else {
+                None
+            }
+        });
+        (track, args.get(1))
+    };
+    let position = match position {
+        Some(MessageItem::Int64(value)) => *value,
+        _ => return Err("Expected an int64 position"),
+    };
+    if member == "SetPosition" && track.is_none() {
+        return Err("Expected an object path track ID");
+    }
+    Ok((track, position))
+}
 fn reply(conn: &Connection, msg: &dbus::Message, items: Vec<MessageItem>) {
     if let Some(mut out) = dbus::Message::new_method_return(msg) {
         out.append_items(&items);
@@ -239,35 +264,24 @@ pub fn start(auth: Arc<AuthManager>, player: Arc<Mutex<Player>>, ipc: IpcServer)
                         result = crate::navigate(&auth_cb, &player_cb, &ipc_cb, member == "Next")
                     }
                     (PLAYER, "Seek") | (PLAYER, "SetPosition") => {
+                        let (track_id, micros) = match parse_seek_args(&member, &args) {
+                            Ok(parsed) => parsed,
+                            Err(e) => {
+                                error(conn, &msg, e);
+                                return true;
+                            }
+                        };
                         if member == "SetPosition" {
                             let expected = player_cb
                                 .lock()
                                 .ok()
                                 .and_then(|p| p.current.as_ref().map(|t| t.id));
-                            let actual = args.first().and_then(|v| {
-                                if let MessageItem::ObjectPath(p) = v {
-                                    Some(p.to_string())
-                                } else {
-                                    None
-                                }
-                            });
+                            let actual = track_id;
                             if expected.map(|id| format!("{PATH}/Track/{id}")) != actual {
                                 error(conn, &msg, "Track ID does not match current track");
                                 return true;
                             }
                         }
-                        let offset = if member == "Seek" {
-                            args.first()
-                        } else {
-                            args.get(1)
-                        };
-                        let micros = match offset {
-                            Some(MessageItem::Int64(v)) => *v,
-                            _ => {
-                                error(conn, &msg, "Expected an int64 position");
-                                return true;
-                            }
-                        };
                         let current = player_cb
                             .lock()
                             .ok()
@@ -353,6 +367,29 @@ mod tests {
         assert_eq!(entries.len(), 6);
     }
     #[test]
+    fn seek_message_arguments_parse_with_expected_dbus_types() {
+        assert_eq!(
+            parse_seek_args("Seek", &[MessageItem::Int64(-5)]),
+            Ok((None, -5))
+        );
+        assert_eq!(
+            parse_seek_args(
+                "SetPosition",
+                &[
+                    MessageItem::ObjectPath(format!("{PATH}/Track/42").into()),
+                    MessageItem::Int64(15)
+                ]
+            ),
+            Ok((Some(format!("{PATH}/Track/42")), 15))
+        );
+        assert!(parse_seek_args("Seek", &[MessageItem::Str("15".into())]).is_err());
+        assert!(parse_seek_args(
+            "SetPosition",
+            &[MessageItem::Str("bad path".into()), MessageItem::Int64(15)]
+        )
+        .is_err());
+    }
+    #[test]
     fn root_property_values_match_mpris() {
         let props = properties(ROOT, &Player::new());
         assert_eq!(
@@ -367,5 +404,6 @@ mod tests {
             props.iter().find(|(n, _)| *n == "CanRaise").unwrap().1,
             MessageItem::Bool(false)
         );
+        assert_eq!(dict(props).signature().to_string(), "a{sv}");
     }
 }
