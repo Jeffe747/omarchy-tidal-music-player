@@ -1,0 +1,14 @@
+# Rust build artifacts
+backend/target/
+**/*.rs.bk
+Cargo.lock
+
+# Omarchy local state & logs
+*.log
+.local/
+*.sock
+*.mpd
+
+# Editor directories
+.vscode/
+.idea/

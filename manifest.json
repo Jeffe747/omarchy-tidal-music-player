@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "jaj.tidal",
+  "name": "Tidal Music",
+  "version": "0.1.0",
+  "author": "jaj",
+  "description": "High-fidelity Tidal music streaming with Omarchy system theme integration",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Tidal",
+    "description": "Now-playing bar widget, player controls, and Tidal library search",
+    "category": "Media",
+    "defaultSection": "right",
+    "allowMultiple": false
+  }
+}
