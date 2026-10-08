@@ -170,37 +170,109 @@ The UI binds dynamically to Omarchy's color singleton:
 
 ---
 
-## 6. Phased Implementation Roadmap
+## 6. Implementation Progression Milestones
 
-### Phase 1: Daemon Foundation & Authentication (Device Flow)
-- Set up Rust project with release profile optimizations.
-- Implement `src/auth.rs`:
-  - Request device code from `https://auth.tidal.com/v1/oauth2/device/authorization`.
-  - Display user code / verification URL.
-  - Poll token endpoint and persist credentials in `~/.local/state/omarchy/tidal/session.json`.
-  - Handle token refresh.
+### Milestone 1: Authentication & Session Management (Login)
+- **Objective:** Enable frictionless OAuth 2.0 Device Flow login via `link.tidal.com` directly from the bar flyout.
+- **Backend:**
+  - Request device code (`userCode`, `verificationUriComplete`, `deviceCode`, `interval`, `expiresIn`).
+  - Background polling worker for token issuance with timeout and error handling.
+  - Secure credential storage in `~/.local/state/omarchy/tidal/session.json` (`0600` permissions).
+  - Token refresh management.
+- **IPC Protocol:**
+  - Commands: `start_auth`, `get_auth_status`, `logout`.
+  - Push events: `auth_code_ready`, `auth_success`, `auth_expired`.
+- **Quickshell UI (`BarWidget.qml`):**
+  - Unauthenticated pairing card displaying user code and "Open link.tidal.com in Browser" button (`xdg-open`).
+  - Automatic transition to "Connected" state upon browser confirmation.
 
-### Phase 2: Catalog API & Manifest Parsing
-- Implement `src/api.rs`:
-  - Search tracks, albums, artists, playlists.
-  - Fetch user playlists and favorite tracks.
-- Implement `src/playback.rs`:
-  - Call `/v1/tracks/{id}/playbackinfo`.
-  - Parse `application/vnd.tidal.bts` (direct HTTPS unencrypted stream URLs).
-  - Parse `application/dash+xml` (MPEG-DASH manifests for Hi-Res FLAC).
+### Milestone 2: Favorites List & Core Audio Playback
+- **Objective:** Fetch user favorite tracks and stream lossless audio through PipeWire.
+- **Backend:**
+  - Fetch favorites: `GET /v1/users/{userId}/favorites/tracks` (titles, artists, albums, durations, artwork IDs).
+  - Stream resolver: `GET /v1/tracks/{trackId}/playbackinfo` parsing `application/vnd.tidal.bts` (direct HTTPS FLAC/AAC) and `application/dash+xml` (MPEG-DASH).
+  - Audio output: Headless `mpv` background process managed via Unix IPC (`--idle=yes --no-video --ao=pipewire`).
+- **IPC Protocol:**
+  - Commands: `get_favorites`, `play_track { track_id }`.
+  - Push events: `favorites_loaded`, `playback_started`, `track_metadata`.
+- **Quickshell UI:**
+  - Scrollable favorites list in flyout card.
+  - Track selection to trigger streaming.
+  - Now-playing hero card with track title, artist name, and album artwork.
 
-### Phase 3: Playback Engine & MPRIS Integration
-- Spawn headless `mpv` background runner with PipeWire audio output.
-- Control playback, volume, pause/play, seek, and track queue over mpv IPC socket.
-- Expose `org.mpris.MediaPlayer2.Tidal` on D-Bus via `zbus` for desktop media controls.
+### Milestone 3: Interactive Playback Controls, Seeking & Auto-Advance
+- **Objective:** Interactive seek bar, transport controls, and automatic track queue advance.
+- **Backend:**
+  - mpv IPC control: `pause`, `resume`, `toggle_pause`, `seek_absolute(seconds)`, `set_volume(pct)`.
+  - Progress emitter: Poll mpv `time-pos` at 250ms intervals and push to QML.
+  - Queue auto-advance: Listen for mpv `eof-reached` to automatically play the next song in the favorites queue.
+- **Quickshell UI:**
+  - Smooth seek bar (`PanelSlider`) with `mm:ss` position and duration labels.
+  - Transport buttons: Previous (`⏮`), Play/Pause toggle (`▶ / ⏸`), Next (`⏭`).
+  - Bar button shortcuts: Left-click toggles panel; right-click toggles play/pause without opening panel.
 
-### Phase 4: Quickshell UI & Omarchy Theming
-- Build `manifest.json`, `Service.qml`, and `BarWidget.qml`.
-- Implement pairing UI for unauthenticated state.
-- Implement player card with album art, track details, seek slider, and transport controls.
-- Implement search view with live query results.
-- Verify live theme switching with `omarchy theme set`.
+### Milestone 4: MPRIS D-Bus & Desktop Integration
+- **Objective:** Native desktop media control across Hyprland and Omarchy.
+- **Backend:**
+  - Register `org.mpris.MediaPlayer2.Tidal` on the session D-Bus.
+  - Implement `org.mpris.MediaPlayer2.Player` interface (`PlaybackStatus`, `Metadata`, `PlayPause`, `Next`, `Previous`, `Seek`).
+- **Desktop Integration:**
+  - Keyboard media keys (`XF86AudioPlay`, etc.) control playback globally.
+  - Omarchy's built-in `omarchy.media` bar widget automatically recognizes Tidal.
+  - Omarchy's `omarchy.audio` volume flyout lists Tidal's PipeWire stream.
 
-### Phase 5: Packaging & Installation
-- Provide `install.sh` to link into `~/.config/omarchy/plugins/jaj.tidal`.
-- Provide build script and binary verification.
+### Milestone 5: Catalog Search & Discovery
+- **Objective:** Search any track, artist, album, or playlist from the flyout.
+- **Backend:**
+  - Query Tidal's search API: `GET /v1/search?query={q}&types=TRACKS,ALBUMS,PLAYLISTS&limit=20`.
+- **Quickshell UI:**
+  - Debounced search bar (`TextField`) at the bottom of the flyout.
+  - Instant results view with single-click playback.
+
+### Milestone 6: User Playlists & Audio Quality Tiers
+- **Objective:** Access custom playlists and toggle audio quality tiers (Hi-Res Lossless vs High AAC).
+- **Backend:**
+  - Endpoints for `GET /v1/users/{userId}/playlists` and `GET /v1/playlists/{uuid}/tracks`.
+  - Streaming quality preferences in settings: `HI_RES_LOSSLESS` (up to 24-bit / 192 kHz FLAC), `LOSSLESS` (16-bit / 44.1 kHz FLAC), or `HIGH` (320 kbps AAC).
+- **Quickshell UI:**
+  - Tabbed library view (Favorites vs. Playlists).
+  - Audio quality badge (`HI-RES FLAC`, `LOSSLESS`, `HIGH`) styled with `Color.accent`.
+  - Settings dropdown to select streaming quality.
+
+### Milestone 7: Binary Minimization, Theme Verification & Final Polish
+- **Objective:** Final optimization, automated test suite, and theme verification.
+- **Optimization:** Release build with LTO, size-stripping, and UPX compression (< 1.5 MB uncompressed, < 800 KB compressed).
+- **Theme Testing:** Live theme switching across all stock Omarchy themes (`catppuccin`, `tokyo-night`, `nord`, etc.) with zero color clipping or restart requirements.
+
+---
+
+## 7. Verification Framework & Pre-Milestone Gates
+
+Before advancing to each subsequent milestone, the code must pass the corresponding verification gates:
+
+### Global Verification Suite
+The verification script `scripts/verify.sh` runs the following automated checks:
+
+1. **Automated Unit Tests (`cargo test`)**:
+   - Serialization and deserialization of tokens, credentials, and state.
+   - Parsing of Tidal JSON API responses and error envelopes.
+   - Base64 manifest decoding and stream URL extraction (BTS & DASH).
+   - IPC command parsing and state message validation.
+2. **Binary Size & Budget Audit (`scripts/verify-size.sh`)**:
+   - Release binary size must remain strictly under the **2.5 MB** budget (target: < 1.8 MB).
+   - Stripped symbols check: verify `.comment`, `.note`, and debug symbols are removed.
+3. **Omarchy Plugin & Manifest Validation**:
+   - `omarchy plugin validate .` must exit with return code `0`.
+   - QML component syntax and property bindings validation.
+
+### Milestone-by-Milestone Verification Gates
+
+| Milestone | Automated Tests | Integration & Hardware Checks | Pre-requisite Gate to Proceed |
+| :--- | :--- | :--- | :--- |
+| **M1: Login** | Unit tests for `auth.rs` (device code deserialization, token poll parser, expiry calculation). | CLI test runner (`--test-auth`) initiates device flow; visiting `link.tidal.com` issues tokens to `~/.local/state/omarchy/tidal/session.json`. | Tokens successfully acquired, stored, and auto-refreshed. UI shows "Connected". |
+| **M2: Favorites & Playback** | Unit tests for `api.rs` (favorites parser) and `playback.rs` (manifest decoding). | Stream verification: headless `mpv` plays resolved stream through PipeWire; audio verified via `pw-cli info`. | Clean audio playback from user favorites with artwork and title in UI. |
+| **M3: Controls & Seek** | Unit tests for time formatting, position bounds clamping, and queue index logic. | Interactive slider seek latency < 100ms; simulated `eof-reached` auto-advances to next track. | Pause, resume, seek, and auto-advance verified with zero stutter. |
+| **M4: MPRIS & Media Keys** | D-Bus interface schema and property compliance tests. | `playerctl status` and `playerctl metadata` report track details; keyboard media keys control player. | Global keyboard shortcuts and Omarchy desktop widgets control Tidal. |
+| **M5: Search** | Unit tests for search query escaping and result structure parsing. | Debounced search queries complete in < 500ms; one-click play from search results verified. | Search returns accurate results and immediately plays selected song. |
+| **M6: Playlists & Quality** | Unit tests for playlist track fetch and audio quality parameter negotiation. | Audio stream inspect: verify 24/96 or 24/192 FLAC stream negotiated when `HI_RES_LOSSLESS` is selected. | Custom playlists playable; quality badge matches stream parameters. |
+| **M7: Themes & Polish** | Full test suite passes; binary budget check passes (< 1.5 MB). | Theme switching test across 3+ Omarchy themes (`omarchy theme set`); network drop recovery test. | All tests pass, binary is lightweight, UI matches all themes seamlessly. |

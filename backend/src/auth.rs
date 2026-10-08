@@ -89,3 +89,43 @@ impl AuthManager {
             .map_err(|e| format!("Failed to parse session token: {e}"))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_device_auth_info_deserialization() {
+        let json = r#"{
+            "deviceCode": "dev123456",
+            "userCode": "ABCD-1234",
+            "verificationUriComplete": "https://link.tidal.com/ABCD-1234",
+            "expiresIn": 300,
+            "interval": 5
+        }"#;
+
+        let parsed: Result<DeviceAuthInfo, _> = serde_json::from_str(json);
+        assert!(parsed.is_ok());
+        let info = parsed.unwrap();
+        assert_eq!(info.user_code, "ABCD-1234");
+        assert_eq!(info.verification_uri, "https://link.tidal.com/ABCD-1234");
+        assert_eq!(info.expires_in, 300);
+        assert_eq!(info.interval, 5);
+    }
+
+    #[test]
+    fn test_session_serialization_roundtrip() {
+        let session = Session {
+            access_token: "test_access_token".to_string(),
+            refresh_token: Some("test_refresh_token".to_string()),
+            user_id: Some(987654321),
+            expires_in: Some(3600),
+        };
+
+        let serialized = serde_json::to_string(&session).unwrap();
+        let deserialized: Session = serde_json::from_str(&serialized).unwrap();
+
+        assert_eq!(deserialized.access_token, "test_access_token");
+        assert_eq!(deserialized.user_id, Some(987654321));
+    }
+}

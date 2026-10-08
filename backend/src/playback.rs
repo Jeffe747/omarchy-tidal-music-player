@@ -113,3 +113,28 @@ impl PlaybackEngine {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_bts_manifest() {
+        let manifest_json = r#"{
+            "mimeType": "audio/flac",
+            "codecs": "flac",
+            "encryptionType": "NONE",
+            "urls": ["https://audio.tidal.com/stream/track123.flac"]
+        }"#;
+        let b64 = BASE64_STANDARD.encode(manifest_json);
+        let parsed = PlaybackEngine::parse_stream_url("application/vnd.tidal.bts", &b64);
+        assert!(parsed.is_ok());
+        assert_eq!(parsed.unwrap(), "https://audio.tidal.com/stream/track123.flac");
+    }
+
+    #[test]
+    fn test_parse_invalid_manifest() {
+        let parsed = PlaybackEngine::parse_stream_url("application/unknown", "invalid");
+        assert!(parsed.is_err());
+    }
+}
