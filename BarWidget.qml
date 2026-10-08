@@ -426,8 +426,9 @@ Panel {
 
             Repeater {
               model: (tidalService && tidalService.searchResults) ? tidalService.searchResults.slice(0, 5) : []
-              delegate: WidgetButton {
+              delegate: Button {
                 width: parent.width
+                leftAlign: true
                 text: (modelData.title || "") + " • " + (modelData.artist || "")
                 onClicked: {
                   if (tidalService) tidalService.playTrack(modelData.id)

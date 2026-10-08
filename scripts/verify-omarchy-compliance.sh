@@ -200,6 +200,54 @@ else
   pass "All QML colors bind dynamically to qs.Commons.Color (zero hardcoded hex colors)"
 fi
 
+# Prohibit WidgetButton with onClicked in QML files (WidgetButton has pressed(int button); panel UI uses Button)
+WIDGETBUTTON_ONCLICKED=$(python3 -c '
+import sys, glob, os, re
+
+script_dir = sys.argv[1]
+found_errors = []
+qml_files = glob.glob(os.path.join(script_dir, "**", "*.qml"), recursive=True)
+
+for path in qml_files:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except Exception:
+        continue
+
+    idx = 0
+    while True:
+        m = re.search(r"\bWidgetButton\b[^{]*\{", content[idx:])
+        if not m:
+            break
+        start_pos = idx + m.start()
+        brace_pos = idx + m.end() - 1
+        depth = 1
+        pos = brace_pos + 1
+        while pos < len(content) and depth > 0:
+            if content[pos] == "{":
+                depth += 1
+            elif content[pos] == "}":
+                depth -= 1
+            pos += 1
+        block = content[brace_pos:pos]
+        if "onClicked" in block:
+            line_no = content[:start_pos].count("\n") + 1
+            found_errors.append(f"{path}:{line_no}: WidgetButton cannot use onClicked signal (WidgetButton only has pressed(int button); use Button instead)")
+        idx = pos
+
+if found_errors:
+    print("\n".join(found_errors))
+    sys.exit(1)
+' "$SCRIPT_DIR" 2>&1 || true)
+
+if [[ -n "$WIDGETBUTTON_ONCLICKED" ]]; then
+  fail "WidgetButton used with onClicked detected:
+$WIDGETBUTTON_ONCLICKED"
+else
+  pass "No invalid WidgetButton onClicked usage in QML files"
+fi
+
 # -----------------------------------------------------------------------------
 # 10. Summary
 # -----------------------------------------------------------------------------
