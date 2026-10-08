@@ -1,7 +1,7 @@
 # Project Progress & Roadmap Tracker
 
 Last Updated: **2026-10-08**  
-Current Status: **Milestone 3 complete; implementation and automated verification gate passed**
+Current Status: **Milestone 4 complete; implementation, desktop integration, and verification gate passed**
 
 ---
 
@@ -13,7 +13,7 @@ Current Status: **Milestone 3 complete; implementation and automated verificatio
 | **M1** | **Authentication & Session Management (Login)** | 🟢 **Done** | 5 / 5 |
 | **M2** | **Favorites List & Core Audio Playback** | 🟢 **Done** | 6 / 6 |
 | **M3** | **Interactive Controls, Seeking & Auto-Advance** | 🟢 **Done** | 4 / 4 |
-| **M4** | **MPRIS D-Bus & Desktop Integration** | ⚪ Queued | 0 / 4 |
+| **M4** | **MPRIS D-Bus & Desktop Integration** | 🟢 **Done** | 5 / 5 |
 | **M5** | **Catalog Search & Discovery** | ⚪ Queued | 0 / 3 |
 | **M6** | **User Playlists & Audio Quality Tiers** | ⚪ Queued | 0 / 4 |
 | **M7** | **Binary Minimization & Theme Polish** | ⚪ Queued | 0 / 4 |
@@ -72,12 +72,12 @@ passed; M3 remains queued.
 
 ---
 
-### Milestone 4: MPRIS D-Bus & Desktop Integration ⚪
-- [ ] Register `org.mpris.MediaPlayer2.Tidal` on session D-Bus via `zbus`.
-- [ ] Implement `org.mpris.MediaPlayer2.Player` interface (PlaybackStatus, Metadata, PlayPause, Seek).
-- [ ] Verify global hardware media keys control Tidal across Hyprland.
-- [ ] Verify Omarchy `omarchy.media` bar widget automatically recognizes Tidal player.
-- [ ] **Gate Verification:** Pass Gate M4 (`playerctl` integration and media keys verified).
+### Milestone 4: MPRIS D-Bus & Desktop Integration 🟢
+- [x] Register `org.mpris.MediaPlayer2.Tidal` on session D-Bus and implement Introspectable, Properties, root, and Player interfaces using the system `libdbus` runtime.
+- [x] Expose playback status, metadata, position, capabilities, and transport/seek methods; mirror state changes through `PropertiesChanged` and emit `Seeked`.
+- [x] Verify playerctl play/pause, next, previous, metadata, and seeking against live authenticated playback; verify Hyprland's `omarchy-shell media` keybinding targets control Tidal.
+- [x] Verify the Omarchy media service recognizes Tidal and routes play/pause, next, and previous correctly. Disable mpv's competing MPRIS script for the daemon-managed headless process.
+- [x] **Gate Verification:** `./scripts/build.sh` and `./scripts/verify.sh` passed; live bus introspection and playerctl metadata succeeded; stripped bundle is 1,672,776 bytes (<= 1,800,000).
 
 ---
 
@@ -124,3 +124,4 @@ passed; M3 remains queued.
 | 2026-10-08 | `4aaa8fa` | Implemented Milestone 1: OAuth 2.0 Device Flow, token polling, session persistence, and UI integration. | jaj |
 | 2026-10-08 | This change | Investigated cached bar-widget loading failure; qualified panel controls, removed duplicate service, and fixed failed-socket recovery and deferred commands. Added QML runtime verification. Live shell restart remains blocked by the locked desktop session; no milestone advanced. | Copilot |
 | 2026-10-08 | This change | Installed-path validation rejected the symlinked plugin root. Replaced symlink deployment with a validated standalone copy and made installer validation errors fatal. | Copilot |
+| 2026-10-08 | This change | Implemented MPRIS session-bus registration, properties, metadata, transport and seek methods, state-change signals, and desktop media integration. Verified with busctl, live playerctl controls, and Omarchy media commands; disabled mpv's competing MPRIS script. Full verification passed with a 1,672,776-byte stripped daemon. | Codex |

@@ -2,6 +2,7 @@ mod api;
 mod auth;
 mod ipc;
 mod log;
+mod mpris;
 mod playback;
 
 use api::{cover_url, TidalApiClient, TrackItem};
@@ -13,13 +14,13 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
-static SHUTDOWN: AtomicBool = AtomicBool::new(false);
+pub(crate) static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 
 extern "C" fn request_shutdown(_: libc::c_int) {
     SHUTDOWN.store(true, Ordering::Relaxed);
 }
 
-struct Player {
+pub(crate) struct Player {
     engine: PlaybackEngine,
     favorites: Vec<TrackItem>,
     current: Option<TrackItem>,
@@ -230,7 +231,7 @@ fn play_track(
     Ok(())
 }
 
-fn navigate(auth: &AuthManager, player: &Mutex<Player>, ipc: &IpcServer, forward: bool) -> Result<(), String> {
+pub(crate) fn navigate(auth: &AuthManager, player: &Mutex<Player>, ipc: &IpcServer, forward: bool) -> Result<(), String> {
     let target = {
         let state = player.lock().map_err(|e| e.to_string())?;
         let current = state.current.as_ref().ok_or("No current track")?;
@@ -395,6 +396,7 @@ fn main() {
     log::write("Starting Omarchy Tidal Daemon");
     let player = Arc::new(Mutex::new(Player::new()));
     let ipc_server = IpcServer::new();
+    mpris::start(Arc::clone(&auth_manager), Arc::clone(&player), ipc_server.clone());
     start_position_ticker(Arc::clone(&auth_manager), Arc::clone(&player), ipc_server.clone());
 
     // Check existing session

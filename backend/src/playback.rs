@@ -98,6 +98,9 @@ impl PlaybackEngine {
             ))
             .arg("--no-video")
             .arg("--no-terminal")
+            // The distro's mpv-mpris script would register a competing generic
+            // player and steal Omarchy's media selection from the Tidal service.
+            .arg("--load-scripts=no")
             .arg("--ao=pipewire")
             .spawn()
             .map_err(|e| format!("Failed to start mpv: {e}"))?;

@@ -22,7 +22,9 @@ TARGET_BIN="$BACKEND_DIR/target/release/tidal-daemon"
 BUNDLED_BIN="$SCRIPT_DIR/bin/tidal-daemon"
 
 echo "==> Stripping binary..."
-strip --strip-all --remove-section=.comment --remove-section='.note*' "$TARGET_BIN"
+# The release profile uses panic=abort, so unwind tables are not needed at runtime.
+strip --strip-all --remove-section=.comment --remove-section='.note*' \
+  --remove-section=.eh_frame --remove-section=.eh_frame_hdr "$TARGET_BIN"
 
 install -Dm755 "$TARGET_BIN" "$BUNDLED_BIN"
 "$SCRIPT_DIR/scripts/verify-size.sh"
