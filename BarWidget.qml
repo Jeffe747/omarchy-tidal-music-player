@@ -49,7 +49,8 @@ Panel {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: root.barLabelText() || (root.isSystemMuted ? "󰖁" : "󰓇")
+    text: root.barLabelText() || (root.isSystemMuted ? "󰖁" : "")
+    fixedWidth: (root.barLabelText() === "" && !vertical) ? Style.space(32) : -1
     tooltipText: ((tidalService && tidalService.trackTitle) ? (tidalService.trackTitle + " - " + tidalService.trackArtist) : "Tidal Music") + (root.isSystemMuted ? " (System Muted)" : "")
     onPressed: function(b) {
       if (b === Qt.RightButton || b === Qt.MiddleButton) {
@@ -58,6 +59,12 @@ Panel {
         root.toggle()
       }
     }
+  }
+
+  TidalIcon {
+    anchors.centerIn: button
+    visible: root.barLabelText() === "" && !root.isSystemMuted
+    color: button.active && button.useActiveColor ? button.activeColor : button.foreground
   }
 
   KeyboardPanel {
@@ -119,10 +126,8 @@ Panel {
             anchors.verticalCenter: parent.verticalCenter
             spacing: Style.space(8)
 
-            Text {
-              text: "󰓇"
-              font.family: root.bar ? root.bar.fontFamily : Style.font.family
-              font.pixelSize: Style.font.display
+            TidalIcon {
+              iconSize: Style.font.display
               color: Color.accent
               anchors.verticalCenter: parent.verticalCenter
             }
@@ -335,7 +340,7 @@ Panel {
             enabled: tidalService !== null
             width: parent.width
             text: "Login with Tidal"
-            iconText: "󰓇"
+            iconText: "󰝚"
             onClicked: {
               if (tidalService) tidalService.startAuth()
             }
