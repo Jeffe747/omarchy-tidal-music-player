@@ -245,6 +245,36 @@ fn play_track(
     Ok(())
 }
 
+pub(crate) fn play_or_resume(
+    auth: &AuthManager,
+    player: &Mutex<Player>,
+    ipc: &IpcServer,
+    toggle: bool,
+) -> Result<(), String> {
+    let first_favorite = {
+        let state = player.lock().map_err(|e| e.to_string())?;
+        if state.current.is_some() {
+            None
+        } else {
+            state.favorites.first().map(|track| track.id)
+        }
+    };
+    if let Some(id) = first_favorite {
+        return play_track(auth, player, ipc, Some(id));
+    }
+    let no_current = player.lock().map_err(|e| e.to_string())?.current.is_none();
+    if no_current {
+        load_favorites(auth, player, ipc)?;
+        let first = player.lock().map_err(|e| e.to_string())?.favorites.first().map(|track| track.id);
+        if let Some(id) = first {
+            return play_track(auth, player, ipc, Some(id));
+        }
+        return Err("No favorite tracks are available".to_string());
+    }
+    let state = player.lock().map_err(|e| e.to_string())?;
+    if toggle { state.engine.toggle_pause() } else { state.engine.set_pause(false) }
+}
+
 pub(crate) fn navigate(auth: &AuthManager, player: &Mutex<Player>, ipc: &IpcServer, forward: bool) -> Result<(), String> {
     let target = {
         let state = player.lock().map_err(|e| e.to_string())?;
@@ -533,11 +563,17 @@ fn main() {
                                 }
                                 "toggle_play" | "play" | "resume" | "pause" | "seek" => {
                                     let result = (|| {
+                                        if cmd.command == "toggle_play" || cmd.command == "play" || cmd.command == "resume" {
+                                            return play_or_resume(
+                                                &auth_ref,
+                                                &player_ref,
+                                                &ipc_ref,
+                                                cmd.command == "toggle_play",
+                                            );
+                                        }
                                         let player =
                                             player_ref.lock().map_err(|e| e.to_string())?;
                                         match cmd.command.as_str() {
-                                            "toggle_play" => player.engine.toggle_pause(),
-                                            "play" | "resume" => player.engine.set_pause(false),
                                             "pause" => player.engine.set_pause(true),
                                             _ => player.engine.seek(
                                                 cmd.position.ok_or("seek requires position")?,

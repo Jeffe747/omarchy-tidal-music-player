@@ -241,15 +241,19 @@ pub fn start(auth: Arc<AuthManager>, player: Arc<Mutex<Player>>, ipc: IpcServer)
                     (ROOT, "Quit") => {
                         SHUTDOWN.store(true, std::sync::atomic::Ordering::Relaxed);
                     }
-                    (PLAYER, "Play")
-                    | (PLAYER, "Pause")
-                    | (PLAYER, "PlayPause")
-                    | (PLAYER, "Stop") => {
+                    (PLAYER, "Play") | (PLAYER, "PlayPause") => {
+                        result = crate::play_or_resume(
+                            &auth_cb,
+                            &player_cb,
+                            &ipc_cb,
+                            member == "PlayPause",
+                        );
+                    }
+                    (PLAYER, "Pause") | (PLAYER, "Stop") => {
                         result = player_cb
                             .lock()
                             .map_err(|e| e.to_string())
                             .and_then(|mut p| match member.as_str() {
-                                "Play" => p.engine.set_pause(false),
                                 "Pause" => p.engine.set_pause(true),
                                 "PlayPause" => p.engine.toggle_pause(),
                                 _ => p.engine.stop(),

@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Services.Pipewire
 import qs.Commons
 import qs.Ui
 import qs.Ui as Ui
@@ -19,6 +20,8 @@ Panel {
   }
 
   readonly property bool isAuthenticated: tidalService ? tidalService.authenticated === true : false
+  readonly property var defaultAudioSink: Pipewire.defaultAudioSink
+  readonly property bool isSystemMuted: defaultAudioSink && defaultAudioSink.audio ? defaultAudioSink.audio.muted : false
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -32,17 +35,17 @@ Panel {
 
   function barLabelText() {
     if (tidalService && root.isAuthenticated && tidalService.trackTitle) {
-      return (tidalService.isPlaying ? "󰐊 " : "󰏤 ") + tidalService.trackTitle + " • " + tidalService.trackArtist
+      return (tidalService.isPlaying ? "󰐊 " : "󰏤 ") + tidalService.trackTitle + " • " + tidalService.trackArtist + (root.isSystemMuted ? " 󰖁" : "")
     }
-    return ""
+    return root.isSystemMuted ? "󰖁" : ""
   }
 
   WidgetButton {
     id: button
     anchors.fill: parent
     bar: root.bar
-    text: root.barLabelText() || "󰓇"
-    tooltipText: (tidalService && tidalService.trackTitle) ? (tidalService.trackTitle + " - " + tidalService.trackArtist) : "Tidal Music"
+    text: root.barLabelText() || (root.isSystemMuted ? "󰖁" : "󰓇")
+    tooltipText: ((tidalService && tidalService.trackTitle) ? (tidalService.trackTitle + " - " + tidalService.trackArtist) : "Tidal Music") + (root.isSystemMuted ? " (System Muted)" : "")
     onPressed: function(b) {
       if (b === Qt.RightButton || b === Qt.MiddleButton) {
         if (tidalService) tidalService.togglePlay()
@@ -162,6 +165,47 @@ Panel {
         }
 
         PanelSeparator { width: parent.width }
+
+        Rectangle {
+          visible: root.isSystemMuted
+          width: parent.width
+          radius: Style.cornerRadius
+          color: Qt.rgba(Color.urgent.r, Color.urgent.g, Color.urgent.b, 0.12)
+          border.color: Color.urgent
+          border.width: 1
+          implicitHeight: muteBannerRow.implicitHeight + Style.space(12)
+
+          Row {
+            id: muteBannerRow
+            anchors.fill: parent
+            anchors.margins: Style.space(6)
+            spacing: Style.space(8)
+
+            Text {
+              text: "󰖁"
+              color: Color.urgent
+              font.pixelSize: Style.font.body
+              anchors.verticalCenter: parent.verticalCenter
+            }
+
+            Text {
+              text: "System audio is muted"
+              color: Color.urgent
+              font.pixelSize: Style.font.body
+              anchors.verticalCenter: parent.verticalCenter
+              width: Math.max(0, parent.width - Style.space(130))
+              elide: Text.ElideRight
+            }
+
+            Ui.Button {
+              text: "Unmute"
+              onClicked: {
+                if (root.defaultAudioSink && root.defaultAudioSink.audio)
+                  root.defaultAudioSink.audio.muted = false
+              }
+            }
+          }
+        }
 
         // Unauthenticated State: Device Pairing
         Column {
