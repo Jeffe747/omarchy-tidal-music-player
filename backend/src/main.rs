@@ -769,6 +769,7 @@ fn main() {
                                         let mut state =
                                             player_ref.lock().map_err(|e| e.to_string())?;
                                         state.preferred_quality = quality.to_string();
+                                        drop(state);
                                         broadcast_status(&auth_ref, &player_ref, &ipc_ref);
                                         Ok::<(), String>(())
                                     })();
