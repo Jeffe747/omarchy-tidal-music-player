@@ -91,7 +91,7 @@ Implementation is strictly phased into 7 milestones:
 | **M4** | **MPRIS D-Bus & Desktop Integration** | 🟢 **Done** | Live D-Bus introspection, playerctl transport/metadata/seeking, Hyprland media keybinding, and Omarchy media service verified. |
 | **M5** | **Catalog Search & Discovery** | 🟢 **Done** | Live searches returned results within 274–285 ms; selected search track started playback. |
 | **M6** | **User Playlists & Audio Quality Tiers** | 🟢 **Done** | Live playlists/tracks loaded; HI_RES_LOSSLESS request gracefully negotiated to playable LOSSLESS; preference persistence verified. |
-| **M7** | **Binary Minimization & Theme Polish** | 🟢 **Done** | Full test suite and plugin validation pass; stripped bundle <= 1.8 MB. UPX is optional (< 800 KB target); live visual theme inspection requires Wayland. |
+| **M7** | **Binary Minimization & Theme Polish** | 🟢 **Release verified** | Full test suite, plugin validation, compressed size (< 800 KB), and four Wayland QML scenarios pass. UPX startup target < 15 ms remains unmet (71.70 ms median with LZMA); see `PROGRESS.md`. |
 
 ---
 
@@ -141,9 +141,10 @@ Before an agent claims a milestone as complete, it **must** run the correspondin
 - [x] Quality selector and negotiated quality badge bindings passed Omarchy color/style compliance checks.
 
 ### Gate M7: Final Polish & Release
-- [x] Apply `catppuccin`, `tokyo-night`, `everforest`, and `nord`; original theme restored. Visual inspection is pending a Wayland session.
+- [x] Apply `catppuccin`, `tokyo-night`, `everforest`, and `nord`; original theme restored. All four QML runtime fixture scenarios passed with Wayland available.
 - [x] Run `./scripts/build.sh`, `./scripts/verify-size.sh`, and `./scripts/verify.sh`.
-- [ ] Confirm UPX compression shrinks binary to < 800 KB (UPX unavailable on this host; optional packaging path is supported).
+- [x] Confirm UPX 5.2.1 compression yields 774,740 bytes and `verify-size.sh` passes. UPX 4.2.4 rejected this ELF.
+- [ ] Confirm compressed startup below 15 ms. Measured 71.70 ms median for ten warm `--help` launches using `--best --lzma`; see `PROGRESS.md`.
 
 ---
 

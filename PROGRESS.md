@@ -1,7 +1,7 @@
 # Project Progress & Roadmap Tracker
 
 Last Updated: **2026-10-09**
-Current Status: **Milestone 7 complete; final release built, verified, and plugin validated**
+Current Status: **Milestone 7 release verified; compressed size and Wayland checks pass; compressed startup target remains unmet**
 
 ---
 
@@ -101,15 +101,17 @@ passed; M3 remains queued.
 - [x] Add early-expiry token refresh and retry-on-401 refresh with persisted session update; cover expiry safety-window calculation.
 - [x] Classify transient network failures and expose retryable IPC errors; harden stale mpv IPC socket cleanup/restart behavior.
 - [x] Add opt-in `TIDAL_UPX=1` packaging and UPX-aware size validation (< 800 KB compressed; <= 1,800,000 bytes uncompressed).
-- [x] Build and validate release artifact: stripped bundle is 1,707,520 bytes and startup measured 5.98 ms; `./scripts/verify.sh` passed all 45 Rust tests and smoke checks; `omarchy plugin validate .` passed.
+- [x] Build and validate UPX release artifact: bundle is 774,740 bytes (<800,000); `./scripts/verify.sh` passed all 45 Rust tests and smoke checks; `omarchy plugin validate .` passed. UPX 4.2.4 rejected the ELF; official UPX 5.2.1 compressed it successfully.
+- [ ] Meet the <15 ms compressed startup target: ten warm `--help` launches had a 71.70 ms median with `--best --lzma`; without LZMA, size was 850,616 bytes and startup measured 19–25 ms.
 - [x] Apply Catppuccin, Tokyo Night, Everforest, and Nord themes, then restore the original Bear2 theme.
-- [ ] Runtime visual inspection and shell journal warning audit await an active Wayland/Quickshell session; UPX compression could not be exercised because UPX is not installed.
+- [x] Run `WAYLAND_DISPLAY=wayland-1 ./scripts/verify.sh`; all four live Wayland QML integration scenarios passed. The last 30 `omarchy-shell` journal entries contained no warnings or errors for `jaj.tidal`.
 
 ---
 
 ## Activity Log
 
 | 2026-10-09 | This change | Completed M7 resilience and release work: added refresh-on-401 retry, transient transport classification surfaced as retryable errors, safe expiry calculation tests, optional UPX packaging/validation, and rebuilt stripped bundle (1,707,520 bytes). `./scripts/verify.sh` passed (45 tests plus daemon smoke and compliance), `omarchy plugin validate .` passed, and four stock themes were applied before restoring Bear2. CLI startup measured 5.98 ms. UPX and Wayland visual/runtime checks unavailable on this host. | Codex |
+| 2026-10-09 | This change | UPX and live Wayland follow-up: official UPX 5.2.1 successfully compressed bundle to 774,740 bytes; 4.2.4 failed on this ELF. LZMA startup median was 71.70 ms (10 warm runs), above the <15 ms target; non-LZMA was 850,616 bytes and 19–25 ms. `WAYLAND_DISPLAY=wayland-1 ./scripts/verify.sh` passed, including all four QML modes and 45 tests. Last 30 shell journal records had no jaj.tidal warnings/errors. | Codex |
 
 | 2026-10-09 | This change | Implemented M6 playlist APIs and parsing (including nullable Tidal metadata), playlist IPC/events and queue navigation, persistent quality selection and requested-tier fallbacks, DASH MPD handling, MPRIS quality properties, and themed playlist/quality UI. `./scripts/build.sh`, `./scripts/verify.sh` (43 Rust tests), `python3 tests/daemon-smoke.py`, and `git diff --check` passed; stripped bundle is 1,698,560 bytes. Live User ID 5040 returned 28 playlists and 100 tracks from the first playlist; its first track resolved to a LOSSLESS BTS stream. A HI_RES_LOSSLESS probe negotiated down to LOSSLESS, and available playlist/search results exposed no Hi-Res catalog candidate, so live 24-bit confirmation remains pending and M6 is not marked complete. Quickshell runtime check skipped without Wayland. | Codex |
 

@@ -258,7 +258,7 @@ as environment limitations rather than claimed as verified.
   - Settings dropdown to select streaming quality.
 
 ### Milestone 7: Binary Minimization, Theme Verification & Final Polish
-- **Status: Complete and released.** Full verification and plugin validation pass; the stripped executable is 1,707,520 bytes, and measured CLI startup is 5.98 ms. Optional UPX compression is supported but was unavailable on the build host. Theme application was exercised across four stock themes; visual inspection and shell journal checks remain pending a Wayland session.
+- **Status: Release built and verified; compressed startup goal remains open.** UPX 5.2.1 produces a 774,740-byte bundle; UPX 4.2.4 rejected this ELF. Ten warm compressed launches measured a 71.70 ms median with LZMA (non-LZMA is 850,616 bytes and 19–25 ms), above the <15 ms target. `WAYLAND_DISPLAY=wayland-1 ./scripts/verify.sh` passes all four QML runtime scenarios and the full test suite; the last 30 shell journal records contain no `jaj.tidal` warnings or errors. See `PROGRESS.md` for the verification record.
 - **Objective:** Final optimization, automated test suite, and theme verification.
 - **Optimization:** Release build with LTO, size-stripping, and UPX compression (< 1.5 MB uncompressed, < 800 KB compressed).
 - **Theme Testing:** Live theme switching across all stock Omarchy themes (`catppuccin`, `tokyo-night`, `nord`, etc.) with zero color clipping or restart requirements.

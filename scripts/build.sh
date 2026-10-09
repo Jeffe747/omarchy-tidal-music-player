@@ -4,6 +4,7 @@
 set -euo pipefail
 
 [[ -d "$HOME/.cargo/bin" ]] && export PATH="$HOME/.cargo/bin:$PATH"
+[[ -x "$HOME/.local/bin/upx" ]] && export PATH="$HOME/.local/bin:$PATH"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_DIR="$SCRIPT_DIR/backend"
@@ -23,6 +24,9 @@ BUNDLED_BIN="$SCRIPT_DIR/bin/tidal-daemon"
 
 echo "==> Stripping binary..."
 # The release profile uses panic=abort, so unwind tables are not needed at runtime.
+if file -b "$TARGET_BIN" | grep -q 'UPX compressed'; then
+  upx -d "$TARGET_BIN"
+fi
 strip --strip-all --remove-section=.comment --remove-section='.note*' \
   --remove-section=.eh_frame --remove-section=.eh_frame_hdr "$TARGET_BIN"
 

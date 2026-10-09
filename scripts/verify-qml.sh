@@ -17,6 +17,16 @@ ln -s "$SHELL_DIR/Ui" "$TEST_DIR/Ui"
 ln -s "$SHELL_DIR/Commons" "$TEST_DIR/Commons"
 mkdir -p "$TEST_DIR/plugin/bin" "$TEST_DIR/plugin/backend/target/release" "$TEST_DIR/runtime"
 chmod 700 "$TEST_DIR/runtime"
+# Quickshell may initialize PipeWire even in the isolated QML fixture. Expose
+# the user's real audio socket in the private runtime directory so that this
+# integration check does not generate unrelated PipeWire connection errors.
+if [[ -S "${XDG_RUNTIME_DIR:-}/pipewire-0" ]]; then
+  ln -s "$XDG_RUNTIME_DIR/pipewire-0" "$TEST_DIR/runtime/pipewire-0"
+fi
+if [[ -S "${XDG_RUNTIME_DIR:-}/pulse/native" ]]; then
+  mkdir -p "$TEST_DIR/runtime/pulse"
+  ln -s "$XDG_RUNTIME_DIR/pulse/native" "$TEST_DIR/runtime/pulse/native"
+fi
 cp "$SCRIPT_DIR/Service.qml" "$TEST_DIR/plugin/Service.qml"
 cp "$SCRIPT_DIR/tests/qml/fake-daemon.py" "$TEST_DIR/plugin/backend/target/release/tidal-daemon"
 cp "$SCRIPT_DIR/tests/qml/cover.svg" "$TEST_DIR/plugin/backend/target/release/cover.svg"
