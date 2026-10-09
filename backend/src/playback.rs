@@ -55,8 +55,8 @@ impl PlaybackEngine {
             let runtime_dir =
                 std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| "/tmp".to_string());
             // A separate probe process must not overwrite the daemon's active MPD.
-            let mpd_path = PathBuf::from(runtime_dir)
-                .join(format!("tidal-stream-{}.mpd", std::process::id()));
+            let mpd_path =
+                PathBuf::from(runtime_dir).join(format!("tidal-stream-{}.mpd", std::process::id()));
             std::fs::write(&mpd_path, decoded).map_err(|e| format!("Failed to write MPD: {e}"))?;
             Ok(mpd_path.to_string_lossy().to_string())
         } else {
@@ -216,7 +216,9 @@ impl PlaybackEngine {
     }
 
     pub fn duration(&self) -> Result<f64, String> {
-        self.property("duration")?.as_f64().ok_or_else(|| "mpv returned invalid duration".to_string())
+        self.property("duration")?
+            .as_f64()
+            .ok_or_else(|| "mpv returned invalid duration".to_string())
     }
 
     pub fn position(&self) -> Result<f64, String> {
@@ -228,7 +230,9 @@ impl PlaybackEngine {
     }
 
     pub fn seek(&self, seconds: f64) -> Result<(), String> {
-        if !seconds.is_finite() || seconds < 0.0 { return Err("seek position must be a finite non-negative number".to_string()); }
+        if !seconds.is_finite() || seconds < 0.0 {
+            return Err("seek position must be a finite non-negative number".to_string());
+        }
         let cmd = serde_json::json!({
             "command": ["seek", seconds, "absolute"]
         });
@@ -303,8 +307,12 @@ mod tests {
         let player = crate::Player {
             engine,
             favorites: Vec::new(),
+            queue: Vec::new(),
+            playlists: Vec::new(),
+            current_playlist_id: None,
             current: Some(serde_json::from_str(r#"{"id":42,"title":"Song","duration":180,"artist":{"name":"Artist"},"album":{"title":"Album","cover":"ab-cd"}}"#).unwrap()),
             quality: "LOSSLESS".to_string(),
+            preferred_quality: "LOSSLESS".to_string(),
             eof_handled_track: None,
             track_has_started: false,
         };
@@ -397,6 +405,16 @@ mod tests {
             parsed.unwrap(),
             "https://audio.tidal.com/stream/track123.flac"
         );
+    }
+
+    #[test]
+    fn test_dash_manifest_is_written_for_mpv() {
+        let mpd = r#"<MPD><Period><AdaptationSet><Representation><BaseURL>https://cdn.example/audio.flac</BaseURL></Representation></AdaptationSet></Period></MPD>"#;
+        let encoded = BASE64_STANDARD.encode(mpd);
+        let path = PlaybackEngine::parse_stream_url("application/dash+xml", &encoded).unwrap();
+        assert!(path.ends_with(".mpd"));
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), mpd);
+        std::fs::remove_file(path).unwrap();
     }
 
     #[test]

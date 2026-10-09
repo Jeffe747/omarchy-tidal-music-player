@@ -1,7 +1,7 @@
 # Project Progress & Roadmap Tracker
 
-Last Updated: **2026-10-08**  
-Current Status: **Milestone 5 complete; implementation, live search/playback, and verification gate passed**
+Last Updated: **2026-10-09**
+Current Status: **Milestone 6 implementation and automated gate passed; live Hi-Res negotiation remains pending**
 
 ---
 
@@ -15,7 +15,7 @@ Current Status: **Milestone 5 complete; implementation, live search/playback, an
 | **M3** | **Interactive Controls, Seeking & Auto-Advance** | 🟢 **Done** | 4 / 4 |
 | **M4** | **MPRIS D-Bus & Desktop Integration** | 🟢 **Done** | 5 / 5 |
 | **M5** | **Catalog Search & Discovery** | 🟢 **Done** | 4 / 4 |
-| **M6** | **User Playlists & Audio Quality Tiers** | ⚪ Queued | 0 / 4 |
+| **M6** | **User Playlists & Audio Quality Tiers** | 🟡 Live gate pending | 3 / 4 |
 | **M7** | **Binary Minimization & Theme Polish** | ⚪ Queued | 0 / 4 |
 
 ---
@@ -89,11 +89,11 @@ passed; M3 remains queued.
 
 ---
 
-### Milestone 6: User Playlists & Audio Quality Tiers ⚪
-- [ ] Implement user playlists fetch endpoints.
-- [ ] Add support for MPEG-DASH Hi-Res FLAC (up to 24-bit / 192 kHz) streams.
-- [ ] Add Quality Badge indicator in header and quality switcher dropdown in settings.
-- [ ] **Gate Verification:** Pass Gate M6 (custom playlists load, 24-bit stream verified).
+### Milestone 6: User Playlists & Audio Quality Tiers 🟡
+- [x] Implement user playlist listing and track endpoints, IPC events, and active playlist queue navigation.
+- [x] Add quality preference persistence, negotiated quality fallback ladders, and DASH MPD support for mpv.
+- [x] Add playlist navigation/detail views, quality selector and dynamic negotiated quality badge.
+- [ ] **Gate Verification:** Automated verification passed and live playlists/LOSSLESS stream resolution passed; confirm a 24-bit Hi-Res stream when an eligible track/account is available.
 
 ---
 
@@ -106,6 +106,8 @@ passed; M3 remains queued.
 ---
 
 ## Activity Log
+
+| 2026-10-09 | This change | Implemented M6 playlist APIs and parsing (including nullable Tidal metadata), playlist IPC/events and queue navigation, persistent quality selection and requested-tier fallbacks, DASH MPD handling, MPRIS quality properties, and themed playlist/quality UI. `./scripts/build.sh`, `./scripts/verify.sh` (43 Rust tests), `python3 tests/daemon-smoke.py`, and `git diff --check` passed; stripped bundle is 1,698,560 bytes. Live User ID 5040 returned 28 playlists and 100 tracks from the first playlist; its first track resolved to a LOSSLESS BTS stream. A HI_RES_LOSSLESS probe negotiated down to LOSSLESS, and available playlist/search results exposed no Hi-Res catalog candidate, so live 24-bit confirmation remains pending and M6 is not marked complete. Quickshell runtime check skipped without Wayland. | Codex |
 
 | 2026-10-08 | This change | Implemented catalog search API, query encoding and parsing tests, search IPC events, 350ms flyout debounce, results with artwork/metadata/duration, favorites/search navigation, and one-click playback for catalog tracks. `./scripts/build.sh`, `./scripts/verify.sh`, QML verification script, and `git diff --check` passed; 40 Rust tests passed and the stripped bundle is 1,675,624 bytes. Live authenticated searches returned 20 results in 274ms and 285ms; playback of a returned search result started successfully. QML runtime was skipped without an active Wayland session. | Codex |
 

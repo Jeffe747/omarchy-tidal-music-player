@@ -5,7 +5,7 @@ mod log;
 mod mpris;
 mod playback;
 
-use api::{cover_url, TidalApiClient, TrackItem};
+use api::{cover_url, Playlist, TidalApiClient, TrackItem};
 use auth::AuthManager;
 use ipc::{FavoriteTrack, IpcCommand, IpcServer, IpcStateMessage, PlayerMessage};
 use playback::PlaybackEngine;
@@ -23,8 +23,12 @@ extern "C" fn request_shutdown(_: libc::c_int) {
 pub(crate) struct Player {
     engine: PlaybackEngine,
     favorites: Vec<TrackItem>,
+    queue: Vec<TrackItem>,
+    playlists: Vec<Playlist>,
+    current_playlist_id: Option<String>,
     current: Option<TrackItem>,
     quality: String,
+    preferred_quality: String,
     eof_handled_track: Option<u64>,
     track_has_started: bool,
 }
@@ -34,12 +38,45 @@ impl Player {
         Self {
             engine: PlaybackEngine::new(),
             favorites: Vec::new(),
+            queue: Vec::new(),
+            playlists: Vec::new(),
+            current_playlist_id: None,
             current: None,
-            quality: "LOSSLESS".to_string(),
+            quality: load_quality_preference(),
+            preferred_quality: load_quality_preference(),
             eof_handled_track: None,
             track_has_started: false,
         }
     }
+}
+
+fn settings_path() -> std::path::PathBuf {
+    std::env::var_os("XDG_STATE_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+                .join(".local/state")
+        })
+        .join("omarchy/tidal/settings.json")
+}
+fn load_quality_preference() -> String {
+    std::fs::read_to_string(settings_path())
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .and_then(|v| v["audio_quality"].as_str().map(str::to_owned))
+        .filter(|q| ["HI_RES_LOSSLESS", "LOSSLESS", "HIGH"].contains(&q.as_str()))
+        .unwrap_or_else(|| "LOSSLESS".into())
+}
+fn save_quality_preference(quality: &str) -> Result<(), String> {
+    let path = settings_path();
+    let parent = path.parent().ok_or("Invalid settings path")?;
+    std::fs::create_dir_all(parent).map_err(|e| e.to_string())?;
+    std::fs::write(
+        path,
+        serde_json::to_vec(&serde_json::json!({"audio_quality": quality}))
+            .map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())
 }
 
 fn run_cli_auth(auth_manager: &AuthManager) -> Result<(), String> {
@@ -119,8 +156,13 @@ fn build_status_message(auth_manager: &AuthManager, player: &Player) -> IpcState
         track_album: track.map(|t| t.album_title().to_string()),
         track_art_url: track.map(|t| cover_url(t.cover())),
         duration: Some(track.map(|t| t.duration as f64).unwrap_or(0.0)),
-        position: if playing { player.engine.position().ok() } else { Some(0.0) },
+        position: if playing {
+            player.engine.position().ok()
+        } else {
+            Some(0.0)
+        },
         audio_quality: Some(player.quality.clone()),
+        preferred_audio_quality: Some(player.preferred_quality.clone()),
     }
 }
 
@@ -142,7 +184,11 @@ fn api_client(auth: &AuthManager) -> Result<(TidalApiClient, Option<u64>), Strin
     ))
 }
 
-fn run_cli_probe(auth: &AuthManager, id: u64) -> Result<(), String> {
+fn run_cli_probe(
+    auth: &AuthManager,
+    id: u64,
+    quality_override: Option<&str>,
+) -> Result<(), String> {
     let (api, _) = api_client(auth)?;
     let track = api.get_track(id)?;
     println!("Track ID: {}", track.id);
@@ -155,7 +201,11 @@ fn run_cli_probe(auth: &AuthManager, id: u64) -> Result<(), String> {
         track.audio_quality.as_deref().unwrap_or("Unknown")
     );
 
-    let info = api.get_playback_info(id, track.audio_quality.as_deref().unwrap_or("LOSSLESS"))?;
+    let requested_quality = quality_override
+        .map(str::to_owned)
+        .unwrap_or_else(load_quality_preference);
+    println!("Requested Audio Quality: {requested_quality}");
+    let info = api.get_playback_info(id, &requested_quality)?;
     println!("audioQuality: {}", info.audio_quality);
     println!("manifestMimeType: {}", info.manifest_mime_type);
     let mut engine = PlaybackEngine::new();
@@ -180,16 +230,56 @@ fn load_favorites(
     let tracks = api.get_favorites(user_id)?;
     let mut player = player.lock().map_err(|e| e.to_string())?;
     player.favorites = tracks;
+    if player.current_playlist_id.is_none() {
+        player.queue = player.favorites.clone();
+    }
     ipc.broadcast(&PlayerMessage::FavoritesLoaded {
         tracks: player.favorites.iter().map(FavoriteTrack::from).collect(),
     });
     Ok(())
 }
 
-fn search_catalog(auth: &AuthManager, ipc: &IpcServer, query: Option<String>) -> Result<(), String> {
+fn load_playlists(
+    auth: &AuthManager,
+    player: &Mutex<Player>,
+    ipc: &IpcServer,
+) -> Result<(), String> {
+    let (api, user_id) = api_client(auth)?;
+    let user_id = user_id.ok_or("Session has no user ID; please sign in again")?;
+    let playlists = api.get_playlists(user_id)?;
+    player.lock().map_err(|e| e.to_string())?.playlists = playlists.clone();
+    ipc.broadcast(&PlayerMessage::PlaylistsLoaded { playlists });
+    Ok(())
+}
+
+fn load_playlist_tracks(
+    auth: &AuthManager,
+    player: &Mutex<Player>,
+    ipc: &IpcServer,
+    playlist_id: String,
+) -> Result<(), String> {
+    let (api, _) = api_client(auth)?;
+    let tracks = api.get_playlist_tracks(&playlist_id)?;
+    let mut state = player.lock().map_err(|e| e.to_string())?;
+    state.queue = tracks.clone();
+    state.current_playlist_id = Some(playlist_id.clone());
+    ipc.broadcast(&PlayerMessage::PlaylistTracksLoaded {
+        playlist_id: &playlist_id,
+        tracks: tracks.iter().map(FavoriteTrack::from).collect(),
+    });
+    Ok(())
+}
+
+fn search_catalog(
+    auth: &AuthManager,
+    ipc: &IpcServer,
+    query: Option<String>,
+) -> Result<(), String> {
     let query = query.unwrap_or_default();
     if query.trim().is_empty() {
-        ipc.broadcast(&PlayerMessage::SearchResults { results: Vec::new() });
+        ipc.broadcast(&PlayerMessage::SearchResults {
+            results: Vec::new(),
+        });
         return Ok(());
     }
     let (api, _) = api_client(auth)?;
@@ -209,18 +299,32 @@ fn play_track(
     let id = track_id.ok_or("play_track requires track_id")?;
     let (api, _) = api_client(auth)?;
     let mut player = player.lock().map_err(|e| e.to_string())?;
-    let track = match player.favorites.iter().find(|track| track.id == id) {
+    let track = match player
+        .queue
+        .iter()
+        .chain(player.favorites.iter())
+        .find(|track| track.id == id)
+    {
         Some(track) => track.clone(),
         None => api.get_track(id)?,
     };
-    let preferred_quality = track.audio_quality.as_deref().unwrap_or("LOSSLESS");
+    if !player.queue.iter().any(|item| item.id == id) {
+        if player.favorites.iter().any(|item| item.id == id) {
+            player.queue = player.favorites.clone();
+            player.current_playlist_id = None;
+        } else {
+            player.queue = vec![track.clone()];
+            player.current_playlist_id = None;
+        }
+    }
+    let preferred_quality = player.preferred_quality.clone();
     log::write(&format!(
         "Playback track: id={id}; title={}; artist={}; catalog audio quality={:?}",
         track.title,
         track.artist_name(),
         track.audio_quality
     ));
-    let info = api.get_playback_info(id, preferred_quality)?;
+    let info = api.get_playback_info(id, &preferred_quality)?;
     let mime = match info.manifest_mime_type.as_str() {
         "application/vnd.tidal.bts" | "application/dash+xml" => info.manifest_mime_type.as_str(),
         _ => "unsupported",
@@ -256,7 +360,11 @@ pub(crate) fn play_or_resume(
         if state.current.is_some() {
             None
         } else {
-            state.favorites.first().map(|track| track.id)
+            state
+                .queue
+                .first()
+                .or_else(|| state.favorites.first())
+                .map(|track| track.id)
         }
     };
     if let Some(id) = first_favorite {
@@ -265,17 +373,33 @@ pub(crate) fn play_or_resume(
     let no_current = player.lock().map_err(|e| e.to_string())?.current.is_none();
     if no_current {
         load_favorites(auth, player, ipc)?;
-        let first = player.lock().map_err(|e| e.to_string())?.favorites.first().map(|track| track.id);
+        let first = {
+            let state = player.lock().map_err(|e| e.to_string())?;
+            state
+                .queue
+                .first()
+                .or_else(|| state.favorites.first())
+                .map(|track| track.id)
+        };
         if let Some(id) = first {
             return play_track(auth, player, ipc, Some(id));
         }
         return Err("No favorite tracks are available".to_string());
     }
     let state = player.lock().map_err(|e| e.to_string())?;
-    if toggle { state.engine.toggle_pause() } else { state.engine.set_pause(false) }
+    if toggle {
+        state.engine.toggle_pause()
+    } else {
+        state.engine.set_pause(false)
+    }
 }
 
-pub(crate) fn navigate(auth: &AuthManager, player: &Mutex<Player>, ipc: &IpcServer, forward: bool) -> Result<(), String> {
+pub(crate) fn navigate(
+    auth: &AuthManager,
+    player: &Mutex<Player>,
+    ipc: &IpcServer,
+    forward: bool,
+) -> Result<(), String> {
     let target = {
         let state = player.lock().map_err(|e| e.to_string())?;
         let current = state.current.as_ref().ok_or("No current track")?;
@@ -285,12 +409,22 @@ pub(crate) fn navigate(auth: &AuthManager, player: &Mutex<Player>, ipc: &IpcServ
             broadcast_status(auth, player, ipc);
             return Ok(());
         }
-        let index = state.favorites.iter().position(|t| t.id == current.id).ok_or("Current track is not in favorites")?;
-        let len = state.favorites.len();
-        if len == 0 { return Err("Favorites queue is empty".to_string()); }
-        if forward { (index + 1) % len } else { (index + len - 1) % len }
+        let index = state
+            .queue
+            .iter()
+            .position(|t| t.id == current.id)
+            .ok_or("Current track is not in active queue")?;
+        let len = state.queue.len();
+        if len == 0 {
+            return Err("Active queue is empty".to_string());
+        }
+        if forward {
+            (index + 1) % len
+        } else {
+            (index + len - 1) % len
+        }
     };
-    let id = player.lock().map_err(|e| e.to_string())?.favorites[target].id;
+    let id = player.lock().map_err(|e| e.to_string())?.queue[target].id;
     play_track(auth, player, ipc, Some(id))
 }
 
@@ -336,8 +470,10 @@ fn start_position_ticker(auth: Arc<AuthManager>, player: Arc<Mutex<Player>>, ipc
                                 None,
                             )
                         }
-                    } else { (None, None, false, None) }
-                },
+                    } else {
+                        (None, None, false, None)
+                    }
+                }
                 Err(_) => continue,
             };
             if let Some(id) = eof_track {
@@ -363,15 +499,27 @@ fn main() {
 
     if let Some(index) = args.iter().position(|a| a == "--probe") {
         let result = (|| {
-            if args.len() != 3 || index != 1 {
-                return Err("Usage: tidal-daemon --probe <track_id>".to_string());
+            if !(3..=4).contains(&args.len()) || index != 1 {
+                return Err(
+                    "Usage: tidal-daemon --probe <track_id> [HI_RES_LOSSLESS|LOSSLESS|HIGH]"
+                        .to_string(),
+                );
             }
             let id = args[2]
                 .parse::<u64>()
                 .ok()
                 .filter(|id| *id > 0)
                 .ok_or("track_id must be a positive integer")?;
-            run_cli_probe(&auth_manager, id)
+            let quality = args.get(3).map(String::as_str);
+            if let Some(value) = quality {
+                if !["HI_RES_LOSSLESS", "LOSSLESS", "HIGH"].contains(&value) {
+                    return Err(
+                        "Usage: tidal-daemon --probe <track_id> [HI_RES_LOSSLESS|LOSSLESS|HIGH]"
+                            .to_string(),
+                    );
+                }
+            }
+            run_cli_probe(&auth_manager, id, quality)
         })();
         if let Err(error) = result {
             eprintln!("[FAIL] Probe error: {error}");
@@ -428,7 +576,9 @@ fn main() {
         println!("  --test-auth, --login  Run OAuth 2.0 Device Flow authorization CLI runner");
         println!("  --status              Print current session and authentication status");
         println!("  --logout              Clear stored session credentials");
-        println!("  --probe <track_id>    Resolve a track's stream without starting playback");
+        println!(
+            "  --probe <track_id> [QUALITY]  Resolve a track's stream (optional quality override)"
+        );
         println!("  --help, -h            Print this help message");
         std::process::exit(0);
     }
@@ -440,8 +590,16 @@ fn main() {
     log::write("Starting Omarchy Tidal Daemon");
     let player = Arc::new(Mutex::new(Player::new()));
     let ipc_server = IpcServer::new();
-    mpris::start(Arc::clone(&auth_manager), Arc::clone(&player), ipc_server.clone());
-    start_position_ticker(Arc::clone(&auth_manager), Arc::clone(&player), ipc_server.clone());
+    mpris::start(
+        Arc::clone(&auth_manager),
+        Arc::clone(&player),
+        ipc_server.clone(),
+    );
+    start_position_ticker(
+        Arc::clone(&auth_manager),
+        Arc::clone(&player),
+        ipc_server.clone(),
+    );
 
     // Check existing session
     match auth_manager.get_valid_session() {
@@ -524,9 +682,23 @@ fn main() {
 
                         if let Ok(cmd) = serde_json::from_str::<IpcCommand>(trimmed) {
                             let command = match cmd.command.as_str() {
-                                "get_status" | "get_auth_status" | "get_favorites"
-                                | "play_track" | "toggle_play" | "play" | "pause" | "seek"
-                                | "next" | "previous" | "resume" | "search" | "start_auth" | "logout" => cmd.command.as_str(),
+                                "get_status"
+                                | "get_auth_status"
+                                | "get_favorites"
+                                | "play_track"
+                                | "toggle_play"
+                                | "play"
+                                | "pause"
+                                | "seek"
+                                | "next"
+                                | "previous"
+                                | "resume"
+                                | "search"
+                                | "get_playlists"
+                                | "get_playlist_tracks"
+                                | "set_audio_quality"
+                                | "start_auth"
+                                | "logout" => cmd.command.as_str(),
                                 _ => "unknown",
                             };
                             log::write(&format!("IPC command: {command}"));
@@ -546,9 +718,62 @@ fn main() {
                                     }
                                 }
                                 "search" => {
-                                    if let Err(error) = search_catalog(&auth_ref, &ipc_ref, cmd.query) {
+                                    if let Err(error) =
+                                        search_catalog(&auth_ref, &ipc_ref, cmd.query)
+                                    {
                                         log::write(&format!("Search failed: {error}"));
-                                        ipc_ref.broadcast(&PlayerMessage::SearchError { error: &error });
+                                        ipc_ref.broadcast(&PlayerMessage::SearchError {
+                                            error: &error,
+                                        });
+                                    }
+                                }
+                                "get_playlists" => {
+                                    if let Err(error) =
+                                        load_playlists(&auth_ref, &player_ref, &ipc_ref)
+                                    {
+                                        ipc_ref.broadcast(&PlayerMessage::PlaylistsError {
+                                            error: &error,
+                                        });
+                                    }
+                                }
+                                "get_playlist_tracks" => {
+                                    let playlist_id =
+                                        cmd.playlist_id.or(cmd.uuid).unwrap_or_default();
+                                    if playlist_id.is_empty() {
+                                        ipc_ref.broadcast(&PlayerMessage::PlaylistTracksError {
+                                            playlist_id: "",
+                                            error: "playlist_id is required",
+                                        });
+                                    } else if let Err(error) = load_playlist_tracks(
+                                        &auth_ref,
+                                        &player_ref,
+                                        &ipc_ref,
+                                        playlist_id.clone(),
+                                    ) {
+                                        ipc_ref.broadcast(&PlayerMessage::PlaylistTracksError {
+                                            playlist_id: &playlist_id,
+                                            error: &error,
+                                        });
+                                    }
+                                }
+                                "set_audio_quality" => {
+                                    let result = (|| {
+                                        let quality =
+                                            cmd.quality.as_deref().ok_or("quality is required")?;
+                                        if !["HI_RES_LOSSLESS", "LOSSLESS", "HIGH"]
+                                            .contains(&quality)
+                                        {
+                                            return Err("Unsupported audio quality".to_string());
+                                        }
+                                        save_quality_preference(quality)?;
+                                        let mut state =
+                                            player_ref.lock().map_err(|e| e.to_string())?;
+                                        state.preferred_quality = quality.to_string();
+                                        broadcast_status(&auth_ref, &player_ref, &ipc_ref);
+                                        Ok::<(), String>(())
+                                    })();
+                                    if let Err(error) = result {
+                                        ipc_ref.broadcast(&serde_json::json!({"type":"playback_error","error":error}));
                                     }
                                 }
                                 "play_track" => {
@@ -563,7 +788,10 @@ fn main() {
                                 }
                                 "toggle_play" | "play" | "resume" | "pause" | "seek" => {
                                     let result = (|| {
-                                        if cmd.command == "toggle_play" || cmd.command == "play" || cmd.command == "resume" {
+                                        if cmd.command == "toggle_play"
+                                            || cmd.command == "play"
+                                            || cmd.command == "resume"
+                                        {
                                             return play_or_resume(
                                                 &auth_ref,
                                                 &player_ref,
@@ -589,9 +817,16 @@ fn main() {
                                     broadcast_status(&auth_ref, &player_ref, &ipc_ref);
                                 }
                                 "next" | "previous" => {
-                                    if let Err(error) = navigate(&auth_ref, &player_ref, &ipc_ref, cmd.command == "next") {
+                                    if let Err(error) = navigate(
+                                        &auth_ref,
+                                        &player_ref,
+                                        &ipc_ref,
+                                        cmd.command == "next",
+                                    ) {
                                         log::write(&format!("Navigation failed: {error}"));
-                                        ipc_ref.broadcast(&PlayerMessage::PlaybackError { error: &error });
+                                        ipc_ref.broadcast(&PlayerMessage::PlaybackError {
+                                            error: &error,
+                                        });
                                     }
                                 }
                                 "start_auth" => {
@@ -599,107 +834,115 @@ fn main() {
                                         .get_valid_session()
                                         .is_ok_and(|session| !session.access_token.is_empty());
                                     if restored_session {
-                                        log::write("Valid saved session found; restoring authentication");
-                                        ipc_ref.broadcast(&serde_json::json!({ "type": "auth_success" }));
+                                        log::write(
+                                            "Valid saved session found; restoring authentication",
+                                        );
+                                        ipc_ref.broadcast(
+                                            &serde_json::json!({ "type": "auth_success" }),
+                                        );
                                         broadcast_status(&auth_ref, &player_ref, &ipc_ref);
-                                        if let Err(error) = load_favorites(&auth_ref, &player_ref, &ipc_ref) {
+                                        if let Err(error) =
+                                            load_favorites(&auth_ref, &player_ref, &ipc_ref)
+                                        {
                                             log::write(&format!("Favorites failed during session restoration: {error}"));
-                                            ipc_ref.broadcast(&PlayerMessage::FavoritesError { error: &error });
+                                            ipc_ref.broadcast(&PlayerMessage::FavoritesError {
+                                                error: &error,
+                                            });
                                         }
                                     } else {
-                                    if auth_flag.swap(true, Ordering::SeqCst) {
-                                        println!(
+                                        if auth_flag.swap(true, Ordering::SeqCst) {
+                                            println!(
                                             "  [i] Auth already in progress, requesting fresh code..."
                                         );
-                                    }
+                                        }
 
-                                    match auth_ref.request_device_code() {
-                                        Ok(auth_info) => {
-                                            log::write("Device authorization code generated");
-                                            let msg = serde_json::json!({
-                                                "type": "auth_code",
-                                                "user_code": auth_info.user_code,
-                                                "verification_uri": auth_info.verification_uri,
-                                                "expires_in": auth_info.expires_in,
-                                                "interval": auth_info.interval,
-                                            });
-                                            ipc_ref.broadcast(&msg);
+                                        match auth_ref.request_device_code() {
+                                            Ok(auth_info) => {
+                                                log::write("Device authorization code generated");
+                                                let msg = serde_json::json!({
+                                                    "type": "auth_code",
+                                                    "user_code": auth_info.user_code,
+                                                    "verification_uri": auth_info.verification_uri,
+                                                    "expires_in": auth_info.expires_in,
+                                                    "interval": auth_info.interval,
+                                                });
+                                                ipc_ref.broadcast(&msg);
 
-                                            // Spawn background polling worker
-                                            let auth_worker = Arc::clone(&auth_ref);
-                                            let ipc_worker = ipc_ref.clone();
-                                            let flag_worker = Arc::clone(&auth_flag);
-                                            let dev_code = auth_info.device_code.clone();
-                                            let interval = auth_info.interval;
-                                            let expires_in = auth_info.expires_in;
-                                            let player_worker = Arc::clone(&player_ref);
+                                                // Spawn background polling worker
+                                                let auth_worker = Arc::clone(&auth_ref);
+                                                let ipc_worker = ipc_ref.clone();
+                                                let flag_worker = Arc::clone(&auth_flag);
+                                                let dev_code = auth_info.device_code.clone();
+                                                let interval = auth_info.interval;
+                                                let expires_in = auth_info.expires_in;
+                                                let player_worker = Arc::clone(&player_ref);
 
-                                            thread::spawn(move || {
-                                                println!(
+                                                thread::spawn(move || {
+                                                    println!(
                                                     "  [i] Polling Tidal token for device code..."
                                                 );
-                                                match auth_worker
-                                                    .poll_token(&dev_code, interval, expires_in)
-                                                {
-                                                    Ok(session) => {
-                                                        println!(
+                                                    match auth_worker
+                                                        .poll_token(&dev_code, interval, expires_in)
+                                                    {
+                                                        Ok(session) => {
+                                                            println!(
                                                             "  [✓] Successfully authenticated with Tidal! User: {:?}",
                                                             session.user_id
                                                         );
-                                                        if let Err(error) =
-                                                            auth_worker.save_session(&session)
-                                                        {
-                                                            log::write(&format!(
+                                                            if let Err(error) =
+                                                                auth_worker.save_session(&session)
+                                                            {
+                                                                log::write(&format!(
                                                                 "Failed to save session: {error}"
                                                             ));
-                                                            ipc_worker.broadcast(&serde_json::json!({
+                                                                ipc_worker.broadcast(&serde_json::json!({
                                                                 "type": "auth_error", "error": error.to_string()
                                                             }));
-                                                            flag_worker
-                                                                .store(false, Ordering::SeqCst);
-                                                            return;
+                                                                flag_worker
+                                                                    .store(false, Ordering::SeqCst);
+                                                                return;
+                                                            }
+
+                                                            let success_msg = serde_json::json!({
+                                                                "type": "auth_success",
+                                                                "user_id": session.user_id,
+                                                            });
+                                                            ipc_worker.broadcast(&success_msg);
+
+                                                            broadcast_status(
+                                                                &auth_worker,
+                                                                &player_worker,
+                                                                &ipc_worker,
+                                                            );
                                                         }
-
-                                                        let success_msg = serde_json::json!({
-                                                            "type": "auth_success",
-                                                            "user_id": session.user_id,
-                                                        });
-                                                        ipc_worker.broadcast(&success_msg);
-
-                                                        broadcast_status(
-                                                            &auth_worker,
-                                                            &player_worker,
-                                                            &ipc_worker,
-                                                        );
-                                                    }
-                                                    Err(err) => {
-                                                        log::write("Device authorization expired or failed");
-                                                        eprintln!(
+                                                        Err(err) => {
+                                                            log::write("Device authorization expired or failed");
+                                                            eprintln!(
                                                             "  [!] Device auth expired or failed: {err}"
                                                         );
-                                                        let expired_msg = serde_json::json!({
-                                                            "type": "auth_expired",
-                                                            "error": err,
-                                                        });
-                                                        ipc_worker.broadcast(&expired_msg);
+                                                            let expired_msg = serde_json::json!({
+                                                                "type": "auth_expired",
+                                                                "error": err,
+                                                            });
+                                                            ipc_worker.broadcast(&expired_msg);
+                                                        }
                                                     }
-                                                }
-                                                flag_worker.store(false, Ordering::SeqCst);
-                                            });
-                                        }
-                                        Err(e) => {
-                                            log::write("Device authorization request failed");
-                                            eprintln!(
+                                                    flag_worker.store(false, Ordering::SeqCst);
+                                                });
+                                            }
+                                            Err(e) => {
+                                                log::write("Device authorization request failed");
+                                                eprintln!(
                                                 "  [!] Failed to request device authorization: {e}"
                                             );
-                                            auth_flag.store(false, Ordering::SeqCst);
-                                            let err_msg = serde_json::json!({
-                                                "type": "auth_error",
-                                                "error": e,
-                                            });
-                                            ipc_ref.broadcast(&err_msg);
+                                                auth_flag.store(false, Ordering::SeqCst);
+                                                let err_msg = serde_json::json!({
+                                                    "type": "auth_error",
+                                                    "error": e,
+                                                });
+                                                ipc_ref.broadcast(&err_msg);
+                                            }
                                         }
-                                    }
                                     }
                                 }
                                 "logout" => {

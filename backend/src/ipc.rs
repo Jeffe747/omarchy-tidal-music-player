@@ -1,4 +1,4 @@
-use crate::api::{cover_url, TrackItem};
+use crate::api::{cover_url, Playlist, TrackItem};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
@@ -34,12 +34,38 @@ impl<'a> From<&'a TrackItem> for FavoriteTrack<'a> {
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum PlayerMessage<'a> {
-    FavoritesLoaded { tracks: Vec<FavoriteTrack<'a>> },
-    FavoritesError { error: &'a str },
-    SearchResults { results: Vec<FavoriteTrack<'a>> },
-    SearchError { error: &'a str },
-    PlaybackStarted { track_id: u64 },
-    PlaybackError { error: &'a str },
+    FavoritesLoaded {
+        tracks: Vec<FavoriteTrack<'a>>,
+    },
+    FavoritesError {
+        error: &'a str,
+    },
+    SearchResults {
+        results: Vec<FavoriteTrack<'a>>,
+    },
+    SearchError {
+        error: &'a str,
+    },
+    PlaylistsLoaded {
+        playlists: Vec<Playlist>,
+    },
+    PlaylistsError {
+        error: &'a str,
+    },
+    PlaylistTracksLoaded {
+        playlist_id: &'a str,
+        tracks: Vec<FavoriteTrack<'a>>,
+    },
+    PlaylistTracksError {
+        playlist_id: &'a str,
+        error: &'a str,
+    },
+    PlaybackStarted {
+        track_id: u64,
+    },
+    PlaybackError {
+        error: &'a str,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,6 +77,12 @@ pub struct IpcCommand {
     pub position: Option<f64>,
     #[serde(default)]
     pub query: Option<String>,
+    #[serde(default)]
+    pub playlist_id: Option<String>,
+    #[serde(default)]
+    pub uuid: Option<String>,
+    #[serde(default)]
+    pub quality: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -75,6 +107,8 @@ pub struct IpcStateMessage {
     pub position: Option<f64>,
     #[serde(default)]
     pub audio_quality: Option<String>,
+    #[serde(default)]
+    pub preferred_audio_quality: Option<String>,
 }
 
 #[derive(Clone)]
@@ -168,10 +202,12 @@ mod tests {
     #[test]
     fn test_transport_command_shapes() {
         for command in ["pause", "resume", "play", "toggle_play", "next", "previous"] {
-            let parsed: IpcCommand = serde_json::from_value(serde_json::json!({"command": command})).unwrap();
+            let parsed: IpcCommand =
+                serde_json::from_value(serde_json::json!({"command": command})).unwrap();
             assert_eq!(parsed.command, command);
         }
-        let seek: IpcCommand = serde_json::from_str(r#"{"command":"seek","position":12.5}"#).unwrap();
+        let seek: IpcCommand =
+            serde_json::from_str(r#"{"command":"seek","position":12.5}"#).unwrap();
         assert_eq!(seek.position, Some(12.5));
     }
 
@@ -189,6 +225,7 @@ mod tests {
             duration: Some(180.0),
             position: Some(12.5),
             audio_quality: Some("LOSSLESS".to_string()),
+            preferred_audio_quality: Some("LOSSLESS".to_string()),
         };
 
         let serialized = serde_json::to_string(&msg).unwrap();
@@ -237,7 +274,9 @@ mod tests {
                 serde_json::json!({"type":kind,"error":"No session"})
             );
         }
-        let search = PlayerMessage::SearchResults { results: vec![FavoriteTrack::from(&track)] };
+        let search = PlayerMessage::SearchResults {
+            results: vec![FavoriteTrack::from(&track)],
+        };
         let value = serde_json::to_value(search).unwrap();
         assert_eq!(value["type"], "search_results");
         assert_eq!(value["results"][0]["id"], 42);

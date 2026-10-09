@@ -38,12 +38,24 @@ Item {
   property string playbackError: ""
   property var currentTrackId: null
   property bool favoritesRequested: false
+  property var playlists: []
+  property bool playlistsLoading: false
+  property string playlistsError: ""
+  property string currentPlaylistId: ""
+  property var playlistTracks: []
+  property bool playlistTracksLoading: false
+  property string playlistTracksError: ""
+  property string preferredAudioQuality: "LOSSLESS"
 
   onAuthenticatedChanged: {
     if (authenticated) {
       if (!favoritesRequested) loadFavorites()
+      loadPlaylists()
     } else {
       favorites = []
+      playlists = []
+      playlistTracks = []
+      currentPlaylistId = ""
       favoritesLoading = false
       favoritesRequested = false
       favoritesError = ""
@@ -260,6 +272,7 @@ Item {
       root.trackDuration = msg.duration || 0.0
       root.trackPosition = msg.position || 0.0
       root.audioQuality = msg.audio_quality || "LOSSLESS"
+      root.preferredAudioQuality = msg.preferred_audio_quality || root.preferredAudioQuality || "LOSSLESS"
     } else if (msg.type === "auth_code") {
       root.authPending = true
       root.authUrl = msg.verification_uri || "https://link.tidal.com"
@@ -294,6 +307,21 @@ Item {
     } else if (msg.type === "favorites_error") {
       root.favoritesLoading = false
       root.favoritesError = msg.error || "Unable to load favorites"
+    } else if (msg.type === "playlists_loaded") {
+      root.playlistsLoading = false
+      root.playlistsError = ""
+      root.playlists = msg.playlists || []
+    } else if (msg.type === "playlists_error") {
+      root.playlistsLoading = false
+      root.playlistsError = msg.error || "Unable to load playlists"
+    } else if (msg.type === "playlist_tracks_loaded") {
+      root.playlistTracksLoading = false
+      root.playlistTracksError = ""
+      root.currentPlaylistId = msg.playlist_id || root.currentPlaylistId
+      root.playlistTracks = msg.tracks || []
+    } else if (msg.type === "playlist_tracks_error") {
+      root.playlistTracksLoading = false
+      root.playlistTracksError = msg.error || "Unable to load playlist tracks"
     } else if (msg.type === "playback_started") {
       root.currentTrackId = msg.track_id
       root.playbackError = ""
@@ -362,5 +390,25 @@ Item {
     root.favoritesLoading = true
     root.favoritesError = ""
     sendCommand({ "command": "get_favorites" })
+  }
+
+  function loadPlaylists() {
+    if (root.playlistsLoading) return
+    root.playlistsLoading = true
+    root.playlistsError = ""
+    sendCommand({ "command": "get_playlists" })
+  }
+
+  function loadPlaylistTracks(playlistId) {
+    root.currentPlaylistId = playlistId
+    root.playlistTracks = []
+    root.playlistTracksLoading = true
+    root.playlistTracksError = ""
+    sendCommand({ "command": "get_playlist_tracks", "playlist_id": playlistId })
+  }
+
+  function setAudioQuality(quality) {
+    root.preferredAudioQuality = quality
+    sendCommand({ "command": "set_audio_quality", "quality": quality })
   }
 }

@@ -17,7 +17,7 @@ const ROOT: &str = "org.mpris.MediaPlayer2";
 const PLAYER: &str = "org.mpris.MediaPlayer2.Player";
 const PROPS: &str = "org.freedesktop.DBus.Properties";
 
-const XML: &str = "<node><interface name=\"org.freedesktop.DBus.Introspectable\"><method name=\"Introspect\"><arg name=\"xml\" type=\"s\" direction=\"out\"/></method></interface><interface name=\"org.freedesktop.DBus.Properties\"><method name=\"Get\"><arg type=\"s\" direction=\"in\"/><arg type=\"s\" direction=\"in\"/><arg type=\"v\" direction=\"out\"/></method><method name=\"GetAll\"><arg type=\"s\" direction=\"in\"/><arg type=\"a{sv}\" direction=\"out\"/></method><method name=\"Set\"><arg type=\"s\" direction=\"in\"/><arg type=\"s\" direction=\"in\"/><arg type=\"v\" direction=\"in\"/></method><signal name=\"PropertiesChanged\"><arg type=\"s\"/><arg type=\"a{sv}\"/><arg type=\"as\"/></signal></interface><interface name=\"org.mpris.MediaPlayer2\"><method name=\"Quit\"/><property name=\"Identity\" type=\"s\" access=\"read\"/><property name=\"CanQuit\" type=\"b\" access=\"read\"/><property name=\"CanRaise\" type=\"b\" access=\"read\"/><property name=\"HasTrackList\" type=\"b\" access=\"read\"/><property name=\"SupportedUriSchemes\" type=\"as\" access=\"read\"/><property name=\"SupportedMimeTypes\" type=\"as\" access=\"read\"/></interface><interface name=\"org.mpris.MediaPlayer2.Player\"><method name=\"Play\"/><method name=\"Pause\"/><method name=\"PlayPause\"/><method name=\"Stop\"/><method name=\"Next\"/><method name=\"Previous\"/><method name=\"Seek\"><arg type=\"x\" direction=\"in\"/></method><method name=\"SetPosition\"><arg type=\"o\" direction=\"in\"/><arg type=\"x\" direction=\"in\"/></method><signal name=\"Seeked\"><arg type=\"x\"/></signal><property name=\"PlaybackStatus\" type=\"s\" access=\"read\"/><property name=\"Metadata\" type=\"a{sv}\" access=\"read\"/><property name=\"Position\" type=\"x\" access=\"read\"/><property name=\"CanControl\" type=\"b\" access=\"read\"/><property name=\"CanPlay\" type=\"b\" access=\"read\"/><property name=\"CanPause\" type=\"b\" access=\"read\"/><property name=\"CanSeek\" type=\"b\" access=\"read\"/><property name=\"CanGoNext\" type=\"b\" access=\"read\"/><property name=\"CanGoPrevious\" type=\"b\" access=\"read\"/></interface></node>";
+const XML: &str = "<node><interface name=\"org.freedesktop.DBus.Introspectable\"><method name=\"Introspect\"><arg name=\"xml\" type=\"s\" direction=\"out\"/></method></interface><interface name=\"org.freedesktop.DBus.Properties\"><method name=\"Get\"><arg type=\"s\" direction=\"in\"/><arg type=\"s\" direction=\"in\"/><arg type=\"v\" direction=\"out\"/></method><method name=\"GetAll\"><arg type=\"s\" direction=\"in\"/><arg type=\"a{sv}\" direction=\"out\"/></method><method name=\"Set\"><arg type=\"s\" direction=\"in\"/><arg type=\"s\" direction=\"in\"/><arg type=\"v\" direction=\"in\"/></method><signal name=\"PropertiesChanged\"><arg type=\"s\"/><arg type=\"a{sv}\"/><arg type=\"as\"/></signal></interface><interface name=\"org.mpris.MediaPlayer2\"><method name=\"Quit\"/><property name=\"Identity\" type=\"s\" access=\"read\"/><property name=\"CanQuit\" type=\"b\" access=\"read\"/><property name=\"CanRaise\" type=\"b\" access=\"read\"/><property name=\"HasTrackList\" type=\"b\" access=\"read\"/><property name=\"SupportedUriSchemes\" type=\"as\" access=\"read\"/><property name=\"SupportedMimeTypes\" type=\"as\" access=\"read\"/></interface><interface name=\"org.mpris.MediaPlayer2.Player\"><method name=\"Play\"/><method name=\"Pause\"/><method name=\"PlayPause\"/><method name=\"Stop\"/><method name=\"Next\"/><method name=\"Previous\"/><method name=\"Seek\"><arg type=\"x\" direction=\"in\"/></method><method name=\"SetPosition\"><arg type=\"o\" direction=\"in\"/><arg type=\"x\" direction=\"in\"/></method><signal name=\"Seeked\"><arg type=\"x\"/></signal><property name=\"PlaybackStatus\" type=\"s\" access=\"read\"/><property name=\"Metadata\" type=\"a{sv}\" access=\"read\"/><property name=\"Position\" type=\"x\" access=\"read\"/><property name=\"TidalAudioQuality\" type=\"s\" access=\"read\"/><property name=\"TidalPreferredAudioQuality\" type=\"s\" access=\"read\"/><property name=\"CanControl\" type=\"b\" access=\"read\"/><property name=\"CanPlay\" type=\"b\" access=\"read\"/><property name=\"CanPause\" type=\"b\" access=\"read\"/><property name=\"CanSeek\" type=\"b\" access=\"read\"/><property name=\"CanGoNext\" type=\"b\" access=\"read\"/><property name=\"CanGoPrevious\" type=\"b\" access=\"read\"/></interface></node>";
 
 fn array_strings(values: &[&str]) -> MessageItem {
     MessageItem::Array(
@@ -101,6 +101,14 @@ fn properties(iface: &str, player: &Player) -> Vec<(&'static str, MessageItem)> 
         ("PlaybackStatus", MessageItem::Str(status.into())),
         ("Metadata", track_metadata(player.current.as_ref())),
         ("Position", MessageItem::Int64((pos * 1_000_000.0) as i64)),
+        (
+            "TidalAudioQuality",
+            MessageItem::Str(player.quality.clone()),
+        ),
+        (
+            "TidalPreferredAudioQuality",
+            MessageItem::Str(player.preferred_quality.clone()),
+        ),
         ("CanControl", MessageItem::Bool(true)),
         ("CanPlay", MessageItem::Bool(true)),
         ("CanPause", MessageItem::Bool(true)),
@@ -334,7 +342,7 @@ pub fn start(auth: Arc<AuthManager>, player: Arc<Mutex<Player>>, ipc: IpcServer)
                     .map(|(_, v)| format!("{v:?}"))
                     .unwrap_or_default();
                 let track = p.current.as_ref().map(|t| t.id).unwrap_or(0);
-                let state = format!("{status}:{track}");
+                let state = format!("{status}:{track}:{}:{}", p.quality, p.preferred_quality);
                 if state != previous {
                     send_changed(
                         &conn,
@@ -342,6 +350,8 @@ pub fn start(auth: Arc<AuthManager>, player: Arc<Mutex<Player>>, ipc: IpcServer)
                         vec![
                             ("PlaybackStatus", props[0].1.clone()),
                             ("Metadata", props[1].1.clone()),
+                            ("TidalAudioQuality", props[3].1.clone()),
+                            ("TidalPreferredAudioQuality", props[4].1.clone()),
                         ],
                     );
                     previous = state;

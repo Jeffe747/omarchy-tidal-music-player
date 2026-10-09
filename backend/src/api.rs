@@ -71,12 +71,14 @@ fn playback_with_fallback(
     quality: &str,
     mut request: impl FnMut(bool, &str) -> Result<PlaybackInfoResponse, ApiFailure>,
 ) -> Result<PlaybackInfoResponse, String> {
-    let qualities = [quality, "HIGH", "LOW"];
-    let qualities = match quality {
-        "HIGH" => &qualities[1..],
-        "LOW" => &qualities[2..],
-        _ => &qualities[..],
+    let ladder: &[&str] = match quality {
+        "HI_RES_LOSSLESS" => &["HI_RES_LOSSLESS", "LOSSLESS", "HIGH", "LOW"],
+        "LOSSLESS" => &["LOSSLESS", "HIGH", "LOW"],
+        "HIGH" => &["HIGH", "LOW"],
+        "LOW" => &["LOW"],
+        _ => &["LOSSLESS", "HIGH", "LOW"],
     };
+    let qualities = ladder;
     let mut index = 0;
     loop {
         let requested = qualities[index];
@@ -146,6 +148,71 @@ pub struct AlbumSummary {
     pub cover: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Playlist {
+    pub uuid: String,
+    #[serde(default, deserialize_with = "null_string")]
+    pub title: String,
+    #[serde(default, deserialize_with = "null_string")]
+    pub description: String,
+    #[serde(default, rename = "numberOfTracks", deserialize_with = "null_u64")]
+    pub number_of_tracks: u64,
+    #[serde(default, deserialize_with = "null_u64")]
+    pub duration: u64,
+    #[serde(default, rename = "squareImage")]
+    pub square_image: Option<String>,
+    #[serde(default)]
+    pub image: Option<String>,
+    #[serde(default)]
+    pub art_url: String,
+}
+
+fn null_string<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<String, D::Error> {
+    Ok(Option::<String>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+fn null_u64<'de, D: serde::Deserializer<'de>>(deserializer: D) -> Result<u64, D::Error> {
+    Ok(Option::<u64>::deserialize(deserializer)?.unwrap_or_default())
+}
+
+impl Playlist {
+    pub fn artwork_id(&self) -> &str {
+        self.square_image
+            .as_deref()
+            .or(self.image.as_deref())
+            .unwrap_or("")
+    }
+    pub fn set_art_url(&mut self) {
+        self.art_url = cover_url(self.artwork_id());
+    }
+}
+
+#[derive(Deserialize)]
+struct PlaylistPage {
+    #[serde(default)]
+    items: Vec<Playlist>,
+}
+
+pub fn parse_playlists(json: &str) -> Result<Vec<Playlist>, String> {
+    let mut page: PlaylistPage =
+        serde_json::from_str(json).map_err(|e| format!("Failed to parse playlists: {e}"))?;
+    for playlist in &mut page.items {
+        playlist.set_art_url();
+    }
+    Ok(page.items)
+}
+
+pub fn parse_playlist_tracks(json: &str) -> Result<Vec<TrackItem>, String> {
+    #[derive(Deserialize)]
+    struct Page {
+        #[serde(default)]
+        items: Vec<TrackItem>,
+    }
+    let page: Page =
+        serde_json::from_str(json).map_err(|e| format!("Failed to parse playlist tracks: {e}"))?;
+    Ok(page.items)
+}
+
 impl TrackItem {
     pub fn artist_name(&self) -> &str {
         self.artist
@@ -206,8 +273,8 @@ struct SearchPage {
 }
 
 pub fn parse_search_results(json: &str) -> Result<Vec<TrackItem>, String> {
-    let parsed: SearchResponse = serde_json::from_str(json)
-        .map_err(|e| format!("Failed to parse search response: {e}"))?;
+    let parsed: SearchResponse =
+        serde_json::from_str(json).map_err(|e| format!("Failed to parse search response: {e}"))?;
     Ok(parsed.tracks.map(|page| page.items).unwrap_or_default())
 }
 
@@ -330,6 +397,38 @@ impl TidalApiClient {
         .map_err(|e| format!("Failed to parse track: {e}"))
     }
 
+    pub fn get_playlists(&self, user_id: u64) -> Result<Vec<Playlist>, String> {
+        let url = format!("{API_BASE}/users/{user_id}/playlists");
+        let body = self
+            .request(
+                ureq::get(&url)
+                    .query("countryCode", &self.country_code)
+                    .query("limit", "50")
+                    .query("offset", "0"),
+                "/v1/users/{user_id}/playlists",
+            )
+            .map_err(|e| format!("Playlists request failed: {}", e.message))?
+            .into_string()
+            .map_err(|e| format!("Failed to read playlists: {e}"))?;
+        parse_playlists(&body)
+    }
+
+    pub fn get_playlist_tracks(&self, uuid: &str) -> Result<Vec<TrackItem>, String> {
+        let url = format!("{API_BASE}/playlists/{}/tracks", encode_query(uuid));
+        let body = self
+            .request(
+                ureq::get(&url)
+                    .query("countryCode", &self.country_code)
+                    .query("limit", "100")
+                    .query("offset", "0"),
+                "/v1/playlists/{uuid}/tracks",
+            )
+            .map_err(|e| format!("Playlist tracks request failed: {}", e.message))?
+            .into_string()
+            .map_err(|e| format!("Failed to read playlist tracks: {e}"))?;
+        parse_playlist_tracks(&body)
+    }
+
     pub fn get_playback_info(
         &self,
         track_id: u64,
@@ -356,11 +455,17 @@ impl TidalApiClient {
     }
 
     pub fn search(&self, query: &str) -> Result<Vec<TrackItem>, String> {
-        let url = format!("{API_BASE}/search?query={}&types=TRACKS%2CALBUMS%2CPLAYLISTS&limit=20&countryCode={}", encode_query(query), encode_query(&self.country_code));
+        let url = format!(
+            "{API_BASE}/search?query={}&types=TRACKS%2CALBUMS%2CPLAYLISTS&limit=20&countryCode={}",
+            encode_query(query),
+            encode_query(&self.country_code)
+        );
         let resp = self
             .request(ureq::get(&url), "/v1/search")
             .map_err(|e| format!("Search request failed: {}", e.message))?;
-        let json = resp.into_string().map_err(|e| format!("Failed to read search response: {e}"))?;
+        let json = resp
+            .into_string()
+            .map_err(|e| format!("Failed to read search response: {e}"))?;
         parse_search_results(&json)
     }
 }
@@ -401,7 +506,10 @@ mod tests {
 
     #[test]
     fn test_search_query_encoding() {
-        assert_eq!(encode_query("Björk & the Sugarcubes"), "Bj%C3%B6rk%20%26%20the%20Sugarcubes");
+        assert_eq!(
+            encode_query("Björk & the Sugarcubes"),
+            "Bj%C3%B6rk%20%26%20the%20Sugarcubes"
+        );
         assert_eq!(encode_query("a+b/c"), "a%2Bb%2Fc");
     }
 
@@ -412,7 +520,10 @@ mod tests {
         assert_eq!(tracks[0].id, 7);
         assert_eq!(tracks[0].artist_name(), "Artist");
         assert_eq!(tracks[0].album_title(), "Record");
-        assert_eq!(cover_url(tracks[0].cover()), "https://resources.tidal.com/images/aa/bb/640x640.jpg");
+        assert_eq!(
+            cover_url(tracks[0].cover()),
+            "https://resources.tidal.com/images/aa/bb/640x640.jpg"
+        );
     }
 
     #[test]
@@ -508,6 +619,46 @@ mod tests {
             })
             .unwrap();
             assert_eq!(calls, [(false, quality.to_string())]);
+        }
+    }
+
+    #[test]
+    fn playlist_json_and_tracks_parse() {
+        let playlists = parse_playlists(r#"{"items":[{"uuid":"abc-123","title":"Mix","description":"desc","numberOfTracks":2,"duration":300,"squareImage":"aa-bb"}]}"#).unwrap();
+        assert_eq!(playlists[0].uuid, "abc-123");
+        assert_eq!(
+            playlists[0].art_url,
+            "https://resources.tidal.com/images/aa/bb/640x640.jpg"
+        );
+        let tracks = parse_playlist_tracks(
+            r#"{"items":[{"id":9,"title":"Song","artists":[{"name":"A"}]}]}"#,
+        )
+        .unwrap();
+        assert_eq!(tracks[0].id, 9);
+    }
+
+    #[test]
+    fn quality_ladders_follow_preference() {
+        for (preferred, expected) in [
+            (
+                "HI_RES_LOSSLESS",
+                vec!["HI_RES_LOSSLESS", "LOSSLESS", "HIGH", "LOW"],
+            ),
+            ("LOSSLESS", vec!["LOSSLESS", "HIGH", "LOW"]),
+            ("HIGH", vec!["HIGH", "LOW"]),
+        ] {
+            let mut calls = Vec::new();
+            let _ = playback_with_fallback(preferred, |legacy, q| {
+                if !legacy {
+                    calls.push(q.to_string());
+                }
+                Err(ApiFailure {
+                    status: Some(404),
+                    quality_related: true,
+                    message: "unavailable".into(),
+                })
+            });
+            assert_eq!(calls, expected);
         }
     }
 
