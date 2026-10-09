@@ -199,13 +199,7 @@ impl AuthManager {
     }
 
     pub fn is_token_expired(&self, session: &Session) -> bool {
-        if let Some(expires_at) = session.expires_at {
-            let now = current_unix_timestamp();
-            // 60-second safety window before expiration
-            now + 60 >= expires_at
-        } else {
-            false
-        }
+        session.expires_at.is_some_and(|expiry| token_near_expiry(expiry, current_unix_timestamp(), 60))
     }
 
     pub fn request_device_code(&self) -> Result<DeviceAuthInfo, String> {
@@ -456,6 +450,10 @@ impl AuthManager {
     }
 }
 
+fn token_near_expiry(expires_at: u64, now: u64, safety_window: u64) -> bool {
+    now.saturating_add(safety_window) >= expires_at
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -481,6 +479,13 @@ mod tests {
         assert!(auth.check_credentials().is_ok());
         let public_client = AuthManager::with_credentials("custom-public-client".to_string(), None);
         assert!(public_client.check_credentials().is_ok());
+    }
+
+    #[test]
+    fn token_expiration_uses_safety_window_without_overflow() {
+        assert!(!token_near_expiry(1_061, 1_000, 60));
+        assert!(token_near_expiry(1_060, 1_000, 60));
+        assert!(token_near_expiry(1, u64::MAX, 60));
     }
 
     #[test]

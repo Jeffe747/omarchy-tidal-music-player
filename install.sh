@@ -26,7 +26,12 @@ if [[ "$SCRIPT_DIR" != "$(realpath -m "$TARGET_PLUGIN_DIR")" || -L "$TARGET_PLUG
     rm "$TARGET_PLUGIN_DIR"
   fi
   mkdir -p "$TARGET_PLUGIN_DIR"
+  # The daemon can still be executing from its installed inode. Copy the
+  # remaining tree normally, then replace the executable with an atomic rename.
+  rm -f "$STAGING_DIR/bin/tidal-daemon"
   cp -a "$STAGING_DIR/." "$TARGET_PLUGIN_DIR/"
+  install -Dm755 "$SCRIPT_DIR/bin/tidal-daemon" "$TARGET_PLUGIN_DIR/bin/tidal-daemon.new"
+  mv -f "$TARGET_PLUGIN_DIR/bin/tidal-daemon.new" "$TARGET_PLUGIN_DIR/bin/tidal-daemon"
 fi
 echo "  [✓] Installed standalone plugin to $TARGET_PLUGIN_DIR"
 cmp "$SCRIPT_DIR/bin/tidal-daemon" "$TARGET_PLUGIN_DIR/bin/tidal-daemon"

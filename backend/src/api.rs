@@ -5,10 +5,22 @@ const API_BASE: &str = "https://api.tidal.com/v1";
 struct ApiFailure {
     status: Option<u16>,
     quality_related: bool,
+    retryable: bool,
     message: String,
 }
 
+fn transient_transport(kind: ureq::ErrorKind) -> bool {
+    matches!(kind, ureq::ErrorKind::Dns | ureq::ErrorKind::ConnectionFailed | ureq::ErrorKind::Io | ureq::ErrorKind::ProxyConnect)
+}
+
 impl ApiFailure {
+    fn ipc_message(&self) -> String {
+        if self.retryable {
+            format!("{} (retryable)", self.message)
+        } else {
+            self.message.clone()
+        }
+    }
     fn from_body(status: u16, body: &str, token: &str) -> Self {
         let body: serde_json::Value = match serde_json::from_str(body) {
             Ok(body) => body,
@@ -16,6 +28,7 @@ impl ApiFailure {
                 return Self {
                     status: Some(status),
                     quality_related: false,
+                    retryable: matches!(status, 408 | 429 | 500..=599),
                     message: format!("HTTP {status}; error body is not valid Tidal JSON"),
                 };
             }
@@ -53,6 +66,7 @@ impl ApiFailure {
         Self {
             status: Some(status),
             quality_related,
+            retryable: matches!(status, 408 | 429 | 500..=599),
             message,
         }
     }
@@ -99,10 +113,9 @@ fn playback_with_fallback(
             Ok(info) => return Ok(info),
             Err(error) => {
                 crate::log::write(&format!("Playback attempt failed: {}", error.message));
-                let retryable =
-                    error.quality_related || matches!(error.status, Some(401 | 403 | 404));
+                let retryable = error.quality_related || matches!(error.status, Some(401 | 403 | 404));
                 if !retryable || index + 1 == qualities.len() {
-                    return Err(format!("Playback info request failed: {}", error.message));
+                    return Err(format!("Playback info request failed: {}", error.ipc_message()));
                 }
                 crate::log::write(&format!(
                     "Playback quality rejected; retrying {}",
@@ -332,15 +345,17 @@ impl TidalApiClient {
                     ureq::Error::Status(status, response) => match response.into_string() {
                         Ok(body) => ApiFailure::from_body(status, &body, &self.access_token),
                         Err(_) => ApiFailure {
-                            status: Some(status),
-                            quality_related: false,
+                        status: Some(status),
+                        quality_related: false,
+                        retryable: matches!(status, 408 | 429 | 500..=599),
                             message: format!("HTTP {status}; failed to read error body"),
                         },
                     },
                     ureq::Error::Transport(error) => ApiFailure {
                         status: None,
                         quality_related: false,
-                        message: format!("HTTP transport failure: {:?}", error.kind()),
+                        retryable: transient_transport(error.kind()),
+                        message: format!("{}: HTTP transport failure ({:?}); request may be retried", if transient_transport(error.kind()) { "Transient network error" } else { "Network request error" }, error.kind()),
                     },
                 };
                 crate::log::write(&format!("API GET {path} failed: {}", failure.message));
@@ -374,7 +389,7 @@ impl TidalApiClient {
                         .query("orderDirection", "DESC"),
                     &format!("/v1/users/{user_id}/favorites/tracks"),
                 )
-                .map_err(|e| format!("Favorites request failed: {}", e.message))?
+                .map_err(|e| format!("Favorites request failed: {}", e.ipc_message()))?
                 .into_string()
                 .map_err(|e| format!("Failed to read favorites: {e}"))?;
             let items = parse_favorites(&json)?;
@@ -392,7 +407,7 @@ impl TidalApiClient {
                 .query("countryCode", &self.country_code),
             &format!("/v1/tracks/{track_id}"),
         )
-        .map_err(|e| format!("Track request failed: {}", e.message))?
+            .map_err(|e| format!("Track request failed: {}", e.ipc_message()))?
         .into_json()
         .map_err(|e| format!("Failed to parse track: {e}"))
     }
@@ -407,7 +422,7 @@ impl TidalApiClient {
                     .query("offset", "0"),
                 "/v1/users/{user_id}/playlists",
             )
-            .map_err(|e| format!("Playlists request failed: {}", e.message))?
+            .map_err(|e| format!("Playlists request failed: {}", e.ipc_message()))?
             .into_string()
             .map_err(|e| format!("Failed to read playlists: {e}"))?;
         parse_playlists(&body)
@@ -423,7 +438,7 @@ impl TidalApiClient {
                     .query("offset", "0"),
                 "/v1/playlists/{uuid}/tracks",
             )
-            .map_err(|e| format!("Playlist tracks request failed: {}", e.message))?
+            .map_err(|e| format!("Playlist tracks request failed: {}", e.ipc_message()))?
             .into_string()
             .map_err(|e| format!("Failed to read playlist tracks: {e}"))?;
         parse_playlist_tracks(&body)
@@ -449,6 +464,7 @@ impl TidalApiClient {
             response.into_json().map_err(|e| ApiFailure {
                 status: None,
                 quality_related: false,
+                retryable: false,
                 message: format!("Failed to parse playback info: {e}"),
             })
         })
@@ -462,7 +478,7 @@ impl TidalApiClient {
         );
         let resp = self
             .request(ureq::get(&url), "/v1/search")
-            .map_err(|e| format!("Search request failed: {}", e.message))?;
+            .map_err(|e| format!("Search request failed: {}", e.ipc_message()))?;
         let json = resp
             .into_string()
             .map_err(|e| format!("Failed to read search response: {e}"))?;
@@ -490,6 +506,15 @@ mod tests {
             manifest_mime_type: "application/vnd.tidal.bts".to_string(),
             manifest: String::new(),
         }
+    }
+
+    #[test]
+    fn transient_transport_kinds_are_retryable() {
+        assert!(transient_transport(ureq::ErrorKind::Io));
+        assert!(transient_transport(ureq::ErrorKind::ConnectionFailed));
+        assert!(!transient_transport(ureq::ErrorKind::InvalidUrl));
+        assert!(ApiFailure::from_body(503, "{}", "").retryable);
+        assert!(!ApiFailure::from_body(400, "{}", "").retryable);
     }
 
     #[test]
@@ -655,6 +680,7 @@ mod tests {
                 Err(ApiFailure {
                     status: Some(404),
                     quality_related: true,
+                    retryable: false,
                     message: "unavailable".into(),
                 })
             });
@@ -785,6 +811,7 @@ mod tests {
             Err(ApiFailure {
                 status: None,
                 quality_related: false,
+                retryable: false,
                 message: "HTTP transport failure".into(),
             })
         })

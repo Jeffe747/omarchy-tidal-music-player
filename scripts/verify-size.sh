@@ -7,6 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN_PATH="$SCRIPT_DIR/bin/tidal-daemon"
 RELEASE_BIN="$SCRIPT_DIR/backend/target/release/tidal-daemon"
 MAX_SIZE_BYTES=1800000 # 1.8 MB bundled binary limit (decimal bytes)
+UPX_MAX_SIZE_BYTES=800000
 
 echo "==> Verifying binary size & symbols for tidal-daemon..."
 
@@ -21,6 +22,19 @@ verify_binary() {
   size_bytes=$(stat -c%s "$path")
   description=$(file -b "$path")
   echo "  $path: $size_bytes bytes"
+
+  if [[ "$description" == *"UPX compressed"* ]]; then
+    if ! command -v upx >/dev/null 2>&1 || ! upx -t "$path" >/dev/null; then
+      echo "  [FAIL] UPX binary cannot be validated (install upx)." >&2
+      return 1
+    fi
+    if (( size_bytes >= UPX_MAX_SIZE_BYTES )); then
+      echo "  [FAIL] UPX binary is not below ${UPX_MAX_SIZE_BYTES} bytes." >&2
+      return 1
+    fi
+    echo "  [PASS] Valid UPX executable below ${UPX_MAX_SIZE_BYTES}-byte budget."
+    return 0
+  fi
 
   if [[ "$description" != ELF* || "$description" != *", stripped"* \
       || "$description" == *"not stripped"* || "$description" == *"with debug_info"* ]]; then

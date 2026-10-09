@@ -26,12 +26,18 @@ echo "==> Stripping binary..."
 strip --strip-all --remove-section=.comment --remove-section='.note*' \
   --remove-section=.eh_frame --remove-section=.eh_frame_hdr "$TARGET_BIN"
 
+# Compression is opt-in so local development and diagnostics keep a normal ELF.
+# Set TIDAL_UPX=1 to package an UPX executable when UPX is installed.
+if [[ "${TIDAL_UPX:-0}" == "1" ]]; then
+  if ! command -v upx >/dev/null 2>&1; then
+    echo "TIDAL_UPX=1 requires upx on PATH." >&2
+    exit 1
+  fi
+  upx --best --lzma "$TARGET_BIN"
+fi
+
 install -Dm755 "$TARGET_BIN" "$BUNDLED_BIN"
 "$SCRIPT_DIR/scripts/verify-size.sh"
 
 SIZE=$(du -h "$BUNDLED_BIN" | cut -f1)
 echo "==> Build successful! Bundled binary size: $SIZE ($BUNDLED_BIN)"
-
-if command -v upx >/dev/null 2>&1; then
-  echo "  [i] UPX available. After optional compression, update bin/tidal-daemon and re-run verification."
-fi

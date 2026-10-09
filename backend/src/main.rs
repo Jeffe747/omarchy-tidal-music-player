@@ -184,13 +184,28 @@ fn api_client(auth: &AuthManager) -> Result<(TidalApiClient, Option<u64>), Strin
     ))
 }
 
+fn api_call<T>(auth: &AuthManager, mut call: impl FnMut(&TidalApiClient, Option<u64>) -> Result<T, String>) -> Result<T, String> {
+    let (api, user_id) = api_client(auth)?;
+    match call(&api, user_id) {
+        Ok(value) => Ok(value),
+        Err(error) if error.contains("HTTP 401") => {
+            let session = auth.load_session().ok_or(error.clone())?;
+            let refresh = session.refresh_token.as_deref().ok_or(error.clone())?;
+            log::write("API returned HTTP 401; refreshing saved session and retrying once");
+            auth.refresh_session(refresh).map_err(|refresh_error| format!("{error}; token refresh failed: {refresh_error}"))?;
+            let (api, user_id) = api_client(auth)?;
+            call(&api, user_id)
+        }
+        Err(error) => Err(error),
+    }
+}
+
 fn run_cli_probe(
     auth: &AuthManager,
     id: u64,
     quality_override: Option<&str>,
 ) -> Result<(), String> {
-    let (api, _) = api_client(auth)?;
-    let track = api.get_track(id)?;
+    let track = api_call(auth, |api, _| api.get_track(id))?;
     println!("Track ID: {}", track.id);
     println!("Title: {}", track.title);
     println!("Artist: {}", track.artist_name());
@@ -205,7 +220,7 @@ fn run_cli_probe(
         .map(str::to_owned)
         .unwrap_or_else(load_quality_preference);
     println!("Requested Audio Quality: {requested_quality}");
-    let info = api.get_playback_info(id, &requested_quality)?;
+    let info = api_call(auth, |api, _| api.get_playback_info(id, &requested_quality))?;
     println!("audioQuality: {}", info.audio_quality);
     println!("manifestMimeType: {}", info.manifest_mime_type);
     let mut engine = PlaybackEngine::new();
@@ -225,9 +240,7 @@ fn load_favorites(
     player: &Mutex<Player>,
     ipc: &IpcServer,
 ) -> Result<(), String> {
-    let (api, user_id) = api_client(auth)?;
-    let user_id = user_id.ok_or("Session has no user ID; please sign in again")?;
-    let tracks = api.get_favorites(user_id)?;
+    let tracks = api_call(auth, |api, user_id| api.get_favorites(user_id.ok_or("Session has no user ID; please sign in again")?))?;
     let mut player = player.lock().map_err(|e| e.to_string())?;
     player.favorites = tracks;
     if player.current_playlist_id.is_none() {
@@ -244,9 +257,7 @@ fn load_playlists(
     player: &Mutex<Player>,
     ipc: &IpcServer,
 ) -> Result<(), String> {
-    let (api, user_id) = api_client(auth)?;
-    let user_id = user_id.ok_or("Session has no user ID; please sign in again")?;
-    let playlists = api.get_playlists(user_id)?;
+    let playlists = api_call(auth, |api, user_id| api.get_playlists(user_id.ok_or("Session has no user ID; please sign in again")?))?;
     player.lock().map_err(|e| e.to_string())?.playlists = playlists.clone();
     ipc.broadcast(&PlayerMessage::PlaylistsLoaded { playlists });
     Ok(())
@@ -258,8 +269,7 @@ fn load_playlist_tracks(
     ipc: &IpcServer,
     playlist_id: String,
 ) -> Result<(), String> {
-    let (api, _) = api_client(auth)?;
-    let tracks = api.get_playlist_tracks(&playlist_id)?;
+    let tracks = api_call(auth, |api, _| api.get_playlist_tracks(&playlist_id))?;
     let mut state = player.lock().map_err(|e| e.to_string())?;
     state.queue = tracks.clone();
     state.current_playlist_id = Some(playlist_id.clone());
@@ -282,8 +292,7 @@ fn search_catalog(
         });
         return Ok(());
     }
-    let (api, _) = api_client(auth)?;
-    let tracks = api.search(query.trim())?;
+    let tracks = api_call(auth, |api, _| api.search(query.trim()))?;
     ipc.broadcast(&PlayerMessage::SearchResults {
         results: tracks.iter().map(FavoriteTrack::from).collect(),
     });
@@ -297,7 +306,6 @@ fn play_track(
     track_id: Option<u64>,
 ) -> Result<(), String> {
     let id = track_id.ok_or("play_track requires track_id")?;
-    let (api, _) = api_client(auth)?;
     let mut player = player.lock().map_err(|e| e.to_string())?;
     let track = match player
         .queue
@@ -306,7 +314,7 @@ fn play_track(
         .find(|track| track.id == id)
     {
         Some(track) => track.clone(),
-        None => api.get_track(id)?,
+        None => api_call(auth, |api, _| api.get_track(id))?,
     };
     if !player.queue.iter().any(|item| item.id == id) {
         if player.favorites.iter().any(|item| item.id == id) {
@@ -324,7 +332,7 @@ fn play_track(
         track.artist_name(),
         track.audio_quality
     ));
-    let info = api.get_playback_info(id, &preferred_quality)?;
+    let info = api_call(auth, |api, _| api.get_playback_info(id, &preferred_quality))?;
     let mime = match info.manifest_mime_type.as_str() {
         "application/vnd.tidal.bts" | "application/dash+xml" => info.manifest_mime_type.as_str(),
         _ => "unsupported",
