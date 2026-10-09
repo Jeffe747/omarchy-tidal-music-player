@@ -88,6 +88,8 @@ Item {
         root.searching = false
         root.favoritesLoading = false
         root.favoritesError = root.buildScriptMessage
+        root.playlistsLoading = false
+        root.playlistTracksLoading = false
       } else if (root.authError === root.buildScriptMessage) {
         root.authError = ""
       }
@@ -141,6 +143,8 @@ Item {
         root.searching = false
         root.favoritesLoading = false
         root.favoritesError = root.authError
+        root.playlistsLoading = false
+        root.playlistTracksLoading = false
         console.warn("Tidal Service:", root.authError)
       }
     }
@@ -166,6 +170,8 @@ Item {
         }
         root.favoritesLoading = false
         root.favoritesRequested = false
+        root.playlistsLoading = false
+        root.playlistTracksLoading = false
         if (root.pendingCommands.length > 0) {
           root.authError = "Unable to connect to Tidal daemon; retrying..."
         }

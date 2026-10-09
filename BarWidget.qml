@@ -70,6 +70,9 @@ Panel {
         if (typeof tidalService.initializeForWidget === "function") tidalService.initializeForWidget()
         else tidalService.checkDaemonBinary()
       }
+      if (open && tidalService && tidalService.authenticated && tidalService.playlists.length === 0) {
+        tidalService.loadPlaylists()
+      }
     }
 
     PanelKeyCatcher {
@@ -649,19 +652,39 @@ Panel {
             }
             Ui.Button { visible: tidalService && tidalService.currentPlaylistId === "" && tidalService.playlistsError !== ""; text: "Retry playlists"; onClicked: tidalService.loadPlaylists() }
             ListView {
-              height: Math.min(contentHeight, Style.space(260))
+              id: playlistsList
+              width: parent.width
+              height: count > 0 ? Math.min(Math.max(contentHeight, Style.space(64)), Style.space(280)) : 0
               clip: true
               spacing: Style.space(4)
               model: tidalService && tidalService.currentPlaylistId === "" ? tidalService.playlists : []
               delegate: Rectangle {
                 required property var modelData
-                width: parent.width
+                width: playlistsList.width
                 height: Style.space(64)
                 radius: Style.cornerRadius
                 color: Color.background
                 Row {
                   anchors.fill: parent; anchors.margins: Style.space(6); spacing: Style.space(8)
-                  Image { width: Style.space(48); height: Style.space(48); source: modelData.art_url || ""; fillMode: Image.PreserveAspectCrop; asynchronous: true }
+                  Rectangle {
+                    width: Style.space(48); height: Style.space(48); radius: Style.cornerRadius
+                    color: Qt.rgba(Color.foreground.r, Color.foreground.g, Color.foreground.b, 0.08)
+                    clip: true
+                    Image {
+                      id: playlistArtwork
+                      anchors.fill: parent
+                      source: modelData.art_url || ""
+                      fillMode: Image.PreserveAspectCrop
+                      asynchronous: true
+                    }
+                    Text {
+                      anchors.centerIn: parent
+                      visible: playlistArtwork.status !== Image.Ready
+                      text: "󰝚"
+                      color: Color.muted
+                      font.pixelSize: Style.font.title
+                    }
+                  }
                   Column {
                     anchors.verticalCenter: parent.verticalCenter
                     width: parent.width - Style.space(64)
@@ -673,13 +696,15 @@ Panel {
               }
             }
             ListView {
-              height: Math.min(contentHeight, Style.space(260))
+              id: playlistTracksList
+              width: parent.width
+              height: count > 0 ? Math.min(Math.max(contentHeight, Style.space(56)), Style.space(280)) : 0
               clip: true
               spacing: Style.space(4)
               model: tidalService && tidalService.currentPlaylistId !== "" ? tidalService.playlistTracks : []
               delegate: Rectangle {
                 required property var modelData
-                width: parent.width; height: Style.space(56); radius: Style.cornerRadius; color: Color.background
+                width: playlistTracksList.width; height: Style.space(56); radius: Style.cornerRadius; color: Color.background
                 Row {
                   anchors.fill: parent; anchors.margins: Style.space(6); spacing: Style.space(8)
                   Column {
