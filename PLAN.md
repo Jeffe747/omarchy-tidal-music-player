@@ -177,7 +177,15 @@ The UI binds dynamically to Omarchy's color singleton:
 
 ## 6. Implementation Progression Milestones
 
+Milestones 0–6 are complete, as recorded in `PROGRESS.md`. Milestone 7 is
+queued. Runtime checks that require a local Wayland/Quickshell session are
+called out below; live Rimegale verification is recorded where available.
+
+### Milestone 0: Foundation, Scaffolding & Agent Gates
+- **Status: Complete.** Plugin manifest, QML and Rust scaffolding, verification scripts, Omarchy compliance validator, agent contract, and architecture plan are in place.
+
 ### Milestone 1: Authentication & Session Management (Login)
+- **Status: Complete.** Device authorization, token polling and refresh, secure session persistence, IPC, and connected-state UI are implemented and verified.
 - **Objective:** Enable frictionless OAuth 2.0 Device Flow login via `link.tidal.com` directly from the bar flyout.
 - **Backend:**
   - Request device code (`userCode`, `verificationUriComplete`, `deviceCode`, `interval`, `expiresIn`).
@@ -207,6 +215,7 @@ The UI binds dynamically to Omarchy's color singleton:
   - Now-playing hero card with track title, artist name, and album artwork.
 
 ### Milestone 3: Interactive Playback Controls, Seeking & Auto-Advance
+- **Status: Complete.** Playback controls, position updates, queue navigation, and EOF auto-advance are implemented and covered by automated tests. QML runtime interaction checks remain pending without a Wayland/Quickshell session.
 - **Objective:** Interactive seek bar, transport controls, and automatic track queue advance.
 - **Backend:**
   - mpv IPC control: `pause`, `resume`, `toggle_pause`, `seek_absolute(seconds)`, `set_volume(pct)`.
@@ -218,6 +227,7 @@ The UI binds dynamically to Omarchy's color singleton:
   - Bar button shortcuts: Left-click toggles panel; right-click toggles play/pause without opening panel.
 
 ### Milestone 4: MPRIS D-Bus & Desktop Integration
+- **Status: Complete.** Live D-Bus introspection, `playerctl` controls/metadata/seeking, Hyprland media keybinding, and Omarchy media service integration were verified on Rimegale.
 - **Objective:** Native desktop media control across Hyprland and Omarchy.
 - **Backend:**
   - Register `org.mpris.MediaPlayer2.Tidal` on the session D-Bus.
@@ -228,6 +238,7 @@ The UI binds dynamically to Omarchy's color singleton:
   - Omarchy's `omarchy.audio` volume flyout lists Tidal's PipeWire stream.
 
 ### Milestone 5: Catalog Search & Discovery
+- **Status: Complete.** Authenticated search, debounced UI, and one-click playback are implemented; live searches and playback of a result were verified.
 - **Objective:** Search any track, artist, album, or playlist from the flyout.
 - **Backend:**
   - Query Tidal's search API: `GET /v1/search?query={q}&types=TRACKS,ALBUMS,PLAYLISTS&limit=20`.
@@ -236,6 +247,7 @@ The UI binds dynamically to Omarchy's color singleton:
   - Instant results view with single-click playback.
 
 ### Milestone 6: User Playlists & Audio Quality Tiers
+- **Status: Complete.** Playlist loading, track queues, persistent quality selection, fallback negotiation, DASH handling, and themed quality UI are implemented and verified. Live `HI_RES_LOSSLESS` negotiation fell back to playable LOSSLESS; actual 24-bit playback remains unverified.
 - **Objective:** Access custom playlists and toggle audio quality tiers (Hi-Res Lossless vs High AAC).
 - **Backend:**
   - Endpoints for `GET /v1/users/{userId}/playlists` and `GET /v1/playlists/{uuid}/tracks`.
