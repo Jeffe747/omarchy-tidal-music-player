@@ -165,7 +165,8 @@ Panel {
 
             Ui.Button {
               anchors.verticalCenter: parent.verticalCenter
-              text: "󰒓"
+              iconText: "󰒓"
+              text: "Settings"
               tooltipText: "Settings"
               onClicked: root.settingsOpen = !root.settingsOpen
             }
