@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import Quickshell
 import Quickshell.Services.Pipewire
 import qs.Commons
@@ -23,6 +24,8 @@ Panel {
   readonly property var defaultAudioSink: Pipewire.defaultAudioSink
   readonly property bool isSystemMuted: defaultAudioSink && defaultAudioSink.audio ? defaultAudioSink.audio.muted : false
   property string libraryTab: "favorites"
+  property bool settingsOpen: false
+  property string playlistFilter: ""
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -80,6 +83,11 @@ Panel {
       anchors.fill: parent
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
+      Keys.onPressed: function(event) {
+        if (event.key === Qt.Key_Space) { if (tidalService) tidalService.togglePlay(); event.accepted = true }
+        else if (event.key === Qt.Key_Left) { if (tidalService) tidalService.seek(Math.max(0, tidalService.trackPosition - 5)); event.accepted = true }
+        else if (event.key === Qt.Key_Right) { if (tidalService) tidalService.seek(Math.min(tidalService.trackDuration, tidalService.trackPosition + 5)); event.accepted = true }
+      }
 
       Column {
         id: mainColumn
@@ -155,15 +163,11 @@ Panel {
               }
             }
 
-            // Disconnect / Logout Button
             Ui.Button {
-              visible: root.isAuthenticated
               anchors.verticalCenter: parent.verticalCenter
-              text: "Logout"
-              iconText: "󰍃"
-              onClicked: {
-                if (tidalService) tidalService.logout()
-              }
+              text: "󰒓"
+              tooltipText: "Settings"
+              onClicked: root.settingsOpen = !root.settingsOpen
             }
           }
         }
@@ -331,20 +335,47 @@ Panel {
           width: parent.width
           spacing: Style.space(12)
 
+          Rectangle {
+            visible: root.settingsOpen
+            width: parent.width
+            radius: Style.cornerRadius
+            color: Color.background
+            border.color: Color.muted
+            implicitHeight: settingsColumn.implicitHeight + Style.space(16)
+            Column {
+              id: settingsColumn
+              anchors.fill: parent
+              anchors.margins: Style.space(8)
+              spacing: Style.space(6)
+              PanelSectionHeader { text: "SETTINGS" }
+              Text { text: "Audio quality preference"; color: Color.muted; font.pixelSize: Style.font.caption }
+              Row {
+                spacing: Style.space(4)
+                Ui.Button { text: "Hi-Res FLAC"; selected: tidalService && tidalService.preferredAudioQuality === "HI_RES_LOSSLESS"; onClicked: tidalService.setAudioQuality("HI_RES_LOSSLESS") }
+                Ui.Button { text: "Lossless"; selected: tidalService && tidalService.preferredAudioQuality === "LOSSLESS"; onClicked: tidalService.setAudioQuality("LOSSLESS") }
+                Ui.Button { text: "High AAC"; selected: tidalService && tidalService.preferredAudioQuality === "HIGH"; onClicked: tidalService.setAudioQuality("HIGH") }
+              }
+              Text { text: root.isAuthenticated ? "Account connected" : "Not connected"; color: root.isAuthenticated ? Color.accent : Color.muted; font.pixelSize: Style.font.caption }
+              Row {
+                spacing: Style.space(6)
+                Ui.Button { visible: root.isAuthenticated; text: "Logout"; iconText: "󰍃"; onClicked: { tidalService.logout(); root.settingsOpen = false } }
+                Ui.Button { text: "Close"; onClicked: root.settingsOpen = false }
+              }
+            }
+          }
+
           // Now Playing Card
           Row {
             width: parent.width
             spacing: Style.space(6)
+            visible: !tidalService || tidalService.explorationView === ""
             Ui.Button { text: "Favorites"; selected: root.libraryTab === "favorites"; onClicked: root.libraryTab = "favorites" }
             Ui.Button { text: "Playlists"; selected: root.libraryTab === "playlists"; onClicked: { root.libraryTab = "playlists"; if (tidalService && tidalService.playlists.length === 0) tidalService.loadPlaylists() } }
-            Item { width: Style.space(4); height: 1 }
-            Ui.Button { text: "Hi-Res"; selected: tidalService && tidalService.preferredAudioQuality === "HI_RES_LOSSLESS"; onClicked: if (tidalService) tidalService.setAudioQuality("HI_RES_LOSSLESS") }
-            Ui.Button { text: "Lossless"; selected: tidalService && tidalService.preferredAudioQuality === "LOSSLESS"; onClicked: if (tidalService) tidalService.setAudioQuality("LOSSLESS") }
-            Ui.Button { text: "High"; selected: tidalService && tidalService.preferredAudioQuality === "HIGH"; onClicked: if (tidalService) tidalService.setAudioQuality("HIGH") }
+
           }
 
           Rectangle {
-            visible: root.libraryTab === "playlists"
+            visible: false
             width: parent.width
             radius: Style.cornerRadius
             color: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.12)
@@ -404,12 +435,10 @@ Panel {
                 width: parent.width
               }
 
-              Text {
-                text: (tidalService && tidalService.trackArtist) || "Select a favorite below"
-                font.pixelSize: Style.font.caption
-                color: Color.muted
-                elide: Text.ElideRight
-                width: parent.width
+              Row {
+                spacing: Style.space(4)
+                Ui.Button { text: (tidalService && tidalService.trackArtist) || "Select a favorite below"; onClicked: if (tidalService && tidalService.currentArtistId) tidalService.exploreArtist(tidalService.currentArtistId) }
+                Ui.Button { text: tidalService && tidalService.currentTrackFavorite ? "󰋑" : "󰋕"; tooltipText: "Toggle favorite"; onClicked: if (tidalService) tidalService.toggleFavorite() }
               }
 
               Text {
@@ -422,14 +451,7 @@ Panel {
                 wrapMode: Text.WordWrap
               }
 
-              Text {
-                text: (tidalService && tidalService.trackAlbum) || ""
-                font.pixelSize: Style.font.caption
-                color: Color.muted
-                elide: Text.ElideRight
-                width: parent.width
-                visible: tidalService && tidalService.trackAlbum !== ""
-              }
+              Ui.Button { text: (tidalService && tidalService.trackAlbum) || ""; visible: tidalService && tidalService.trackAlbum !== ""; onClicked: if (tidalService && tidalService.currentAlbumId) tidalService.exploreAlbum(tidalService.currentAlbumId) }
             }
           }
 
@@ -492,18 +514,44 @@ Panel {
               }
             }
 
-            Ui.Button {
-              text: "⏭"
-              tooltipText: "Next track"
-              onClicked: {
-                if (tidalService) tidalService.next()
-              }
-            }
+            Ui.Button { text: "⏭"; tooltipText: "Next track"; onClicked: if (tidalService) tidalService.next() }
+            Ui.Button { text: "󰒝"; selected: tidalService && tidalService.shuffle; tooltipText: "Shuffle"; onClicked: if (tidalService) tidalService.toggleShuffle() }
+            Ui.Button { text: tidalService && tidalService.repeatMode === "one" ? "󰑘" : "󰑖"; selected: tidalService && tidalService.repeatMode !== "off"; tooltipText: "Repeat: " + (tidalService ? tidalService.repeatMode : "off"); onClicked: if (tidalService) tidalService.cycleRepeat() }
           }
 
           PanelSeparator { width: parent.width }
 
-          PanelSectionHeader { text: (searchField.text.trim() !== "" ? "SEARCH RESULTS" : (root.libraryTab === "playlists" ? "PLAYLISTS" : "FAVORITES")) }
+          Column {
+            visible: tidalService && tidalService.explorationView !== ""
+            width: parent.width
+            spacing: Style.space(6)
+            Ui.Button { text: "← Back"; onClicked: { tidalService.explorationView = ""; tidalService.explorationTracks = [] } }
+            PanelSectionHeader { text: tidalService && tidalService.explorationView === "album" ? "ALBUM TRACKS" : "ARTIST TOP TRACKS" }
+            Text { visible: tidalService && tidalService.explorationError !== ""; text: tidalService ? tidalService.explorationError : ""; color: Color.urgent; font.pixelSize: Style.font.caption }
+            ListView {
+              width: parent.width
+              height: count > 0 ? Math.min(contentHeight, Style.space(280)) : 0
+              clip: true
+              ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOn; width: Style.space(6); contentItem: Rectangle { radius: Style.cornerRadius; color: Color.muted } }
+              model: tidalService ? tidalService.explorationTracks : []
+              delegate: Rectangle {
+                required property var modelData
+                width: parent.width; height: Style.space(56); radius: Style.cornerRadius; color: Color.background
+                Column { anchors.left: parent.left; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; anchors.leftMargin: Style.space(8); anchors.rightMargin: Style.space(8)
+                  Text { width: parent.width; text: modelData.title || ""; color: Color.foreground; font.pixelSize: Style.font.body; elide: Text.ElideRight }
+                  Row {
+                    spacing: Style.space(3)
+                    Text { text: modelData.artist || ""; color: Color.muted; font.pixelSize: Style.font.caption; elide: Text.ElideRight; TapHandler { onTapped: if (tidalService && modelData.artist_id) tidalService.exploreArtist(modelData.artist_id) } }
+                    Text { visible: !!modelData.album; text: "•"; color: Color.muted; font.pixelSize: Style.font.caption }
+                    Text { text: modelData.album || ""; color: Color.muted; font.pixelSize: Style.font.caption; elide: Text.ElideRight; TapHandler { onTapped: if (tidalService && modelData.album_id) tidalService.exploreAlbum(modelData.album_id) } }
+                  }
+                }
+                MouseArea { z: -1; anchors.fill: parent; onClicked: if (tidalService) tidalService.playTrack(modelData.id) }
+              }
+            }
+          }
+
+          PanelSectionHeader { visible: !tidalService || tidalService.explorationView === ""; text: (searchField.text.trim() !== "" ? "SEARCH RESULTS" : (root.libraryTab === "playlists" ? "PLAYLISTS" : "FAVORITES")) }
 
           Timer {
             id: searchDebounce
@@ -516,7 +564,7 @@ Panel {
 
           Ui.TextField {
             id: searchField
-            visible: root.libraryTab === "favorites"
+            visible: !tidalService || tidalService.explorationView === ""
             width: parent.width
             placeholderText: "Search tracks, albums, playlists..."
             onTextChanged: {
@@ -527,7 +575,7 @@ Panel {
           }
 
           Ui.Button {
-            visible: root.libraryTab === "favorites" && searchField.text.trim() !== ""
+            visible: (!tidalService || tidalService.explorationView === "") && searchField.text.trim() !== ""
             text: "← Back to favorites"
             onClicked: {
               searchDebounce.stop()
@@ -539,7 +587,7 @@ Panel {
           Text {
             objectName: "tidalFavoritesState"
             width: parent.width
-            visible: root.libraryTab === "favorites" && searchField.text.trim() === "" && tidalService && (tidalService.favoritesLoading || tidalService.favoritesError !== "" || tidalService.favorites.length === 0)
+            visible: (!tidalService || tidalService.explorationView === "") && root.libraryTab === "favorites" && searchField.text.trim() === "" && tidalService && (tidalService.favoritesLoading || tidalService.favoritesError !== "" || tidalService.favorites.length === 0)
             text: !tidalService ? "" : (tidalService.favoritesLoading ? "Loading favorites..." : (tidalService.favoritesError || "No favorite tracks yet. Add favorites in Tidal."))
             color: tidalService && tidalService.favoritesError !== "" ? Color.urgent : Color.muted
             font.pixelSize: Style.font.caption
@@ -557,8 +605,9 @@ Panel {
             objectName: "tidalFavoritesList"
             width: parent.width
             height: Math.min(contentHeight, Style.space(280))
-            visible: root.libraryTab === "favorites" && searchField.text.trim() === ""
+            visible: (!tidalService || tidalService.explorationView === "") && root.libraryTab === "favorites" && searchField.text.trim() === ""
             clip: true
+            ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOn; width: Style.space(6); contentItem: Rectangle { radius: Style.cornerRadius; color: Color.muted } }
             spacing: Style.space(4)
             model: tidalService ? tidalService.favorites : []
             delegate: Rectangle {
@@ -607,12 +656,17 @@ Panel {
                     color: current ? Color.accent : Color.foreground
                     elide: Text.ElideRight
                   }
-                  Text {
-                    width: parent.width
-                    text: (modelData.artist || "") + (modelData.album ? " • " + modelData.album : "")
-                    font.pixelSize: Style.font.caption
-                    color: Color.muted
-                    elide: Text.ElideRight
+                  Row {
+                    spacing: Style.space(3)
+                    Text {
+                      text: modelData.artist || ""; font.pixelSize: Style.font.caption; color: Color.muted; elide: Text.ElideRight
+                      TapHandler { onTapped: if (tidalService && modelData.artist_id) tidalService.exploreArtist(modelData.artist_id) }
+                    }
+                    Text { visible: !!modelData.album; text: "•"; font.pixelSize: Style.font.caption; color: Color.muted }
+                    Text {
+                      text: modelData.album || ""; font.pixelSize: Style.font.caption; color: Color.muted; elide: Text.ElideRight
+                      TapHandler { onTapped: if (tidalService && modelData.album_id) tidalService.exploreAlbum(modelData.album_id) }
+                    }
                   }
                 }
 
@@ -627,6 +681,7 @@ Panel {
 
               MouseArea {
                 objectName: "tidalFavoriteClick"
+                z: -1
                 anchors.fill: parent
                 cursorShape: Qt.PointingHandCursor
                 onClicked: if (tidalService) tidalService.playTrack(modelData.id)
@@ -637,7 +692,7 @@ Panel {
           Column {
             width: parent.width
             spacing: Style.space(5)
-            visible: root.libraryTab === "playlists"
+            visible: (!tidalService || tidalService.explorationView === "") && root.libraryTab === "playlists"
             Ui.Button {
               visible: tidalService && tidalService.currentPlaylistId !== ""
               text: "← Back to playlists"
@@ -656,6 +711,7 @@ Panel {
               width: parent.width
               height: count > 0 ? Math.min(Math.max(contentHeight, Style.space(64)), Style.space(280)) : 0
               clip: true
+              ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOn; width: Style.space(6); contentItem: Rectangle { radius: Style.cornerRadius; color: Color.muted } }
               spacing: Style.space(4)
               model: tidalService && tidalService.currentPlaylistId === "" ? tidalService.playlists : []
               delegate: Rectangle {
@@ -695,13 +751,20 @@ Panel {
                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: if (tidalService) tidalService.loadPlaylistTracks(modelData.uuid) }
               }
             }
+            Ui.TextField {
+              visible: tidalService && tidalService.currentPlaylistId !== ""
+              width: parent.width
+              placeholderText: "Filter tracks by title or artist..."
+              onTextChanged: root.playlistFilter = text.trim().toLowerCase()
+            }
             ListView {
               id: playlistTracksList
               width: parent.width
               height: count > 0 ? Math.min(Math.max(contentHeight, Style.space(56)), Style.space(280)) : 0
               clip: true
+              ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOn; width: Style.space(6); contentItem: Rectangle { radius: Style.cornerRadius; color: Color.muted } }
               spacing: Style.space(4)
-              model: tidalService && tidalService.currentPlaylistId !== "" ? tidalService.playlistTracks : []
+              model: tidalService && tidalService.currentPlaylistId !== "" ? tidalService.playlistTracks.filter(function(t) { return root.playlistFilter === "" || (t.title + " " + t.artist).toLowerCase().indexOf(root.playlistFilter) >= 0 }) : []
               delegate: Rectangle {
                 required property var modelData
                 width: playlistTracksList.width; height: Style.space(56); radius: Style.cornerRadius; color: Color.background
@@ -710,11 +773,16 @@ Panel {
                   Column {
                     anchors.verticalCenter: parent.verticalCenter; width: parent.width - playlistDuration.width
                     Text { width: parent.width; text: modelData.title || ""; color: Color.foreground; font.pixelSize: Style.font.body; elide: Text.ElideRight }
-                    Text { width: parent.width; text: (modelData.artist || "") + (modelData.album ? " • " + modelData.album : ""); color: Color.muted; font.pixelSize: Style.font.caption; elide: Text.ElideRight }
+                    Row {
+                      spacing: Style.space(3)
+                      Text { text: modelData.artist || ""; color: Color.muted; font.pixelSize: Style.font.caption; elide: Text.ElideRight; TapHandler { onTapped: if (tidalService && modelData.artist_id) tidalService.exploreArtist(modelData.artist_id) } }
+                      Text { visible: !!modelData.album; text: "•"; color: Color.muted; font.pixelSize: Style.font.caption }
+                      Text { text: modelData.album || ""; color: Color.muted; font.pixelSize: Style.font.caption; elide: Text.ElideRight; TapHandler { onTapped: if (tidalService && modelData.album_id) tidalService.exploreAlbum(modelData.album_id) } }
+                    }
                   }
                   Text { id: playlistDuration; anchors.verticalCenter: parent.verticalCenter; text: root.formatTime(modelData.duration || 0); color: Color.muted; font.pixelSize: Style.font.caption }
                 }
-                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: if (tidalService) tidalService.playTrack(modelData.id) }
+                MouseArea { z: -1; anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: if (tidalService) tidalService.playTrack(modelData.id) }
               }
             }
           }
@@ -723,7 +791,7 @@ Panel {
           Column {
             width: parent.width
             spacing: Style.space(4)
-            visible: root.libraryTab === "favorites" && searchField.text.trim() !== ""
+            visible: searchField.text.trim() !== ""
 
             Text {
               visible: tidalService && (tidalService.searching || tidalService.searchError !== "" || (!tidalService.searching && tidalService.searchResults.length === 0))
@@ -732,7 +800,11 @@ Panel {
               font.pixelSize: Style.font.caption
             }
 
-            Repeater {
+            ListView {
+              width: parent.width
+              height: count > 0 ? Math.min(contentHeight, Style.space(280)) : 0
+              clip: true
+              ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOn; width: Style.space(6); contentItem: Rectangle { radius: Style.cornerRadius; color: Color.muted } }
               model: (tidalService && tidalService.searchResults) ? tidalService.searchResults : []
               delegate: Rectangle {
                 required property var modelData
@@ -756,11 +828,16 @@ Panel {
                     width: parent.width - Style.space(64) - searchDuration.width
                     spacing: Style.space(3)
                     Text { width: parent.width; text: modelData.title || ""; font.pixelSize: Style.font.body; color: Color.foreground; elide: Text.ElideRight }
-                    Text { width: parent.width; text: (modelData.artist || "") + (modelData.album ? " • " + modelData.album : ""); font.pixelSize: Style.font.caption; color: Color.muted; elide: Text.ElideRight }
+                    Row {
+                      spacing: Style.space(3)
+                      Text { text: modelData.artist || ""; font.pixelSize: Style.font.caption; color: Color.muted; elide: Text.ElideRight; TapHandler { onTapped: if (tidalService && modelData.artist_id) tidalService.exploreArtist(modelData.artist_id) } }
+                      Text { visible: !!modelData.album; text: "•"; font.pixelSize: Style.font.caption; color: Color.muted }
+                      Text { text: modelData.album || ""; font.pixelSize: Style.font.caption; color: Color.muted; elide: Text.ElideRight; TapHandler { onTapped: if (tidalService && modelData.album_id) tidalService.exploreAlbum(modelData.album_id) } }
+                    }
                   }
                   Text { id: searchDuration; anchors.verticalCenter: parent.verticalCenter; text: root.formatTime(modelData.duration || 0); color: Color.muted; font.pixelSize: Style.font.caption }
                 }
-                MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: if (tidalService) tidalService.playTrack(modelData.id) }
+                MouseArea { z: -1; anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: if (tidalService) tidalService.playTrack(modelData.id) }
               }
             }
           }

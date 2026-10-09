@@ -1,7 +1,7 @@
 # Project Progress & Roadmap Tracker
 
 Last Updated: **2026-10-09**
-Current Status: **Milestone 7 release verified; compressed size and Wayland checks pass; compressed startup target remains unmet**
+Current Status: **UI Enhancement Milestone complete; release gate and Wayland checks pass; M7 compressed startup target remains unmet**
 
 ---
 
@@ -17,6 +17,7 @@ Current Status: **Milestone 7 release verified; compressed size and Wayland chec
 | **M5** | **Catalog Search & Discovery** | 🟢 **Done** | 4 / 4 |
 | **M6** | **User Playlists & Audio Quality Tiers** | 🟢 **Done** | 4 / 4 |
 | **M7** | **Binary Minimization & Theme Polish** | 🟢 Done | 4 / 4 |
+| **M8** | **UI Enhancements & Exploration** | 🟢 Done | 7 / 7 |
 
 ---
 
@@ -106,6 +107,15 @@ passed; M3 remains queued.
 - [x] Apply Catppuccin, Tokyo Night, Everforest, and Nord themes, then restore the original Bear2 theme.
 - [x] Run `WAYLAND_DISPLAY=wayland-1 ./scripts/verify.sh`; all four live Wayland QML integration scenarios passed. The last 30 `omarchy-shell` journal entries contained no warnings or errors for `jaj.tidal`.
 
+### Milestone 8: UI Enhancements & Exploration 🟢
+- [x] Add shuffle and repeat controls with status IPC and queue/EOF behavior; add current-track favorite toggling and state updates.
+- [x] Move audio quality preferences and account/logout controls into a settings popup; remove quality controls from the library tabs.
+- [x] Make catalog search available across tabs and add real-time playlist title/artist filtering.
+- [x] Add themed visible scrollbars to favorites, playlists, playlist tracks, search results, and exploration lists.
+- [x] Add album track and artist top-track exploration with a back action.
+- [x] Add panel keyboard shortcuts for play/pause and ±5 second seeking when text fields are not handling input.
+- [x] **Gate Verification:** `TIDAL_UPX=1 ./scripts/build.sh`, `WAYLAND_DISPLAY=wayland-1 ./scripts/verify.sh`, and `omarchy plugin validate .` passed. 49 Rust tests passed; four QML runtime scenarios passed; compressed bundle is 777,712 bytes.
+
 ---
 
 ## Activity Log
@@ -137,3 +147,5 @@ passed; M3 remains queued.
 | 2026-10-08 | This change | Investigated cached bar-widget loading failure; qualified panel controls, removed duplicate service, and fixed failed-socket recovery and deferred commands. Added QML runtime verification. Live shell restart remains blocked by the locked desktop session; no milestone advanced. | Copilot |
 | 2026-10-08 | This change | Installed-path validation rejected the symlinked plugin root. Replaced symlink deployment with a validated standalone copy and made installer validation errors fatal. | Copilot |
 | 2026-10-08 | This change | Implemented MPRIS session-bus registration, properties, metadata, transport and seek methods, state-change signals, and desktop media integration. Verified with busctl, live playerctl controls, and Omarchy media commands; disabled mpv's competing MPRIS script. Full verification passed with a 1,672,776-byte stripped daemon. | Codex |
+
+| 2026-10-09 | This change | Implemented UI Enhancement Milestone: shuffle/repeat and favorites IPC/API, settings popup, universal search, playlist filtering, themed list scrollbars, album/artist exploration, and panel shortcuts. UPX build and Wayland full gate passed (49 Rust tests, four QML scenarios, daemon smoke); plugin validation passed. Bundle is 777,712 bytes. | Codex |

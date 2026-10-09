@@ -4,6 +4,9 @@ mod ipc;
 mod log;
 mod mpris;
 mod playback;
+#[cfg(test)]
+#[path = "tests/ui_endpoints.rs"]
+mod ui_endpoint_tests;
 
 use api::{cover_url, Playlist, TidalApiClient, TrackItem};
 use auth::AuthManager;
@@ -31,6 +34,8 @@ pub(crate) struct Player {
     preferred_quality: String,
     eof_handled_track: Option<u64>,
     track_has_started: bool,
+    shuffle: bool,
+    repeat_mode: String,
 }
 
 impl Player {
@@ -46,6 +51,8 @@ impl Player {
             preferred_quality: load_quality_preference(),
             eof_handled_track: None,
             track_has_started: false,
+            shuffle: false,
+            repeat_mode: "off".into(),
         }
     }
 }
@@ -163,6 +170,16 @@ fn build_status_message(auth_manager: &AuthManager, player: &Player) -> IpcState
         },
         audio_quality: Some(player.quality.clone()),
         preferred_audio_quality: Some(player.preferred_quality.clone()),
+        shuffle: player.shuffle,
+        repeat_mode: player.repeat_mode.clone(),
+        is_favorite: track.is_some_and(|t| player.favorites.iter().any(|f| f.id == t.id)),
+        artist_id: track.and_then(|t| {
+            t.artist
+                .as_ref()
+                .map(|a| a.id)
+                .or_else(|| t.artists.first().map(|a| a.id))
+        }),
+        album_id: track.and_then(|t| t.album.as_ref().map(|a| a.id)),
     }
 }
 
@@ -184,7 +201,10 @@ fn api_client(auth: &AuthManager) -> Result<(TidalApiClient, Option<u64>), Strin
     ))
 }
 
-fn api_call<T>(auth: &AuthManager, mut call: impl FnMut(&TidalApiClient, Option<u64>) -> Result<T, String>) -> Result<T, String> {
+fn api_call<T>(
+    auth: &AuthManager,
+    mut call: impl FnMut(&TidalApiClient, Option<u64>) -> Result<T, String>,
+) -> Result<T, String> {
     let (api, user_id) = api_client(auth)?;
     match call(&api, user_id) {
         Ok(value) => Ok(value),
@@ -192,7 +212,9 @@ fn api_call<T>(auth: &AuthManager, mut call: impl FnMut(&TidalApiClient, Option<
             let session = auth.load_session().ok_or(error.clone())?;
             let refresh = session.refresh_token.as_deref().ok_or(error.clone())?;
             log::write("API returned HTTP 401; refreshing saved session and retrying once");
-            auth.refresh_session(refresh).map_err(|refresh_error| format!("{error}; token refresh failed: {refresh_error}"))?;
+            auth.refresh_session(refresh).map_err(|refresh_error| {
+                format!("{error}; token refresh failed: {refresh_error}")
+            })?;
             let (api, user_id) = api_client(auth)?;
             call(&api, user_id)
         }
@@ -240,7 +262,9 @@ fn load_favorites(
     player: &Mutex<Player>,
     ipc: &IpcServer,
 ) -> Result<(), String> {
-    let tracks = api_call(auth, |api, user_id| api.get_favorites(user_id.ok_or("Session has no user ID; please sign in again")?))?;
+    let tracks = api_call(auth, |api, user_id| {
+        api.get_favorites(user_id.ok_or("Session has no user ID; please sign in again")?)
+    })?;
     let mut player = player.lock().map_err(|e| e.to_string())?;
     player.favorites = tracks;
     if player.current_playlist_id.is_none() {
@@ -257,7 +281,9 @@ fn load_playlists(
     player: &Mutex<Player>,
     ipc: &IpcServer,
 ) -> Result<(), String> {
-    let playlists = api_call(auth, |api, user_id| api.get_playlists(user_id.ok_or("Session has no user ID; please sign in again")?))?;
+    let playlists = api_call(auth, |api, user_id| {
+        api.get_playlists(user_id.ok_or("Session has no user ID; please sign in again")?)
+    })?;
     player.lock().map_err(|e| e.to_string())?.playlists = playlists.clone();
     ipc.broadcast(&PlayerMessage::PlaylistsLoaded { playlists });
     Ok(())
@@ -275,6 +301,58 @@ fn load_playlist_tracks(
     state.current_playlist_id = Some(playlist_id.clone());
     ipc.broadcast(&PlayerMessage::PlaylistTracksLoaded {
         playlist_id: &playlist_id,
+        tracks: tracks.iter().map(FavoriteTrack::from).collect(),
+    });
+    Ok(())
+}
+
+fn toggle_favorite(
+    auth: &AuthManager,
+    player: &Mutex<Player>,
+    ipc: &IpcServer,
+) -> Result<(), String> {
+    let (track, was_favorite) = {
+        let state = player.lock().map_err(|e| e.to_string())?;
+        let track = state.current.clone().ok_or("No current track")?;
+        let favorite = state.favorites.iter().any(|item| item.id == track.id);
+        (track, favorite)
+    };
+    api_call(auth, |api, user_id| {
+        api.set_favorite(
+            user_id.ok_or("Session has no user ID")?,
+            track.id,
+            !was_favorite,
+        )
+    })?;
+    let mut state = player.lock().map_err(|e| e.to_string())?;
+    if was_favorite {
+        state.favorites.retain(|item| item.id != track.id);
+        if state.current_playlist_id.is_none() {
+            state.queue.retain(|item| item.id != track.id);
+        }
+    } else {
+        state.favorites.push(track.clone());
+        if state.current_playlist_id.is_none() {
+            state.queue.push(track);
+        }
+    }
+    ipc.broadcast(&PlayerMessage::FavoritesLoaded {
+        tracks: state.favorites.iter().map(FavoriteTrack::from).collect(),
+    });
+    ipc.broadcast(&build_status_message(auth, &state));
+    Ok(())
+}
+
+fn explore(auth: &AuthManager, ipc: &IpcServer, view: &str, id: u64) -> Result<(), String> {
+    let tracks = api_call(auth, |api, _| {
+        if view == "album" {
+            api.get_album_tracks(id)
+        } else {
+            api.get_artist_tracks(id)
+        }
+    })?;
+    ipc.broadcast(&PlayerMessage::ExplorationLoaded {
+        view,
         tracks: tracks.iter().map(FavoriteTrack::from).collect(),
     });
     Ok(())
@@ -426,7 +504,22 @@ pub(crate) fn navigate(
         if len == 0 {
             return Err("Active queue is empty".to_string());
         }
-        if forward {
+        if forward && state.repeat_mode == "one" {
+            index
+        } else if forward && state.shuffle && len > 1 {
+            let seed = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .subsec_nanos() as usize;
+            let mut target = seed % len;
+            if target == index {
+                target = (target + 1) % len;
+            }
+            target
+        } else if forward {
+            if state.repeat_mode == "off" && index + 1 == len {
+                return Err("End of queue".into());
+            }
             (index + 1) % len
         } else {
             (index + len - 1) % len
@@ -705,6 +798,11 @@ fn main() {
                                 | "get_playlists"
                                 | "get_playlist_tracks"
                                 | "set_audio_quality"
+                                | "toggle_shuffle"
+                                | "cycle_repeat"
+                                | "toggle_favorite"
+                                | "get_album_tracks"
+                                | "get_artist_tracks"
                                 | "start_auth"
                                 | "logout" => cmd.command.as_str(),
                                 _ => "unknown",
@@ -783,6 +881,50 @@ fn main() {
                                     })();
                                     if let Err(error) = result {
                                         ipc_ref.broadcast(&serde_json::json!({"type":"playback_error","error":error}));
+                                    }
+                                }
+                                "toggle_shuffle" => {
+                                    if let Ok(mut state) = player_ref.lock() {
+                                        state.shuffle = !state.shuffle;
+                                    }
+                                    broadcast_status(&auth_ref, &player_ref, &ipc_ref);
+                                }
+                                "cycle_repeat" => {
+                                    if let Ok(mut state) = player_ref.lock() {
+                                        state.repeat_mode = match state.repeat_mode.as_str() {
+                                            "off" => "all",
+                                            "all" => "one",
+                                            _ => "off",
+                                        }
+                                        .to_string();
+                                    }
+                                    broadcast_status(&auth_ref, &player_ref, &ipc_ref);
+                                }
+                                "toggle_favorite" => {
+                                    if let Err(error) =
+                                        toggle_favorite(&auth_ref, &player_ref, &ipc_ref)
+                                    {
+                                        ipc_ref.broadcast(&PlayerMessage::PlaybackError {
+                                            error: &error,
+                                        });
+                                    }
+                                }
+                                "get_album_tracks" | "get_artist_tracks" => {
+                                    let view = if cmd.command == "get_album_tracks" {
+                                        "album"
+                                    } else {
+                                        "artist"
+                                    };
+                                    let id = cmd
+                                        .album_id
+                                        .or(cmd.artist_id)
+                                        .or(cmd.track_id)
+                                        .unwrap_or_default();
+                                    if let Err(error) = explore(&auth_ref, &ipc_ref, view, id) {
+                                        ipc_ref.broadcast(&PlayerMessage::ExplorationError {
+                                            view,
+                                            error: &error,
+                                        });
                                     }
                                 }
                                 "play_track" => {

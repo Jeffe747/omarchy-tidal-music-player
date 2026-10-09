@@ -46,6 +46,14 @@ Item {
   property bool playlistTracksLoading: false
   property string playlistTracksError: ""
   property string preferredAudioQuality: "LOSSLESS"
+  property bool shuffle: false
+  property string repeatMode: "off"
+  property bool currentTrackFavorite: false
+  property var currentArtistId: null
+  property var currentAlbumId: null
+  property var explorationTracks: []
+  property string explorationView: ""
+  property string explorationError: ""
 
   onAuthenticatedChanged: {
     if (authenticated) {
@@ -279,6 +287,11 @@ Item {
       root.trackPosition = msg.position || 0.0
       root.audioQuality = msg.audio_quality || "LOSSLESS"
       root.preferredAudioQuality = msg.preferred_audio_quality || root.preferredAudioQuality || "LOSSLESS"
+      root.shuffle = msg.shuffle === true
+      root.repeatMode = msg.repeat_mode || "off"
+      root.currentTrackFavorite = msg.is_favorite === true
+      root.currentArtistId = msg.artist_id !== undefined ? msg.artist_id : null
+      root.currentAlbumId = msg.album_id !== undefined ? msg.album_id : null
     } else if (msg.type === "auth_code") {
       root.authPending = true
       root.authUrl = msg.verification_uri || "https://link.tidal.com"
@@ -328,6 +341,12 @@ Item {
     } else if (msg.type === "playlist_tracks_error") {
       root.playlistTracksLoading = false
       root.playlistTracksError = msg.error || "Unable to load playlist tracks"
+    } else if (msg.type === "exploration_loaded") {
+      root.explorationTracks = msg.tracks || []
+      root.explorationView = msg.view || ""
+      root.explorationError = ""
+    } else if (msg.type === "exploration_error") {
+      root.explorationError = msg.error || "Unable to load tracks"
     } else if (msg.type === "playback_started") {
       root.currentTrackId = msg.track_id
       root.playbackError = ""
@@ -417,4 +436,10 @@ Item {
     root.preferredAudioQuality = quality
     sendCommand({ "command": "set_audio_quality", "quality": quality })
   }
+
+  function toggleShuffle() { sendCommand({ "command": "toggle_shuffle" }) }
+  function cycleRepeat() { sendCommand({ "command": "cycle_repeat" }) }
+  function toggleFavorite() { sendCommand({ "command": "toggle_favorite" }) }
+  function exploreAlbum(id) { explorationTracks = []; explorationView = "album"; sendCommand({ "command": "get_album_tracks", "album_id": id }) }
+  function exploreArtist(id) { explorationTracks = []; explorationView = "artist"; sendCommand({ "command": "get_artist_tracks", "artist_id": id }) }
 }

@@ -315,6 +315,8 @@ mod tests {
             preferred_quality: "LOSSLESS".to_string(),
             eof_handled_track: None,
             track_has_started: false,
+            shuffle: false,
+            repeat_mode: "off".to_string(),
         };
         let auth = crate::auth::AuthManager::new(None);
         let status = crate::build_status_message(&auth, &player);

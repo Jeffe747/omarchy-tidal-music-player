@@ -158,3 +158,10 @@ Before an agent claims a milestone as complete, it **must** run the correspondin
   - Pure declarative QML with small inline helper functions.
   - No direct filesystem mutations or heavy processing in QML; delegate all business logic to `tidal-daemon`.
   - Always handle disconnected socket state gracefully with visual fallback.
+
+
+## 7. UI Enhancement Milestone (M8)
+
+The flyout includes shuffle and repeat transport state, current-track favorite mutation, an account/settings popup with audio quality selection and logout, universal catalog search, playlist track filtering, and album/artist exploration views. Favorites, playlists, playlist tracks, search results, and exploration lists use themed visible scrollbars. Panel shortcuts toggle playback with Space and seek five seconds with the arrow keys when a text input is not focused.
+
+Backend IPC status exposes `shuffle`, `repeat_mode`, and `is_favorite`; catalog exploration commands load album tracks and artist top tracks. Verify this milestone with `TIDAL_UPX=1 ./scripts/build.sh`, `WAYLAND_DISPLAY=wayland-1 ./scripts/verify.sh`, and `omarchy plugin validate .`.

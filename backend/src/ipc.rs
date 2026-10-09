@@ -15,6 +15,8 @@ pub struct FavoriteTrack<'a> {
     duration: u64,
     cover: &'a str,
     art_url: String,
+    artist_id: u64,
+    album_id: u64,
 }
 
 impl<'a> From<&'a TrackItem> for FavoriteTrack<'a> {
@@ -27,6 +29,13 @@ impl<'a> From<&'a TrackItem> for FavoriteTrack<'a> {
             duration: track.duration,
             cover: track.cover(),
             art_url: cover_url(track.cover()),
+            artist_id: track
+                .artist
+                .as_ref()
+                .map(|a| a.id)
+                .or_else(|| track.artists.first().map(|a| a.id))
+                .unwrap_or(0),
+            album_id: track.album.as_ref().map(|a| a.id).unwrap_or(0),
         }
     }
 }
@@ -60,6 +69,14 @@ pub enum PlayerMessage<'a> {
         playlist_id: &'a str,
         error: &'a str,
     },
+    ExplorationLoaded {
+        view: &'a str,
+        tracks: Vec<FavoriteTrack<'a>>,
+    },
+    ExplorationError {
+        view: &'a str,
+        error: &'a str,
+    },
     PlaybackStarted {
         track_id: u64,
     },
@@ -83,6 +100,10 @@ pub struct IpcCommand {
     pub uuid: Option<String>,
     #[serde(default)]
     pub quality: Option<String>,
+    #[serde(default)]
+    pub album_id: Option<u64>,
+    #[serde(default)]
+    pub artist_id: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -109,6 +130,16 @@ pub struct IpcStateMessage {
     pub audio_quality: Option<String>,
     #[serde(default)]
     pub preferred_audio_quality: Option<String>,
+    #[serde(default)]
+    pub shuffle: bool,
+    #[serde(default)]
+    pub repeat_mode: String,
+    #[serde(default)]
+    pub is_favorite: bool,
+    #[serde(default)]
+    pub artist_id: Option<u64>,
+    #[serde(default)]
+    pub album_id: Option<u64>,
 }
 
 #[derive(Clone)]
@@ -209,6 +240,21 @@ mod tests {
         let seek: IpcCommand =
             serde_json::from_str(r#"{"command":"seek","position":12.5}"#).unwrap();
         assert_eq!(seek.position, Some(12.5));
+        for command in [
+            "toggle_shuffle",
+            "cycle_repeat",
+            "toggle_favorite",
+            "get_album_tracks",
+            "get_artist_tracks",
+        ] {
+            let parsed: IpcCommand =
+                serde_json::from_value(serde_json::json!({"command": command})).unwrap();
+            assert_eq!(parsed.command, command);
+        }
+        let album: IpcCommand =
+            serde_json::from_value(serde_json::json!({"command":"get_album_tracks","album_id":12}))
+                .unwrap();
+        assert_eq!(album.album_id, Some(12));
     }
 
     #[test]
@@ -226,6 +272,11 @@ mod tests {
             position: Some(12.5),
             audio_quality: Some("LOSSLESS".to_string()),
             preferred_audio_quality: Some("LOSSLESS".to_string()),
+            shuffle: false,
+            repeat_mode: "off".into(),
+            is_favorite: true,
+            artist_id: Some(11),
+            album_id: Some(22),
         };
 
         let serialized = serde_json::to_string(&msg).unwrap();
@@ -248,7 +299,7 @@ mod tests {
             value["tracks"][0],
             serde_json::json!({
                 "id":42,"title":"Song","artist":"Artist","album":"Album","duration":180,
-                "cover":"ab-cd","art_url":"https://resources.tidal.com/images/ab/cd/640x640.jpg"
+                "cover":"ab-cd","art_url":"https://resources.tidal.com/images/ab/cd/640x640.jpg","artist_id":0,"album_id":0
             })
         );
         assert_eq!(

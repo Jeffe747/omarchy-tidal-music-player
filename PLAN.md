@@ -177,7 +177,7 @@ The UI binds dynamically to Omarchy's color singleton:
 
 ## 6. Implementation Progression Milestones
 
-Milestones 0–7 are complete, as recorded in `PROGRESS.md`. Live checks that
+Milestones 0–8 are complete, as recorded in `PROGRESS.md`. Live checks that
 require a Wayland/Quickshell session and optional UPX compression are recorded
 as environment limitations rather than claimed as verified.
 
@@ -262,6 +262,13 @@ as environment limitations rather than claimed as verified.
 - **Objective:** Final optimization, automated test suite, and theme verification.
 - **Optimization:** Release build with LTO, size-stripping, and UPX compression (< 1.5 MB uncompressed, < 800 KB compressed).
 - **Theme Testing:** Live theme switching across all stock Omarchy themes (`catppuccin`, `tokyo-night`, `nord`, etc.) with zero color clipping or restart requirements.
+
+### Milestone 8: UI Enhancements & Exploration
+- **Status: Complete.** Shuffle/repeat queue behavior, favorite mutation, settings, universal search, playlist filtering, visible themed scrollbars, album/artist exploration, and keyboard shortcuts are implemented. The full Wayland verification gate passed with 49 Rust tests and four QML runtime scenarios.
+- **Backend/API:** `toggle_shuffle`, `cycle_repeat`, and `toggle_favorite`; status includes shuffle/repeat/favorite state. Favorite add/remove use `/v1/users/{userId}/favorites/tracks`; exploration uses `/v1/albums/{id}/tracks` and `/v1/artists/{id}/toptracks`.
+- **Flyout:** Shuffle and repeat controls, now-playing heart, settings popup with quality/account/logout, universal catalog search, playlist filtering, visible scrollbars, and album/artist views.
+- **Keyboard:** Space toggles play/pause; left/right seek five seconds while the panel is open and focus is not in a text field.
+- **Gate:** `TIDAL_UPX=1 ./scripts/build.sh`, `WAYLAND_DISPLAY=wayland-1 ./scripts/verify.sh`, and `omarchy plugin validate .` pass.
 
 ---
 

@@ -10,7 +10,13 @@ struct ApiFailure {
 }
 
 fn transient_transport(kind: ureq::ErrorKind) -> bool {
-    matches!(kind, ureq::ErrorKind::Dns | ureq::ErrorKind::ConnectionFailed | ureq::ErrorKind::Io | ureq::ErrorKind::ProxyConnect)
+    matches!(
+        kind,
+        ureq::ErrorKind::Dns
+            | ureq::ErrorKind::ConnectionFailed
+            | ureq::ErrorKind::Io
+            | ureq::ErrorKind::ProxyConnect
+    )
 }
 
 impl ApiFailure {
@@ -81,6 +87,22 @@ fn playback_url(track_id: u64, legacy: bool) -> String {
     format!("{API_BASE}/tracks/{track_id}/{endpoint}")
 }
 
+pub(crate) fn favorite_url(user_id: u64, track_id: u64, favorite: bool) -> String {
+    if favorite {
+        format!("{API_BASE}/users/{user_id}/favorites/tracks")
+    } else {
+        format!("{API_BASE}/users/{user_id}/favorites/tracks/{track_id}")
+    }
+}
+
+pub(crate) fn album_tracks_url(album_id: u64) -> String {
+    format!("{API_BASE}/albums/{album_id}/tracks")
+}
+
+pub(crate) fn artist_top_tracks_url(artist_id: u64) -> String {
+    format!("{API_BASE}/artists/{artist_id}/toptracks")
+}
+
 fn playback_with_fallback(
     quality: &str,
     mut request: impl FnMut(bool, &str) -> Result<PlaybackInfoResponse, ApiFailure>,
@@ -113,9 +135,13 @@ fn playback_with_fallback(
             Ok(info) => return Ok(info),
             Err(error) => {
                 crate::log::write(&format!("Playback attempt failed: {}", error.message));
-                let retryable = error.quality_related || matches!(error.status, Some(401 | 403 | 404));
+                let retryable =
+                    error.quality_related || matches!(error.status, Some(401 | 403 | 404));
                 if !retryable || index + 1 == qualities.len() {
-                    return Err(format!("Playback info request failed: {}", error.ipc_message()));
+                    return Err(format!(
+                        "Playback info request failed: {}",
+                        error.ipc_message()
+                    ));
                 }
                 crate::log::write(&format!(
                     "Playback quality rejected; retrying {}",
@@ -345,9 +371,9 @@ impl TidalApiClient {
                     ureq::Error::Status(status, response) => match response.into_string() {
                         Ok(body) => ApiFailure::from_body(status, &body, &self.access_token),
                         Err(_) => ApiFailure {
-                        status: Some(status),
-                        quality_related: false,
-                        retryable: matches!(status, 408 | 429 | 500..=599),
+                            status: Some(status),
+                            quality_related: false,
+                            retryable: matches!(status, 408 | 429 | 500..=599),
                             message: format!("HTTP {status}; failed to read error body"),
                         },
                     },
@@ -355,7 +381,15 @@ impl TidalApiClient {
                         status: None,
                         quality_related: false,
                         retryable: transient_transport(error.kind()),
-                        message: format!("{}: HTTP transport failure ({:?}); request may be retried", if transient_transport(error.kind()) { "Transient network error" } else { "Network request error" }, error.kind()),
+                        message: format!(
+                            "{}: HTTP transport failure ({:?}); request may be retried",
+                            if transient_transport(error.kind()) {
+                                "Transient network error"
+                            } else {
+                                "Network request error"
+                            },
+                            error.kind()
+                        ),
                     },
                 };
                 crate::log::write(&format!("API GET {path} failed: {}", failure.message));
@@ -407,7 +441,7 @@ impl TidalApiClient {
                 .query("countryCode", &self.country_code),
             &format!("/v1/tracks/{track_id}"),
         )
-            .map_err(|e| format!("Track request failed: {}", e.ipc_message()))?
+        .map_err(|e| format!("Track request failed: {}", e.ipc_message()))?
         .into_json()
         .map_err(|e| format!("Failed to parse track: {e}"))
     }
@@ -442,6 +476,50 @@ impl TidalApiClient {
             .into_string()
             .map_err(|e| format!("Failed to read playlist tracks: {e}"))?;
         parse_playlist_tracks(&body)
+    }
+
+    pub fn set_favorite(&self, user_id: u64, track_id: u64, favorite: bool) -> Result<(), String> {
+        let url = favorite_url(user_id, track_id, favorite);
+        let mut request = if favorite {
+            ureq::post(&url).query("trackId", &track_id.to_string())
+        } else {
+            ureq::delete(&url)
+        };
+        request = request.query("countryCode", &self.country_code);
+        self.request(request, &format!("/v1/users/{user_id}/favorites/tracks"))
+            .map(|_| ())
+            .map_err(|e| format!("Favorite update failed: {}", e.ipc_message()))
+    }
+
+    pub fn get_album_tracks(&self, album_id: u64) -> Result<Vec<TrackItem>, String> {
+        let response = self
+            .request(
+                ureq::get(&album_tracks_url(album_id))
+                    .query("countryCode", &self.country_code)
+                    .query("limit", "100")
+                    .query("offset", "0"),
+                &format!("/v1/albums/{album_id}/tracks"),
+            )
+            .map_err(|e| format!("Album tracks request failed: {}", e.ipc_message()))?;
+        let json = response
+            .into_string()
+            .map_err(|e| format!("Failed to read album tracks: {e}"))?;
+        parse_playlist_tracks(&json)
+    }
+
+    pub fn get_artist_tracks(&self, artist_id: u64) -> Result<Vec<TrackItem>, String> {
+        let response = self
+            .request(
+                ureq::get(&artist_top_tracks_url(artist_id))
+                    .query("countryCode", &self.country_code)
+                    .query("limit", "100"),
+                &format!("/v1/artists/{artist_id}/toptracks"),
+            )
+            .map_err(|e| format!("Artist tracks request failed: {}", e.ipc_message()))?;
+        let json = response
+            .into_string()
+            .map_err(|e| format!("Failed to read artist tracks: {e}"))?;
+        parse_playlist_tracks(&json)
     }
 
     pub fn get_playback_info(
@@ -536,6 +614,30 @@ mod tests {
             "Bj%C3%B6rk%20%26%20the%20Sugarcubes"
         );
         assert_eq!(encode_query("a+b/c"), "a%2Bb%2Fc");
+    }
+
+    #[test]
+    fn favorite_routes_match_tidals_add_and_remove_endpoints() {
+        assert_eq!(
+            favorite_url(5040, 42, true),
+            "https://api.tidal.com/v1/users/5040/favorites/tracks"
+        );
+        assert_eq!(
+            favorite_url(5040, 42, false),
+            "https://api.tidal.com/v1/users/5040/favorites/tracks/42"
+        );
+    }
+
+    #[test]
+    fn album_and_artist_routes_match_catalog_endpoints() {
+        assert_eq!(
+            album_tracks_url(12),
+            "https://api.tidal.com/v1/albums/12/tracks"
+        );
+        assert_eq!(
+            artist_top_tracks_url(34),
+            "https://api.tidal.com/v1/artists/34/toptracks"
+        );
     }
 
     #[test]
