@@ -1,7 +1,7 @@
 # Project Progress & Roadmap Tracker
 
 Last Updated: **2026-10-09**
-Current Status: **UI Enhancement Milestone complete; release gate and Wayland checks pass; M7 compressed startup target remains unmet**
+Current Status: **M9 Minimalist UI implementation complete; release gate passes; M7 compressed startup target remains unmet**
 
 ---
 
@@ -18,6 +18,7 @@ Current Status: **UI Enhancement Milestone complete; release gate and Wayland ch
 | **M6** | **User Playlists & Audio Quality Tiers** | 🟢 **Done** | 4 / 4 |
 | **M7** | **Binary Minimization & Theme Polish** | 🟢 Done | 4 / 4 |
 | **M8** | **UI Enhancements & Exploration** | 🟢 Done | 7 / 7 |
+| **M9** | **Minimalist UI Overhaul** | 🟢 Implemented | 5 / 5 |
 
 ---
 
@@ -116,9 +117,18 @@ passed; M3 remains queued.
 - [x] Add panel keyboard shortcuts for play/pause and ±5 second seeking when text fields are not handling input.
 - [x] **Gate Verification:** `TIDAL_UPX=1 ./scripts/build.sh`, `WAYLAND_DISPLAY=wayland-1 ./scripts/verify.sh`, and `omarchy plugin validate .` passed. 49 Rust tests passed; four QML runtime scenarios passed; compressed bundle is 777,712 bytes.
 
+### Milestone 9: Minimalist UI Overhaul 🟢 Implemented
+- [x] Add segmented Queue/Favorites/Playlists tabs and compact list rows.
+- [x] Promote search to the shared omnibox with `/` focus, Escape clear/close, arrow selection, and Enter playback.
+- [x] Add integrated PipeWire volume slider, mute control, wheel adjustment, and keyboard ±5% volume.
+- [x] Add panel shortcuts for shuffle, repeat, favorite, tab selection, transport, and seeking.
+- [x] **Gate Verification:** UPX build, Wayland `verify.sh` (49 Rust tests, four QML scenarios, daemon smoke), compliance audit, and official plugin validation passed. Bundle is 777,736 bytes. Queue contents are not currently exposed over IPC, so the Queue tab uses the favorites list as the available playback track set.
+
 ---
 
 ## Activity Log
+
+| 2026-10-09 | This change | Implemented the compact hero controls, integrated PipeWire volume, omnibox keyboard access, segmented tabs, compact rows, and panel shortcuts. `TIDAL_UPX=1 ./scripts/build.sh`, `WAYLAND_DISPLAY=wayland-1 ./scripts/verify.sh`, compliance audit, and `omarchy plugin validate .` passed; 49 Rust tests and four QML runtime scenarios passed. Bundle is 777,736 bytes. | Codex |
 
 | 2026-10-09 | This change | Completed M7 resilience and release work: added refresh-on-401 retry, transient transport classification surfaced as retryable errors, safe expiry calculation tests, optional UPX packaging/validation, and rebuilt stripped bundle (1,707,520 bytes). `./scripts/verify.sh` passed (45 tests plus daemon smoke and compliance), `omarchy plugin validate .` passed, and four stock themes were applied before restoring Bear2. CLI startup measured 5.98 ms. UPX and Wayland visual/runtime checks unavailable on this host. | Codex |
 | 2026-10-09 | This change | UPX and live Wayland follow-up: official UPX 5.2.1 successfully compressed bundle to 774,740 bytes; 4.2.4 failed on this ELF. LZMA startup median was 71.70 ms (10 warm runs), above the <15 ms target; non-LZMA was 850,616 bytes and 19–25 ms. `WAYLAND_DISPLAY=wayland-1 ./scripts/verify.sh` passed, including all four QML modes and 45 tests. Last 30 shell journal records had no jaj.tidal warnings/errors. | Codex |

@@ -26,6 +26,7 @@ Panel {
   property string libraryTab: "favorites"
   property bool settingsOpen: false
   property string playlistFilter: ""
+  property int keyboardIndex: 0
 
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
@@ -84,9 +85,20 @@ Panel {
       onCloseRequested: root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
       Keys.onPressed: function(event) {
-        if (event.key === Qt.Key_Space) { if (tidalService) tidalService.togglePlay(); event.accepted = true }
-        else if (event.key === Qt.Key_Left) { if (tidalService) tidalService.seek(Math.max(0, tidalService.trackPosition - 5)); event.accepted = true }
-        else if (event.key === Qt.Key_Right) { if (tidalService) tidalService.seek(Math.min(tidalService.trackDuration, tidalService.trackPosition + 5)); event.accepted = true }
+        var editing = searchField.activeFocus || playlistFilterField.activeFocus
+        if (event.key === Qt.Key_Slash) { searchField.forceActiveFocus(); event.accepted = true }
+        else if (event.key === Qt.Key_Escape) { if (searchField.text !== "") { searchField.text = ""; if (tidalService) tidalService.clearSearch() } else root.close(); event.accepted = true }
+        else if (!editing && event.key === Qt.Key_Space) { if (tidalService) tidalService.togglePlay(); event.accepted = true }
+        else if (!editing && event.key === Qt.Key_Left) { if (tidalService) tidalService.seek(Math.max(0, tidalService.trackPosition - 5)); event.accepted = true }
+        else if (!editing && event.key === Qt.Key_Right) { if (tidalService) tidalService.seek(Math.min(tidalService.trackDuration, tidalService.trackPosition + 5)); event.accepted = true }
+        else if (!editing && event.key === Qt.Key_S) { if (tidalService) tidalService.toggleShuffle(); event.accepted = true }
+        else if (!editing && event.key === Qt.Key_R) { if (tidalService) tidalService.cycleRepeat(); event.accepted = true }
+        else if (!editing && event.key === Qt.Key_F) { if (tidalService) tidalService.toggleFavorite(); event.accepted = true }
+        else if (!editing && event.key >= Qt.Key_1 && event.key <= Qt.Key_3) { root.libraryTab = ["queue", "favorites", "playlists"][event.key - Qt.Key_1]; event.accepted = true }
+        else if (!editing && (event.key === Qt.Key_Plus || event.key === Qt.Key_Equal || event.key === Qt.Key_Minus)) { if (root.defaultAudioSink && root.defaultAudioSink.audio) root.defaultAudioSink.audio.volume = Math.max(0, Math.min(1.5, root.defaultAudioSink.audio.volume + (event.key === Qt.Key_Minus ? -0.05 : 0.05))); event.accepted = true }
+        else if (!playlistFilterField.activeFocus && event.key === Qt.Key_Down) { root.keyboardIndex++; event.accepted = true }
+        else if (!playlistFilterField.activeFocus && event.key === Qt.Key_Up) { root.keyboardIndex = Math.max(0, root.keyboardIndex - 1); event.accepted = true }
+        else if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) { var list = searchField.text.trim() !== "" ? (tidalService ? tidalService.searchResults : []) : (tidalService ? tidalService.favorites : []); if (list.length && list[root.keyboardIndex] && tidalService) tidalService.playTrack(list[root.keyboardIndex].id); event.accepted = true }
       }
 
       Column {
@@ -367,12 +379,11 @@ Panel {
 
           // Now Playing Card
           Row {
-            width: parent.width
-            spacing: Style.space(6)
+            width: parent.width; spacing: Style.space(6)
             visible: !tidalService || tidalService.explorationView === ""
+            Ui.Button { text: "Queue"; selected: root.libraryTab === "queue"; onClicked: root.libraryTab = "queue" }
             Ui.Button { text: "Favorites"; selected: root.libraryTab === "favorites"; onClicked: root.libraryTab = "favorites" }
             Ui.Button { text: "Playlists"; selected: root.libraryTab === "playlists"; onClicked: { root.libraryTab = "playlists"; if (tidalService && tidalService.playlists.length === 0) tidalService.loadPlaylists() } }
-
           }
 
           Rectangle {
@@ -496,7 +507,7 @@ Panel {
           // Playback Controls
           Row {
             anchors.horizontalCenter: parent.horizontalCenter
-            spacing: Style.space(16)
+            spacing: Style.space(8)
 
             Ui.Button {
               text: "⏮"
@@ -515,9 +526,25 @@ Panel {
               }
             }
 
-            Ui.Button { text: "⏭"; tooltipText: "Next track"; onClicked: if (tidalService) tidalService.next() }
             Ui.Button { text: "󰒝"; selected: tidalService && tidalService.shuffle; tooltipText: "Shuffle"; onClicked: if (tidalService) tidalService.toggleShuffle() }
+            Ui.Button { text: "⏭"; tooltipText: "Next track"; onClicked: if (tidalService) tidalService.next() }
             Ui.Button { text: tidalService && tidalService.repeatMode === "one" ? "󰑘" : "󰑖"; selected: tidalService && tidalService.repeatMode !== "off"; tooltipText: "Repeat: " + (tidalService ? tidalService.repeatMode : "off"); onClicked: if (tidalService) tidalService.cycleRepeat() }
+          }
+
+          Row {
+            width: parent.width; spacing: Style.space(6)
+            Text { text: root.isSystemMuted ? "󰖁" : "󰕾"; color: Color.foreground; font.pixelSize: Style.font.body; anchors.verticalCenter: parent.verticalCenter
+              TapHandler { onTapped: if (root.defaultAudioSink && root.defaultAudioSink.audio) root.defaultAudioSink.audio.muted = !root.defaultAudioSink.audio.muted }
+            }
+            Slider {
+              id: volumeSlider; width: parent.width - volumePercent.implicitWidth - Style.space(44); anchors.verticalCenter: parent.verticalCenter
+              from: 0; to: 1.5; value: root.defaultAudioSink && root.defaultAudioSink.audio ? root.defaultAudioSink.audio.volume : 0
+              onMoved: if (root.defaultAudioSink && root.defaultAudioSink.audio) root.defaultAudioSink.audio.volume = value
+              background: Rectangle { x: volumeSlider.leftPadding; y: volumeSlider.topPadding + volumeSlider.availableHeight / 2 - height / 2; width: volumeSlider.availableWidth; height: Style.space(4); radius: Style.cornerRadius; color: Color.muted }
+              handle: Rectangle { x: volumeSlider.leftPadding + volumeSlider.visualPosition * (volumeSlider.availableWidth - width); y: volumeSlider.topPadding + volumeSlider.availableHeight / 2 - height / 2; width: Style.space(12); height: width; radius: Style.cornerRadius; color: Color.accent }
+              WheelHandler { onWheel: function(event) { if (root.defaultAudioSink && root.defaultAudioSink.audio) root.defaultAudioSink.audio.volume = Math.max(0, Math.min(1.5, root.defaultAudioSink.audio.volume + (event.angleDelta.y > 0 ? 0.05 : -0.05))); event.accepted = true } }
+            }
+            Text { id: volumePercent; text: Math.round(volumeSlider.value * 100) + "%"; color: Color.muted; font.pixelSize: Style.font.caption; anchors.verticalCenter: parent.verticalCenter }
           }
 
           PanelSeparator { width: parent.width }
@@ -537,7 +564,7 @@ Panel {
               model: tidalService ? tidalService.explorationTracks : []
               delegate: Rectangle {
                 required property var modelData
-                width: parent.width; height: Style.space(56); radius: Style.cornerRadius; color: Color.background
+                width: parent.width; height: Style.space(40); radius: Style.cornerRadius; color: Color.background
                 Column { anchors.left: parent.left; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; anchors.leftMargin: Style.space(8); anchors.rightMargin: Style.space(8)
                   Text { width: parent.width; text: modelData.title || ""; color: Color.foreground; font.pixelSize: Style.font.body; elide: Text.ElideRight }
                   Row {
@@ -552,7 +579,7 @@ Panel {
             }
           }
 
-          PanelSectionHeader { visible: !tidalService || tidalService.explorationView === ""; text: (searchField.text.trim() !== "" ? "SEARCH RESULTS" : (root.libraryTab === "playlists" ? "PLAYLISTS" : "FAVORITES")) }
+          PanelSectionHeader { visible: !tidalService || tidalService.explorationView === ""; text: (searchField.text.trim() !== "" ? "SEARCH RESULTS" : (root.libraryTab === "playlists" ? "PLAYLISTS" : (root.libraryTab === "queue" ? "QUEUE" : "FAVORITES"))) }
 
           Timer {
             id: searchDebounce
@@ -567,8 +594,9 @@ Panel {
             id: searchField
             visible: !tidalService || tidalService.explorationView === ""
             width: parent.width
-            placeholderText: "Search tracks, albums, playlists..."
+            placeholderText: "Search tracks, albums, artists, playlists...  (/ to focus)"
             onTextChanged: {
+              root.keyboardIndex = 0
               if (tidalService) tidalService.clearSearch()
               searchDebounce.stop()
               if (text.trim() !== "") searchDebounce.start()
@@ -588,7 +616,7 @@ Panel {
           Text {
             objectName: "tidalFavoritesState"
             width: parent.width
-            visible: (!tidalService || tidalService.explorationView === "") && root.libraryTab === "favorites" && searchField.text.trim() === "" && tidalService && (tidalService.favoritesLoading || tidalService.favoritesError !== "" || tidalService.favorites.length === 0)
+            visible: (!tidalService || tidalService.explorationView === "") && (root.libraryTab === "favorites" || root.libraryTab === "queue") && searchField.text.trim() === "" && tidalService && (tidalService.favoritesLoading || tidalService.favoritesError !== "" || tidalService.favorites.length === 0)
             text: !tidalService ? "" : (tidalService.favoritesLoading ? "Loading favorites..." : (tidalService.favoritesError || "No favorite tracks yet. Add favorites in Tidal."))
             color: tidalService && tidalService.favoritesError !== "" ? Color.urgent : Color.muted
             font.pixelSize: Style.font.caption
@@ -596,7 +624,7 @@ Panel {
           }
 
           Ui.Button {
-            visible: root.libraryTab === "favorites" && searchField.text.trim() === "" && tidalService && tidalService.favoritesError !== ""
+            visible: (root.libraryTab === "favorites" || root.libraryTab === "queue") && searchField.text.trim() === "" && tidalService && tidalService.favoritesError !== ""
             text: "Retry favorites"
             onClicked: if (tidalService) tidalService.loadFavorites()
           }
@@ -606,28 +634,31 @@ Panel {
             objectName: "tidalFavoritesList"
             width: parent.width
             height: Math.min(contentHeight, Style.space(280))
-            visible: (!tidalService || tidalService.explorationView === "") && root.libraryTab === "favorites" && searchField.text.trim() === ""
+            visible: (!tidalService || tidalService.explorationView === "") && (root.libraryTab === "favorites" || root.libraryTab === "queue") && searchField.text.trim() === ""
             clip: true
+            currentIndex: root.keyboardIndex
             ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOn; width: Style.space(6); contentItem: Rectangle { radius: Style.cornerRadius; color: Color.muted } }
             spacing: Style.space(4)
             model: tidalService ? tidalService.favorites : []
             delegate: Rectangle {
               required property var modelData
+              required property int index
               width: favoritesList.width
-              height: Style.space(60)
+              height: Style.space(36)
               radius: Style.cornerRadius
               readonly property bool current: tidalService && tidalService.currentTrackId === modelData.id
-              color: current ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.15) : Color.background
+              color: current || index === root.keyboardIndex ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.15) : Color.background
               border.color: current ? Color.accent : Color.background
 
               Row {
                 anchors.fill: parent
-                anchors.margins: Style.space(6)
-                spacing: Style.space(8)
+                anchors.margins: Style.space(3)
+                spacing: Style.space(5)
 
                 Rectangle {
-                  width: Style.space(48)
-                  height: Style.space(48)
+                  visible: false
+                  width: Style.space(1)
+                  height: Style.space(1)
                   radius: Style.cornerRadius
                   color: Qt.rgba(Color.foreground.r, Color.foreground.g, Color.foreground.b, 0.08)
                   clip: true
@@ -752,7 +783,8 @@ Panel {
                 MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: if (tidalService) tidalService.loadPlaylistTracks(modelData.uuid) }
               }
             }
-            Ui.TextField {
+          Ui.TextField {
+              id: playlistFilterField
               visible: tidalService && tidalService.currentPlaylistId !== ""
               width: parent.width
               placeholderText: "Filter tracks by title or artist..."
@@ -768,7 +800,7 @@ Panel {
               model: tidalService && tidalService.currentPlaylistId !== "" ? tidalService.playlistTracks.filter(function(t) { return root.playlistFilter === "" || (t.title + " " + t.artist).toLowerCase().indexOf(root.playlistFilter) >= 0 }) : []
               delegate: Rectangle {
                 required property var modelData
-                width: playlistTracksList.width; height: Style.space(56); radius: Style.cornerRadius; color: Color.background
+                width: playlistTracksList.width; height: Style.space(40); radius: Style.cornerRadius; color: Color.background
                 Row {
                   anchors.fill: parent; anchors.margins: Style.space(6); spacing: Style.space(8)
                   Column {
@@ -802,17 +834,20 @@ Panel {
             }
 
             ListView {
+              id: searchResultsList
               width: parent.width
               height: count > 0 ? Math.min(contentHeight, Style.space(280)) : 0
               clip: true
+              currentIndex: root.keyboardIndex
               ScrollBar.vertical: ScrollBar { policy: ScrollBar.AlwaysOn; width: Style.space(6); contentItem: Rectangle { radius: Style.cornerRadius; color: Color.muted } }
               model: (tidalService && tidalService.searchResults) ? tidalService.searchResults : []
               delegate: Rectangle {
                 required property var modelData
+                required property int index
                 width: parent.width
-                height: Style.space(60)
+                height: Style.space(40)
                 radius: Style.cornerRadius
-                color: Color.background
+                color: index === root.keyboardIndex ? Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.15) : Color.background
                 Row {
                   anchors.fill: parent
                   anchors.margins: Style.space(6)
