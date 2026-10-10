@@ -13,8 +13,8 @@ Column {
   property real pendingSeek: -1
   property real wheelRemainder: 0
   signal settingsRequested()
-  signal exploreArtist(var artistId)
-  signal exploreAlbum(var albumId)
+  signal exploreArtist(var artistId, string artistName)
+  signal exploreAlbum(var albumId, string albumTitle)
 
   width: parent ? parent.width : implicitWidth
   spacing: Style.spacing.lg
@@ -116,8 +116,8 @@ Column {
           color: Color.muted
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
-          font.underline: artistMouse.containsMouse && !!root.service && !!root.service.currentArtistId
-          MouseArea { id: artistMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: if (root.service && root.service.currentArtistId) root.exploreArtist(root.service.currentArtistId) }
+          font.underline: artistMouse.containsMouse && !!root.service && !!root.service.trackArtist
+          MouseArea { id: artistMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: root.service && root.service.trackArtist ? Qt.PointingHandCursor : Qt.ArrowCursor; onClicked: if (root.service && root.service.trackArtist) root.exploreArtist(root.service.currentArtistId || 0, root.service.trackArtist) }
         }
         Text { textFormat: Text.PlainText; text: "·"; color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
         Text {
@@ -128,8 +128,8 @@ Column {
           color: Color.muted
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
-          font.underline: albumMouse.containsMouse && !!root.service && !!root.service.currentAlbumId
-          MouseArea { id: albumMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: if (root.service && root.service.currentAlbumId) root.exploreAlbum(root.service.currentAlbumId) }
+          font.underline: albumMouse.containsMouse && !!root.service && !!root.service.trackAlbum
+          MouseArea { id: albumMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: root.service && root.service.trackAlbum ? Qt.PointingHandCursor : Qt.ArrowCursor; onClicked: if (root.service && root.service.trackAlbum) root.exploreAlbum(root.service.currentAlbumId || 0, root.service.trackAlbum) }
         }
       }
     }

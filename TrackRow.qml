@@ -9,8 +9,8 @@ Rectangle {
   property bool showArt: false
   property string durationText: ""
   signal play()
-  signal exploreArtist(var artistId)
-  signal exploreAlbum(var albumId)
+  signal exploreArtist(var artistId, string artistName)
+  signal exploreAlbum(var albumId, string albumTitle)
 
   height: Style.spacing.popupRowHeight + Style.spacing.xxl
   radius: Style.cornerRadius
@@ -73,13 +73,13 @@ Rectangle {
           color: Color.muted
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
-          font.underline: artistMouse.containsMouse && !!root.track.artist_id
+          font.underline: artistMouse.containsMouse && !!root.track.artist
           MouseArea {
             id: artistMouse
             anchors.fill: parent
             hoverEnabled: true
-            cursorShape: root.track.artist_id ? Qt.PointingHandCursor : Qt.ArrowCursor
-            onClicked: if (root.track.artist_id) root.exploreArtist(root.track.artist_id)
+            cursorShape: root.track.artist ? Qt.PointingHandCursor : Qt.ArrowCursor
+            onClicked: if (root.track.artist) root.exploreArtist(root.track.artist_id || 0, root.track.artist)
           }
         }
         Text {
@@ -100,13 +100,13 @@ Rectangle {
           color: Color.muted
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
-          font.underline: albumMouse.containsMouse && !!root.track.album_id
+          font.underline: albumMouse.containsMouse && !!root.track.album
           MouseArea {
             id: albumMouse
             anchors.fill: parent
             hoverEnabled: true
-            cursorShape: root.track.album_id ? Qt.PointingHandCursor : Qt.ArrowCursor
-            onClicked: if (root.track.album_id) root.exploreAlbum(root.track.album_id)
+            cursorShape: root.track.album ? Qt.PointingHandCursor : Qt.ArrowCursor
+            onClicked: if (root.track.album) root.exploreAlbum(root.track.album_id || 0, root.track.album)
           }
         }
       }

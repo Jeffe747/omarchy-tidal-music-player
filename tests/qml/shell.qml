@@ -217,6 +217,35 @@ ShellRoot {
         root.check(root.service.searchResults.length === 0 && root.service.searching,
                    "Stale search results must be ignored")
         root.service.clearSearch()
+        search.text = "Original search"
+        library.exploreArtist(0, "Miles Davis")
+        var artistRequestId = root.service.explorationSearchRequestId
+        var category = findObject(library, "tidalExploreCategory")
+        var exploreTitle = findObject(library, "tidalExploreTitle")
+        var exploreCount = findObject(library, "tidalExploreCount")
+        root.check(library.view === "explore" && root.service.explorationTitle === "Miles Davis"
+                   && category !== null && category.text.indexOf("ARTIST") !== -1
+                   && exploreTitle !== null && exploreTitle.text === "Miles Davis",
+                   "Artist link without an ID must open a named artist page")
+        root.service.handleDaemonMessage({type: "search_results", request_id: artistRequestId,
+                                          results: [{id: 77, title: "So What", artist: "Miles Davis", duration: 545}]})
+        root.check(!root.service.explorationLoading && library.activeItems.length === 1
+                   && exploreCount !== null && exploreCount.text === "Top Tracks · 1 tracks",
+                   "Name search fallback must populate the artist track list")
+        var exploreBack = findObject(library, "tidalExploreBack")
+        root.check(exploreBack !== null, "Artist page must show a Back button")
+        if (exploreBack) exploreBack.clicked()
+        root.check(library.view === "search" && search.text === "Original search"
+                   && root.service.explorationTitle === "" && root.service.explorationTracks.length === 0,
+                   "Artist Back must restore the previous search view")
+        search.text = ""
+        root.service.exploreAlbum(12, "Kind of Blue")
+        root.service.handleDaemonMessage({type: "exploration_loaded", view: "album", tracks: [{id: 78, album: "Kind of Blue"}]})
+        root.check(library.view === "explore" && category.text.indexOf("ALBUM") !== -1
+                   && exploreTitle.text === "Kind of Blue" && exploreCount.text === "Album · 1 tracks",
+                   "Album exploration must show its title and track count")
+        root.widget.goBack()
+        root.check(library.view === "playlists", "Album Back must return to the library")
       }
       root.check(root.widget.visible && slot.width > 0 && slot.height === barApi.barSize,
                  "Authenticated widget must keep a nonzero bar slot")

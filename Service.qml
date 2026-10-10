@@ -53,7 +53,9 @@ Item {
   property var currentAlbumId: null
   property var explorationTracks: []
   property string explorationView: ""
+  property string explorationTitle: ""
   property string explorationError: ""
+  property int explorationSearchRequestId: -1
 
   onAuthenticatedChanged: {
     if (authenticated) {
@@ -324,12 +326,21 @@ Item {
       root.searchCompleted = true
       root.searchError = ""
       root.searchResults = msg.results || []
+      if (msg.request_id === root.explorationSearchRequestId && root.explorationView === "artist") {
+        root.explorationLoading = false
+        root.explorationTracks = root.searchResults
+        root.explorationError = ""
+      }
     } else if (msg.type === "search_error") {
       if (msg.request_id !== root.searchRequestId) return
       root.searching = false
       root.searchCompleted = true
       root.searchError = msg.error || "Search failed"
       root.searchResults = []
+      if (msg.request_id === root.explorationSearchRequestId && root.explorationView === "artist") {
+        root.explorationLoading = false
+        root.explorationError = root.searchError
+      }
     } else if (msg.type === "favorites_loaded") {
       root.favoritesLoading = false
       root.favoritesError = ""
@@ -358,6 +369,8 @@ Item {
       root.explorationTracks = msg.tracks || []
       root.explorationView = msg.view || ""
       root.explorationError = ""
+      if (!root.explorationTitle && root.explorationTracks.length > 0)
+        root.explorationTitle = (root.explorationView === "artist" ? root.explorationTracks[0].artist : root.explorationTracks[0].album) || ""
     } else if (msg.type === "exploration_error") {
       if (root.explorationView !== msg.view) return
       root.explorationLoading = false
@@ -475,7 +488,36 @@ Item {
   function toggleShuffle() { sendCommand({ "command": "toggle_shuffle" }) }
   function cycleRepeat() { sendCommand({ "command": "cycle_repeat" }) }
   function toggleFavorite() { sendCommand({ "command": "toggle_favorite" }) }
-  function closeExploration() { explorationView = ""; explorationTracks = []; explorationLoading = false; explorationError = "" }
-  function exploreAlbum(id) { explorationTracks = []; explorationView = "album"; explorationLoading = true; sendCommand({ "command": "get_album_tracks", "album_id": id }) }
-  function exploreArtist(id) { explorationTracks = []; explorationView = "artist"; explorationLoading = true; sendCommand({ "command": "get_artist_tracks", "artist_id": id }) }
+  function closeExploration() {
+    if (explorationSearchRequestId >= 0) clearSearch()
+    explorationSearchRequestId = -1
+    explorationView = ""
+    explorationTitle = ""
+    explorationTracks = []
+    explorationLoading = false
+    explorationError = ""
+  }
+  function exploreAlbum(id, title) {
+    explorationSearchRequestId = -1
+    explorationTitle = title || ""
+    explorationView = "album"
+    explorationTracks = []
+    explorationLoading = true
+    explorationError = ""
+    sendCommand({ "command": "get_album_tracks", "album_id": id })
+  }
+  function exploreArtist(id, name) {
+    explorationTitle = name || ""
+    explorationView = "artist"
+    explorationTracks = []
+    explorationLoading = true
+    explorationError = ""
+    explorationSearchRequestId = -1
+    if (!id && name) {
+      search(name)
+      explorationSearchRequestId = searchRequestId
+    } else {
+      sendCommand({ "command": "get_artist_tracks", "artist_id": id })
+    }
+  }
 }

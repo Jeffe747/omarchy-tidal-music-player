@@ -38,8 +38,14 @@ Panel {
   function barLabelText() { return tidalService && tidalService.trackTitle ? tidalService.trackTitle + " — " + tidalService.trackArtist : "" }
   function goBack() {
     if (confirmLogout) { confirmLogout = false; return }
+    if (tidalService && tidalService.explorationView) {
+      var restoreSearch = !!searchField.text.trim() && (tidalService.explorationSearchRequestId >= 0 || tidalService.searching)
+      tidalService.closeExploration()
+      if (restoreSearch) tidalService.search(searchField.text.trim())
+      keyCatcher.forceActiveFocus()
+      return
+    }
     if (searchField.text !== "") { searchField.text = ""; searchDebounce.stop(); if (tidalService) tidalService.clearSearch(); keyCatcher.forceActiveFocus(); return }
-    if (tidalService && tidalService.explorationView) { tidalService.closeExploration(); return }
     if (tidalService && tidalService.currentPlaylistId) { tidalService.closePlaylist(); libraryView.playlistFilter = ""; return }
     if (settingsOpen) { settingsOpen = false; return }
     close()
@@ -124,8 +130,8 @@ Panel {
           service: tidalService
           bar: root.bar
           onSettingsRequested: root.settingsOpen = !root.settingsOpen
-          onExploreArtist: function(id) { if (tidalService) tidalService.exploreArtist(id) }
-          onExploreAlbum: function(id) { if (tidalService) tidalService.exploreAlbum(id) }
+          onExploreArtist: function(id, name) { searchDebounce.stop(); if (tidalService) tidalService.exploreArtist(id, name) }
+          onExploreAlbum: function(id, name) { searchDebounce.stop(); if (tidalService) tidalService.exploreAlbum(id, name) }
         }
         Column {
           visible: !root.isAuthenticated
@@ -181,7 +187,7 @@ Panel {
         Timer {
           id: searchDebounce
           interval: 350
-          onTriggered: if (tidalService && searchField.text.trim()) tidalService.search(searchField.text.trim())
+          onTriggered: if (tidalService && root.view !== "explore" && searchField.text.trim()) tidalService.search(searchField.text.trim())
         }
         LibraryView {
           id: libraryView
@@ -197,8 +203,8 @@ Panel {
           }
           onBack: root.goBack()
           onPlayTrack: function(id) { if (tidalService) tidalService.playTrack(id) }
-          onExploreArtist: function(id) { if (tidalService) tidalService.exploreArtist(id) }
-          onExploreAlbum: function(id) { if (tidalService) tidalService.exploreAlbum(id) }
+          onExploreArtist: function(id, name) { searchDebounce.stop(); if (tidalService) tidalService.exploreArtist(id, name) }
+          onExploreAlbum: function(id, name) { searchDebounce.stop(); if (tidalService) tidalService.exploreAlbum(id, name) }
           onOpenPlaylist: function(id) { if (tidalService) tidalService.loadPlaylistTracks(id) }
         }
       }

@@ -23,8 +23,8 @@ Column {
   signal selectTab(string tab)
   signal back()
   signal playTrack(var id)
-  signal exploreArtist(var id)
-  signal exploreAlbum(var id)
+  signal exploreArtist(var artistId, string artistName)
+  signal exploreAlbum(var albumId, string albumTitle)
   signal openPlaylist(string id)
 
   width: parent ? parent.width : implicitWidth
@@ -48,9 +48,51 @@ Column {
     Ui.Button { text: "Playlists" + (root.service ? " " + root.service.playlists.length : ""); selected: root.view === "playlists" || root.view === "playlistTracks"; onClicked: root.selectTab("playlists") }
   }
   Ui.Button {
-    visible: root.view === "explore" || root.view === "playlistTracks"
-    text: root.view === "explore" ? "← Back to library" : "← Back to playlists"
+    visible: root.view === "playlistTracks"
+    text: "← Back to playlists"
     onClicked: root.back()
+  }
+  Rectangle {
+    visible: root.view === "explore"
+    width: parent.width
+    height: visible ? artistHeader.implicitHeight + Style.spacing.popupPadding * 2 : 0
+    radius: Style.cornerRadius
+    color: Style.normalFill
+    Column {
+      id: artistHeader
+      anchors.fill: parent
+      anchors.margins: Style.spacing.popupPadding
+      spacing: Style.spacing.sm
+      Ui.Button { objectName: "tidalExploreBack"; text: "← Back"; onClicked: root.back() }
+      Text {
+        objectName: "tidalExploreCategory"
+        textFormat: Text.PlainText
+        text: root.service && root.service.explorationView === "album" ? "󰀥 ALBUM" : "󰠃 ARTIST"
+        color: Color.accent
+        font.family: Style.font.family
+        font.pixelSize: Style.font.caption
+        font.bold: true
+      }
+      Text {
+        objectName: "tidalExploreTitle"
+        width: parent.width
+        textFormat: Text.PlainText
+        text: root.service ? root.service.explorationTitle : ""
+        color: Color.foreground
+        font.family: Style.font.family
+        font.pixelSize: Style.font.title
+        font.bold: true
+        elide: Text.ElideRight
+      }
+      Text {
+        objectName: "tidalExploreCount"
+        textFormat: Text.PlainText
+        text: (root.service && root.service.explorationView === "album" ? "Album · " : "Top Tracks · ") + root.activeItems.length + " tracks"
+        color: Color.muted
+        font.family: Style.font.family
+        font.pixelSize: Style.font.caption
+      }
+    }
   }
   Ui.TextField {
     id: filterField
@@ -120,8 +162,8 @@ Column {
       current: !!root.service && root.service.currentTrackId === rowData.id
       cursor: root.keyboardIndex === rowIndex
       onPlay: root.playTrack(rowData.id)
-      onExploreArtist: function(id) { root.exploreArtist(id) }
-      onExploreAlbum: function(id) { root.exploreAlbum(id) }
+      onExploreArtist: function(id, name) { root.exploreArtist(id, name) }
+      onExploreAlbum: function(id, name) { root.exploreAlbum(id, name) }
     }
   }
   Component {
