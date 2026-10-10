@@ -12,7 +12,7 @@ BACKEND_DIR="$SCRIPT_DIR/backend"
 echo "==> Building tidal-daemon with size optimizations..."
 
 if ! command -v cargo >/dev/null 2>&1; then
-  echo "Cargo not found. Please install Rust via 'omarchy pkg add rust' or rustup."
+  echo "Cargo not found. Install Rust or use the tracked bin/tidal-daemon bundle for installation."
   exit 1
 fi
 

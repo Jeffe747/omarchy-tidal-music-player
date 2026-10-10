@@ -1,40 +1,55 @@
 import QtQuick
+import QtQuick.Shapes
 import qs.Commons
 
-Canvas {
+Item {
   id: root
-
   property real iconSize: Style.font.icon
   property color color: Color.foreground
-
   implicitWidth: iconSize * 1.5
   implicitHeight: iconSize
-
-  onColorChanged: requestPaint()
-  onWidthChanged: requestPaint()
-  onHeightChanged: requestPaint()
-
-  onPaint: {
-    var ctx = getContext("2d")
-    ctx.clearRect(0, 0, width, height)
-    ctx.save()
-    ctx.scale(width / 24, height / 16)
-    ctx.fillStyle = root.color
-
-    function diamond(cx, cy) {
-      ctx.beginPath()
-      ctx.moveTo(cx, cy - 4)
-      ctx.lineTo(cx + 4, cy)
-      ctx.lineTo(cx, cy + 4)
-      ctx.lineTo(cx - 4, cy)
-      ctx.closePath()
-      ctx.fill()
+  Shape {
+    anchors.fill: parent
+    preferredRendererType: Shape.GeometryRenderer
+    ShapePath {
+      strokeWidth: -1
+      fillColor: root.color
+      startX: 4 * root.width / 24
+      startY: 0.6000000000000001 * root.height / 16
+      PathLine { x: 7.4 * root.width / 24; y: 4 * root.height / 16 }
+      PathLine { x: 4 * root.width / 24; y: 7.4 * root.height / 16 }
+      PathLine { x: 0.6000000000000001 * root.width / 24; y: 4 * root.height / 16 }
+      PathLine { x: 4 * root.width / 24; y: 0.6000000000000001 * root.height / 16 }
     }
-
-    diamond(12, 4)
-    diamond(12, 12)
-    diamond(4, 4)
-    diamond(20, 4)
-    ctx.restore()
+    ShapePath {
+      strokeWidth: -1
+      fillColor: root.color
+      startX: 12 * root.width / 24
+      startY: 0.6000000000000001 * root.height / 16
+      PathLine { x: 15.4 * root.width / 24; y: 4 * root.height / 16 }
+      PathLine { x: 12 * root.width / 24; y: 7.4 * root.height / 16 }
+      PathLine { x: 8.6 * root.width / 24; y: 4 * root.height / 16 }
+      PathLine { x: 12 * root.width / 24; y: 0.6000000000000001 * root.height / 16 }
+    }
+    ShapePath {
+      strokeWidth: -1
+      fillColor: root.color
+      startX: 20 * root.width / 24
+      startY: 0.6000000000000001 * root.height / 16
+      PathLine { x: 23.4 * root.width / 24; y: 4 * root.height / 16 }
+      PathLine { x: 20 * root.width / 24; y: 7.4 * root.height / 16 }
+      PathLine { x: 16.6 * root.width / 24; y: 4 * root.height / 16 }
+      PathLine { x: 20 * root.width / 24; y: 0.6000000000000001 * root.height / 16 }
+    }
+    ShapePath {
+      strokeWidth: -1
+      fillColor: root.color
+      startX: 12 * root.width / 24
+      startY: 8.6 * root.height / 16
+      PathLine { x: 15.4 * root.width / 24; y: 12 * root.height / 16 }
+      PathLine { x: 12 * root.width / 24; y: 15.4 * root.height / 16 }
+      PathLine { x: 8.6 * root.width / 24; y: 12 * root.height / 16 }
+      PathLine { x: 12 * root.width / 24; y: 8.6 * root.height / 16 }
+    }
   }
 }

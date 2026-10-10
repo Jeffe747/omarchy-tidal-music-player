@@ -191,6 +191,33 @@ ShellRoot {
       var playbackError = findObject(root.widget, "tidalPlaybackError")
       root.check(playbackError !== null && playbackError.visible && playbackError.text === "Stream unavailable",
                  "Playback failures must render visibly")
+      var library = findObject(root.widget, "tidalLibraryView")
+      var search = findObject(root.widget, "tidalSearchField")
+      root.check(library !== null && search !== null, "Library and search controls must exist")
+      if (library && search) {
+        root.service.favorites = [{id: 1, title: "One"}, {id: 2, title: "Two"}, {id: 3, title: "Three"}]
+        for (var n = 0; n < 50; n++) root.widget.moveCursor(1)
+        root.check(root.widget.keyboardIndex === 2, "Keyboard cursor must clamp to the active list")
+        root.widget.libraryTab = "playlists"
+        root.service.playlists = [{uuid: "a", title: "Playlist A"}]
+        root.widget.keyboardIndex = 0
+        root.check(library.view === "playlists", "Playlists must become the active view")
+        search.text = "Miles"
+        root.check(library.view === "search" && !library.children[0].visible,
+                   "Search must hide library tabs")
+        root.check(root.service.searching && !root.service.searchCompleted,
+                   "Search debounce must show a pending state")
+        root.widget.goBack()
+        root.check(search.text === "" && library.view === "playlists",
+                   "Escape must clear search and restore the previous library tab")
+        root.service.search("old")
+        var oldId = root.service.searchRequestId
+        root.service.search("new")
+        root.service.handleDaemonMessage({type: "search_results", request_id: oldId, results: [{id: 99}]})
+        root.check(root.service.searchResults.length === 0 && root.service.searching,
+                   "Stale search results must be ignored")
+        root.service.clearSearch()
+      }
       root.check(root.widget.visible && slot.width > 0 && slot.height === barApi.barSize,
                  "Authenticated widget must keep a nonzero bar slot")
       barApi.vertical = true

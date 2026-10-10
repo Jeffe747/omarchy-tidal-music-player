@@ -75,7 +75,11 @@ Item {
   property var searchResults: []
   property bool searching: false
   property string searchError: ""
+  property int searchRequestId: 0
+  property bool searchCompleted: false
+  property bool explorationLoading: false
   property var pendingCommands: []
+  property int reconnectDelay: 3000
   readonly property var daemonSocket: socketLoader.item
 
   // Check daemon binary existence
@@ -189,6 +193,7 @@ Item {
 
       onConnectionStateChanged: {
         if (connected) {
+          root.reconnectDelay = 3000
           if (root.playbackError === "Disconnected from Tidal daemon; reconnecting...") {
             root.playbackError = ""
           }
@@ -215,10 +220,12 @@ Item {
 
   Timer {
     id: reconnectTimer
-    interval: 3000
+    interval: root.reconnectDelay
     repeat: true
-    running: !root.daemonSocket || !root.daemonSocket.connected
+    running: (!root.daemonSocket || !root.daemonSocket.connected)
+             && (root.savedSessionExists || root.pendingCommands.length > 0 || root.authenticated || root.authPending)
     onTriggered: {
+      root.reconnectDelay = Math.min(30000, root.reconnectDelay * 2)
       checkDaemonBinary()
       checkSavedSession()
       if (daemonBinaryExists) {
@@ -312,11 +319,15 @@ Item {
       root.authPending = false
       root.authError = msg.error || "Authentication error"
     } else if (msg.type === "search_results") {
+      if (msg.request_id !== root.searchRequestId) return
       root.searching = false
+      root.searchCompleted = true
       root.searchError = ""
       root.searchResults = msg.results || []
     } else if (msg.type === "search_error") {
+      if (msg.request_id !== root.searchRequestId) return
       root.searching = false
+      root.searchCompleted = true
       root.searchError = msg.error || "Search failed"
       root.searchResults = []
     } else if (msg.type === "favorites_loaded") {
@@ -342,10 +353,14 @@ Item {
       root.playlistTracksLoading = false
       root.playlistTracksError = msg.error || "Unable to load playlist tracks"
     } else if (msg.type === "exploration_loaded") {
+      if (root.explorationView !== msg.view) return
+      root.explorationLoading = false
       root.explorationTracks = msg.tracks || []
       root.explorationView = msg.view || ""
       root.explorationError = ""
     } else if (msg.type === "exploration_error") {
+      if (root.explorationView !== msg.view) return
+      root.explorationLoading = false
       root.explorationError = msg.error || "Unable to load tracks"
     } else if (msg.type === "playback_started") {
       root.currentTrackId = msg.track_id
@@ -395,13 +410,26 @@ Item {
   function search(query) {
     root.searching = true
     root.searchError = ""
-    sendCommand({ "command": "search", "query": query })
+    root.searchCompleted = false
+    root.searchResults = []
+    root.searchRequestId++
+    sendCommand({ "command": "search", "query": query, "request_id": root.searchRequestId })
+  }
+
+  function prepareSearch() {
+    root.searching = true
+    root.searchCompleted = false
+    root.searchError = ""
+    root.searchResults = []
+    root.searchRequestId++
   }
 
   function clearSearch() {
+    root.searchRequestId++
     root.searchResults = []
     root.searchError = ""
     root.searching = false
+    root.searchCompleted = false
   }
 
   function playTrack(trackId) {
@@ -432,6 +460,13 @@ Item {
     sendCommand({ "command": "get_playlist_tracks", "playlist_id": playlistId })
   }
 
+  function closePlaylist() {
+    root.currentPlaylistId = ""
+    root.playlistTracks = []
+    root.playlistTracksLoading = false
+    root.playlistTracksError = ""
+  }
+
   function setAudioQuality(quality) {
     root.preferredAudioQuality = quality
     sendCommand({ "command": "set_audio_quality", "quality": quality })
@@ -440,6 +475,7 @@ Item {
   function toggleShuffle() { sendCommand({ "command": "toggle_shuffle" }) }
   function cycleRepeat() { sendCommand({ "command": "cycle_repeat" }) }
   function toggleFavorite() { sendCommand({ "command": "toggle_favorite" }) }
-  function exploreAlbum(id) { explorationTracks = []; explorationView = "album"; sendCommand({ "command": "get_album_tracks", "album_id": id }) }
-  function exploreArtist(id) { explorationTracks = []; explorationView = "artist"; sendCommand({ "command": "get_artist_tracks", "artist_id": id }) }
+  function closeExploration() { explorationView = ""; explorationTracks = []; explorationLoading = false; explorationError = "" }
+  function exploreAlbum(id) { explorationTracks = []; explorationView = "album"; explorationLoading = true; sendCommand({ "command": "get_album_tracks", "album_id": id }) }
+  function exploreArtist(id) { explorationTracks = []; explorationView = "artist"; explorationLoading = true; sendCommand({ "command": "get_artist_tracks", "artist_id": id }) }
 }

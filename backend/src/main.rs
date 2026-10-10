@@ -362,16 +362,19 @@ fn search_catalog(
     auth: &AuthManager,
     ipc: &IpcServer,
     query: Option<String>,
+    request_id: u64,
 ) -> Result<(), String> {
     let query = query.unwrap_or_default();
     if query.trim().is_empty() {
         ipc.broadcast(&PlayerMessage::SearchResults {
+            request_id,
             results: Vec::new(),
         });
         return Ok(());
     }
     let tracks = api_call(auth, |api, _| api.search(query.trim()))?;
     ipc.broadcast(&PlayerMessage::SearchResults {
+        request_id,
         results: tracks.iter().map(FavoriteTrack::from).collect(),
     });
     Ok(())
@@ -824,11 +827,13 @@ fn main() {
                                     }
                                 }
                                 "search" => {
+                                    let request_id = cmd.request_id.unwrap_or_default();
                                     if let Err(error) =
-                                        search_catalog(&auth_ref, &ipc_ref, cmd.query)
+                                        search_catalog(&auth_ref, &ipc_ref, cmd.query, request_id)
                                     {
                                         log::write(&format!("Search failed: {error}"));
                                         ipc_ref.broadcast(&PlayerMessage::SearchError {
+                                            request_id,
                                             error: &error,
                                         });
                                     }

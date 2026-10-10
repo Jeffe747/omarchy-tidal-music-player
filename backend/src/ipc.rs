@@ -50,9 +50,11 @@ pub enum PlayerMessage<'a> {
         error: &'a str,
     },
     SearchResults {
+        request_id: u64,
         results: Vec<FavoriteTrack<'a>>,
     },
     SearchError {
+        request_id: u64,
         error: &'a str,
     },
     PlaylistsLoaded {
@@ -94,6 +96,8 @@ pub struct IpcCommand {
     pub position: Option<f64>,
     #[serde(default)]
     pub query: Option<String>,
+    #[serde(default)]
+    pub request_id: Option<u64>,
     #[serde(default)]
     pub playlist_id: Option<String>,
     #[serde(default)]
@@ -326,6 +330,7 @@ mod tests {
             );
         }
         let search = PlayerMessage::SearchResults {
+            request_id: 7,
             results: vec![FavoriteTrack::from(&track)],
         };
         let value = serde_json::to_value(search).unwrap();
