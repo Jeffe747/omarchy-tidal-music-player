@@ -145,6 +145,14 @@ ShellRoot {
         root.check(!root.service.favoritesLoading && root.service.favoritesError === "",
                    "Favorites request must finish without error")
         root.check(root.service.favorites.length === 1, "Favorites must load after authentication")
+        root.check(root.service.trackTitle === "", "No track should be playing before the favorite is selected")
+        var idleControls = ["tidalPlayButton", "tidalShuffleButton", "tidalPrevButton",
+                            "tidalNextButton", "tidalRepeatButton"]
+        for (var c = 0; c < idleControls.length; c++) {
+          var idleButton = findObject(root.widget, idleControls[c])
+          root.check(idleButton !== null && idleButton.visible,
+                     idleControls[c] + " must be visible before a track is played")
+        }
         var list = findObject(root.widget, "tidalFavoritesList")
         root.check(list !== null && list.count === 1 && list.height > 0 && list.clip,
                    "Favorites must render in a bounded, clipped list")

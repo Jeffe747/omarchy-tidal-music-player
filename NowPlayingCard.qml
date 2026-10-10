@@ -163,15 +163,15 @@ Column {
     Text { anchors.verticalCenter: parent.verticalCenter; textFormat: Text.PlainText; text: root.formatTime(root.service ? root.service.trackDuration : 0); color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
   }
   Row {
-    visible: !!root.service && !!root.service.trackTitle
+    visible: !!root.service
     anchors.horizontalCenter: parent.horizontalCenter
     spacing: Style.spacing.lg
     readonly property real controlButtonSize: Style.spacing.controlHeight + Style.spacing.md
-    Ui.PanelActionButton { objectName: "tidalShuffleButton"; iconText: "󰒝"; tooltipText: "Shuffle"; size: parent.controlButtonSize; foreground: root.service && root.service.shuffle ? Color.accent : Color.foreground; onClicked: root.service.toggleShuffle() }
-    Ui.PanelActionButton { objectName: "tidalPrevButton"; iconText: "󰒮"; tooltipText: "Previous"; size: parent.controlButtonSize; onClicked: root.service.previous() }
-    Ui.PanelActionButton { objectName: "tidalPlayButton"; iconText: root.service && root.service.isPlaying ? "󰏤" : "󰐊"; tooltipText: root.service && root.service.isPlaying ? "Pause" : "Play"; size: parent.controlButtonSize; foreground: Color.accent; bordered: true; onClicked: root.service.togglePlay() }
-    Ui.PanelActionButton { objectName: "tidalNextButton"; iconText: "󰒭"; tooltipText: "Next"; size: parent.controlButtonSize; onClicked: root.service.next() }
-    Ui.PanelActionButton { objectName: "tidalRepeatButton"; iconText: root.service && root.service.repeatMode === "one" ? "󰑘" : "󰑖"; tooltipText: "Repeat"; size: parent.controlButtonSize; foreground: root.service && root.service.repeatMode !== "off" ? Color.accent : Color.foreground; onClicked: root.service.cycleRepeat() }
+    Ui.PanelActionButton { objectName: "tidalShuffleButton"; iconText: "󰒝"; tooltipText: "Shuffle"; size: parent.controlButtonSize; foreground: root.service && root.service.shuffle ? Color.accent : Color.foreground; onClicked: if (root.service) root.service.toggleShuffle() }
+    Ui.PanelActionButton { objectName: "tidalPrevButton"; iconText: "󰒮"; tooltipText: "Previous"; size: parent.controlButtonSize; onClicked: if (root.service) root.service.previous() }
+    Ui.PanelActionButton { objectName: "tidalPlayButton"; iconText: root.service && root.service.isPlaying ? "󰏤" : "󰐊"; tooltipText: root.service && root.service.isPlaying ? "Pause" : "Play"; size: parent.controlButtonSize; foreground: Color.accent; bordered: true; onClicked: if (root.service) root.service.togglePlay() }
+    Ui.PanelActionButton { objectName: "tidalNextButton"; iconText: "󰒭"; tooltipText: "Next"; size: parent.controlButtonSize; onClicked: if (root.service) root.service.next() }
+    Ui.PanelActionButton { objectName: "tidalRepeatButton"; iconText: root.service && root.service.repeatMode === "one" ? "󰑘" : "󰑖"; tooltipText: "Repeat"; size: parent.controlButtonSize; foreground: root.service && root.service.repeatMode !== "off" ? Color.accent : Color.foreground; onClicked: if (root.service) root.service.cycleRepeat() }
   }
   Row {
     width: parent.width
