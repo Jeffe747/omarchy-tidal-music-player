@@ -49,9 +49,16 @@ Panel {
     id: button
     anchors.fill: parent
     bar: root.bar
+    hasVisualContent: true
     text: root.barLabelText() || (root.isSystemMuted ? "󰖁" : "")
     fixedWidth: (root.barLabelText() === "" && !vertical) ? Style.space(32) : -1
     tooltipText: ((tidalService && tidalService.trackTitle) ? (tidalService.trackTitle + " - " + tidalService.trackArtist) : "Tidal Music") + (root.isSystemMuted ? " (System Muted)" : "")
+    TidalIcon {
+      anchors.centerIn: parent
+      enabled: false
+      visible: root.barLabelText() === "" && !root.isSystemMuted
+      color: button.active && button.useActiveColor ? button.activeColor : button.foreground
+    }
     onPressed: function(b) {
       if (b === Qt.RightButton || b === Qt.MiddleButton) {
         if (tidalService) tidalService.togglePlay()
@@ -59,12 +66,6 @@ Panel {
         root.toggle()
       }
     }
-  }
-
-  TidalIcon {
-    anchors.centerIn: button
-    visible: root.barLabelText() === "" && !root.isSystemMuted
-    color: button.active && button.useActiveColor ? button.activeColor : button.foreground
   }
 
   KeyboardPanel {
