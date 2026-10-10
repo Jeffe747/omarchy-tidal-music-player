@@ -174,6 +174,18 @@ ShellRoot {
                  "Hero card must render the current track title")
       root.check(art !== null && art.source.toString() === root.service.trackArtUrl && art.status === Image.Ready,
                  "Hero artwork must load and render without errors")
+      var shuffle = findObject(root.widget, "tidalShuffleButton")
+      var prev = findObject(root.widget, "tidalPrevButton")
+      var play = findObject(root.widget, "tidalPlayButton")
+      var next = findObject(root.widget, "tidalNextButton")
+      var repeat = findObject(root.widget, "tidalRepeatButton")
+      root.check(shuffle !== null && prev !== null && play !== null && next !== null && repeat !== null,
+                 "All playback controls must be present")
+      if (shuffle && prev && play && next && repeat) {
+        root.check(shuffle.size === play.size && prev.size === play.size
+                   && next.size === play.size && repeat.size === play.size,
+                   "All playback controls must match the play button size")
+      }
       root.check(root.service.trackAlbum === "Test album" && root.service.trackDuration === 180,
                  "Album and duration must follow playback status")
       var state = findObject(root.widget, "tidalFavoritesState")
