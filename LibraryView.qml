@@ -117,7 +117,7 @@ Column {
       Text {
         objectName: "tidalExploreCategory"
         textFormat: Text.PlainText
-        text: root.service && root.service.explorationView === "album" ? "󰀥 ALBUM" : "󰠃 ARTIST"
+        text: root.service && root.service.explorationView === "album" ? "󰀥 ALBUM" : root.service && root.service.explorationView === "radio" ? "󰐹 SONG RADIO" : "󰠃 ARTIST"
         color: Color.accent
         font.family: Style.font.family
         font.pixelSize: Style.font.caption
@@ -137,7 +137,7 @@ Column {
       Text {
         objectName: "tidalExploreCount"
         textFormat: Text.PlainText
-        text: (root.service && root.service.explorationView === "album" ? "Album · " : "Top Tracks · ") + root.activeItems.length + " tracks"
+        text: (root.service && root.service.explorationView === "album" ? "Album · " : root.service && root.service.explorationView === "radio" ? "Song Radio · " : "Top Tracks · ") + root.activeItems.length + " tracks"
         color: Color.muted
         font.family: Style.font.family
         font.pixelSize: Style.font.caption

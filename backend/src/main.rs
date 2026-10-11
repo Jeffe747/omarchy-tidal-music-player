@@ -391,6 +391,8 @@ fn explore(auth: &AuthManager, ipc: &IpcServer, view: &str, id: u64) -> Result<(
     let tracks = api_call(auth, |api, _| {
         if view == "album" {
             api.get_album_tracks(id)
+        } else if view == "radio" {
+            api.get_track_radio(id)
         } else {
             api.get_artist_tracks(id)
         }
@@ -852,6 +854,7 @@ fn main() {
                                 | "toggle_favorite"
                                 | "get_album_tracks"
                                 | "get_artist_tracks"
+                                | "get_track_radio"
                                 | "start_auth"
                                 | "logout" => cmd.command.as_str(),
                                 _ => "unknown",
@@ -980,9 +983,11 @@ fn main() {
                                         });
                                     }
                                 }
-                                "get_album_tracks" | "get_artist_tracks" => {
+                                "get_album_tracks" | "get_artist_tracks" | "get_track_radio" => {
                                     let view = if cmd.command == "get_album_tracks" {
                                         "album"
+                                    } else if cmd.command == "get_track_radio" {
+                                        "radio"
                                     } else {
                                         "artist"
                                     };

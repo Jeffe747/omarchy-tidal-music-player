@@ -254,6 +254,7 @@ mod tests {
             "toggle_favorite",
             "get_album_tracks",
             "get_artist_tracks",
+            "get_track_radio",
         ] {
             let parsed: IpcCommand =
                 serde_json::from_value(serde_json::json!({"command": command})).unwrap();
@@ -263,6 +264,11 @@ mod tests {
             serde_json::from_value(serde_json::json!({"command":"get_album_tracks","album_id":12}))
                 .unwrap();
         assert_eq!(album.album_id, Some(12));
+        let radio: IpcCommand = serde_json::from_value(
+            serde_json::json!({"command":"get_track_radio","track_id":42}),
+        )
+        .unwrap();
+        assert_eq!(radio.track_id, Some(42));
     }
 
     #[test]

@@ -374,7 +374,9 @@ Item {
     } else if (msg.type === "exploration_error") {
       if (root.explorationView !== msg.view) return
       root.explorationLoading = false
-      root.explorationError = msg.error || "Unable to load tracks"
+      var error = msg.error || "Unable to load tracks"
+      root.explorationError = msg.view === "radio" && (error.indexOf("404") !== -1 || error.toLowerCase().indexOf("unavailable") !== -1)
+        ? "Song radio is not available for this track." : error
     } else if (msg.type === "playback_started") {
       root.currentTrackId = msg.track_id
       root.playbackError = ""
@@ -532,5 +534,14 @@ Item {
     } else {
       sendCommand({ "command": "get_artist_tracks", "artist_id": id })
     }
+  }
+  function loadTrackRadio(trackId, trackTitle) {
+    clearSearch()
+    explorationView = "radio"
+    explorationTitle = trackTitle ? trackTitle + " Radio" : "Track Radio"
+    explorationTracks = []
+    explorationError = ""
+    explorationLoading = true
+    sendCommand({ "command": "get_track_radio", "track_id": trackId })
   }
 }

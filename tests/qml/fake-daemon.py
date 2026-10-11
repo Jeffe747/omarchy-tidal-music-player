@@ -40,6 +40,10 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
                 if not playlists:
                     playlists.append({"uuid": "playlist-1", "title": "Test playlist"})
                 connection.sendall((json.dumps({"type": "playlists_loaded", "playlists": playlists}) + "\n").encode())
+            elif command == "get_track_radio":
+                if message.get("track_id") != track["id"]:
+                    raise ValueError("Unexpected track radio id")
+                connection.sendall((json.dumps({"type": "exploration_loaded", "view": "radio", "tracks": [track]}) + "\n").encode())
             elif command == "add_playlist_track":
                 if message.get("playlist_id") != "playlist-1" or message.get("track_id") != track["id"]:
                     raise ValueError("Unexpected add_playlist_track parameters")

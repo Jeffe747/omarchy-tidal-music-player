@@ -163,8 +163,9 @@ ShellRoot {
         var contextMenu = findObject(root.widget, "tidalTrackContextMenu")
         root.check(contextMenu !== null && contextMenu.visible, "Right click must open the track context menu")
         root.check(findObject(contextMenu, "tidalContextFavoriteAction") !== null
-                   && findObject(contextMenu, "tidalContextPlaylistAction") !== null,
-                   "Track context menu must expose favorite and playlist actions")
+                   && findObject(contextMenu, "tidalContextPlaylistAction") !== null
+                   && findObject(contextMenu, "tidalContextRadioAction") !== null,
+                   "Track context menu must expose favorite, playlist, and radio actions")
         var contextBackdrop = findObject(root.widget, "tidalContextMenuBackdrop")
         if (contextBackdrop) contextBackdrop.clicked(null)
         root.check(contextMenu !== null && !contextMenu.visible, "Track context menu must dismiss cleanly")
@@ -288,6 +289,14 @@ ShellRoot {
         root.check(library.view === "explore" && category.text.indexOf("ALBUM") !== -1
                    && exploreTitle.text === "Kind of Blue" && exploreCount.text === "Album · 1 tracks",
                    "Album exploration must show its title and track count")
+        root.service.loadTrackRadio(42, "Test song")
+        root.service.handleDaemonMessage({type: "exploration_loaded", view: "radio", tracks: [{id: 42, title: "Test song"}]})
+        root.check(library.view === "explore" && category.text.indexOf("SONG RADIO") !== -1
+                   && exploreTitle.text === "Test song Radio" && exploreCount.text === "Song Radio · 1 tracks",
+                   "Song radio exploration must show its title and track count")
+        root.service.handleDaemonMessage({type: "exploration_error", view: "radio", error: "Track radio request failed: HTTP 404"})
+        root.check(root.service.explorationError === "Song radio is not available for this track.",
+                   "Unavailable song radio must show a friendly message")
         root.widget.goBack()
         root.check(library.view === "playlists", "Album Back must return to the library")
         var createButton = findObject(library, "tidalCreatePlaylistButton")

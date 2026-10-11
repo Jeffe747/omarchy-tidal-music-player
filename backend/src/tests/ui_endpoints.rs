@@ -29,6 +29,7 @@ fn new_ui_ipc_commands_and_status_fields_deserialize() {
         "toggle_favorite",
         "get_album_tracks",
         "get_artist_tracks",
+        "get_track_radio",
     ] {
         let command: IpcCommand =
             serde_json::from_value(serde_json::json!({ "command": name })).unwrap();
@@ -39,6 +40,11 @@ fn new_ui_ipc_commands_and_status_fields_deserialize() {
     )
     .unwrap();
     assert_eq!(command.album_id, Some(12));
+    let command: IpcCommand = serde_json::from_value(
+        serde_json::json!({ "command": "get_track_radio", "track_id": 42 }),
+    )
+    .unwrap();
+    assert_eq!(command.track_id, Some(42));
 
     let status: IpcStateMessage = serde_json::from_value(serde_json::json!({
         "type": "status",

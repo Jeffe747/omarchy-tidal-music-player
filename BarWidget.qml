@@ -245,7 +245,7 @@ Panel {
         x: root.contextMenuX
         y: root.contextMenuY
         width: Style.space(190)
-        height: root.playlistSubmenuOpen ? Math.min(Style.space(280), Style.space(48) + Math.max(1, tidalService ? tidalService.playlists.length : 0) * Style.spacing.popupRowHeight) : Style.space(96)
+        height: root.playlistSubmenuOpen ? Math.min(Style.space(280), Style.space(48) + Math.max(1, tidalService ? tidalService.playlists.length : 0) * Style.spacing.popupRowHeight) : (Style.spacing.popupRowHeight + Style.spacing.sm) * 3
         color: Color.popups.background
         border.color: Color.muted
         border.width: Style.normalBorderWidth
@@ -278,6 +278,18 @@ Panel {
               Text { textFormat: Text.PlainText; text: "›"; color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.body }
             }
             MouseArea { id: playlistMouse; anchors.fill: parent; hoverEnabled: true; onClicked: { root.playlistSubmenuOpen = true; if (tidalService && !tidalService.playlists.length) tidalService.loadPlaylists() } }
+          }
+          Rectangle {
+            objectName: "tidalContextRadioAction"
+            visible: !root.playlistSubmenuOpen
+            width: parent.width
+            height: Style.spacing.popupRowHeight + Style.spacing.sm
+            color: radioMouse.containsMouse ? Style.hoverFill : Style.normalFill
+            Row { anchors.fill: parent; anchors.margins: Style.spacing.md; spacing: Style.spacing.md
+              Text { textFormat: Text.PlainText; text: "󰐹"; color: Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body }
+              Text { textFormat: Text.PlainText; text: "Go to song radio"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body }
+            }
+            MouseArea { id: radioMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { if (tidalService && root.contextMenuTrack) tidalService.loadTrackRadio(root.contextMenuTrack.id, root.contextMenuTrack.title); root.closeContextMenu() } }
           }
           Rectangle {
             visible: root.playlistSubmenuOpen

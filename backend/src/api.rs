@@ -562,6 +562,23 @@ impl TidalApiClient {
         parse_playlist_tracks(&json)
     }
 
+    pub fn get_track_radio(&self, track_id: u64) -> Result<Vec<TrackItem>, String> {
+        let response = self
+            .request(
+                ureq::get(&format!("{API_BASE}/tracks/{track_id}/radio"))
+                    .query("countryCode", &self.country_code)
+                    .query("limit", "100")
+                    .query("offset", "0"),
+                &format!("/v1/tracks/{track_id}/radio"),
+            )
+            .map_err(|e| format!("Track radio request failed: {}", e.ipc_message()))?;
+        let body = response
+            .into_string()
+            .map_err(|e| format!("Track radio request failed: {e}"))?;
+        parse_playlist_tracks(&body)
+            .map_err(|e| format!("Track radio request failed: {e}"))
+    }
+
     pub fn get_playback_info(
         &self,
         track_id: u64,
