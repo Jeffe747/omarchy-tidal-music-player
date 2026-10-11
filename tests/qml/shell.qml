@@ -158,6 +158,16 @@ ShellRoot {
                    "Favorites must render in a bounded, clipped list")
         var click = findObject(list, "tidalFavoriteClick")
         root.check(click !== null, "Favorite row must expose a click target")
+        var row = click ? click.parent : null
+        if (row && row.contextMenuRequested) row.contextMenuRequested(row.track, 12, 12)
+        var contextMenu = findObject(root.widget, "tidalTrackContextMenu")
+        root.check(contextMenu !== null && contextMenu.visible, "Right click must open the track context menu")
+        root.check(findObject(contextMenu, "tidalContextFavoriteAction") !== null
+                   && findObject(contextMenu, "tidalContextPlaylistAction") !== null,
+                   "Track context menu must expose favorite and playlist actions")
+        var contextBackdrop = findObject(root.widget, "tidalContextMenuBackdrop")
+        if (contextBackdrop) contextBackdrop.clicked(null)
+        root.check(contextMenu !== null && !contextMenu.visible, "Track context menu must dismiss cleanly")
         if (click) click.clicked(null)
         root.service.searchResults = [{ id: 42, title: "Test song", artist: "Test artist" }]
         delegateTimer.start()
@@ -187,8 +197,22 @@ ShellRoot {
       var play = findObject(root.widget, "tidalPlayButton")
       var next = findObject(root.widget, "tidalNextButton")
       var repeat = findObject(root.widget, "tidalRepeatButton")
+      var chromecast = findObject(root.widget, "tidalChromecastButton")
       root.check(shuffle !== null && prev !== null && play !== null && next !== null && repeat !== null,
                  "All playback controls must be present")
+      root.check(chromecast !== null && chromecast.visible,
+                 "Chromecast action must be visible beside Settings")
+      if (chromecast) root.check(chromecast.iconText === "󰄘", "Chromecast must use the Material Design Cast icon")
+      root.widget.settingsOpen = true
+      var settingsBackdrop = findObject(root.widget, "tidalSettingsBackdropMouseArea")
+      var settingsClose = findObject(root.widget, "tidalSettingsCloseButton")
+      root.check(settingsBackdrop !== null && settingsBackdrop.visible
+                 && settingsBackdrop.acceptedButtons === Qt.AllButtons,
+                 "Settings overlay must consume every mouse button")
+      root.check(settingsClose !== null && settingsClose.visible && settingsClose.iconText === "󰅖",
+                 "Settings must show a header Close button")
+      if (settingsClose) settingsClose.clicked()
+      root.check(!root.widget.settingsOpen, "Header Close button must dismiss Settings")
       if (shuffle && prev && play && next && repeat) {
         root.check(shuffle.size === play.size && prev.size === play.size
                    && next.size === play.size && repeat.size === play.size,
@@ -266,7 +290,42 @@ ShellRoot {
                    "Album exploration must show its title and track count")
         root.widget.goBack()
         root.check(library.view === "playlists", "Album Back must return to the library")
+        var createButton = findObject(library, "tidalCreatePlaylistButton")
+        var playlistField = findObject(library, "tidalNewPlaylistField")
+        var submitButton = findObject(library, "tidalSubmitPlaylistButton")
+        var cancelButton = findObject(library, "tidalCancelPlaylistButton")
+        root.check(createButton !== null && createButton.visible,
+                   "Playlists tab must show Create playlist")
+        root.check(playlistField !== null && submitButton !== null && cancelButton !== null,
+                   "Playlist creation controls must exist")
+        if (createButton && playlistField && submitButton && cancelButton) {
+          createButton.clicked()
+          root.check(library.creatingPlaylist && playlistField.visible,
+                     "Create playlist must open its name field")
+          playlistField.text = "Discard this"
+          root.widget.goBack()
+          root.check(!library.creatingPlaylist && playlistField.text === "",
+                     "Back must cancel playlist creation and clear its name")
+          createButton.clicked()
+          playlistField.text = "  Test playlist  "
+          root.check(submitButton.enabled, "A playlist name must enable Create")
+          submitButton.clicked()
+          root.check(root.service.playlistsLoading && !library.creatingPlaylist && playlistField.text === "",
+                     "Create must dispatch and reset the form")
+        }
       }
+      playlistCreateTimer.start()
+    }
+  }
+
+  Timer {
+    id: playlistCreateTimer
+    interval: 500
+    onTriggered: {
+      root.check(!root.service.playlistsLoading && root.service.playlists.length > 0
+                 && root.service.playlists[0].title === "Test playlist"
+                 && root.service.playlists[0].uuid === "created-1",
+                 "Submitting a playlist must dispatch create_playlist and display the response")
       root.check(root.widget.visible && slot.width > 0 && slot.height === barApi.barSize,
                  "Authenticated widget must keep a nonzero bar slot")
       barApi.vertical = true

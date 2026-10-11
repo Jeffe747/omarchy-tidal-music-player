@@ -289,6 +289,30 @@ fn load_playlists(
     Ok(())
 }
 
+fn create_playlist(
+    auth: &AuthManager,
+    player: &Mutex<Player>,
+    ipc: &IpcServer,
+    title: Option<String>,
+    description: Option<String>,
+) -> Result<(), String> {
+    let title = title.as_deref().map(str::trim).filter(|title| !title.is_empty())
+        .ok_or("title is required")?;
+    let playlist = api_call(auth, |api, user_id| {
+        api.create_playlist(
+            user_id.ok_or("Session has no user ID; please sign in again")?,
+            title,
+            description.as_deref(),
+        )
+    })?;
+    let mut state = player.lock().map_err(|e| e.to_string())?;
+    state.playlists.insert(0, playlist);
+    ipc.broadcast(&PlayerMessage::PlaylistsLoaded {
+        playlists: state.playlists.clone(),
+    });
+    Ok(())
+}
+
 fn load_playlist_tracks(
     auth: &AuthManager,
     player: &Mutex<Player>,
@@ -310,13 +334,24 @@ fn toggle_favorite(
     auth: &AuthManager,
     player: &Mutex<Player>,
     ipc: &IpcServer,
+    target_track_id: Option<u64>,
 ) -> Result<(), String> {
-    let (track, was_favorite) = {
+    let (known_track, was_favorite) = {
         let state = player.lock().map_err(|e| e.to_string())?;
-        let track = state.current.clone().ok_or("No current track")?;
-        let favorite = state.favorites.iter().any(|item| item.id == track.id);
+        let track = if let Some(id) = target_track_id {
+            state.favorites.iter().find(|item| item.id == id).cloned()
+                .or_else(|| state.queue.iter().find(|item| item.id == id).cloned())
+                .or_else(|| state.current.as_ref().filter(|item| item.id == id).cloned())
+        } else {
+            state.current.clone()
+        };
+        let favorite = target_track_id.and_then(|id| state.favorites.iter().find(|t| t.id == id).map(|_| id))
+            .is_some() || track.as_ref().is_some_and(|item| state.favorites.iter().any(|fav| fav.id == item.id));
         (track, favorite)
     };
+    let track = if let Some(track) = known_track { track } else if let Some(id) = target_track_id {
+        api_call(auth, |api, _| api.get_track(id))?
+    } else { return Err("No current track".to_string()) };
     api_call(auth, |api, user_id| {
         api.set_favorite(
             user_id.ok_or("Session has no user ID")?,
@@ -340,6 +375,15 @@ fn toggle_favorite(
         tracks: state.favorites.iter().map(FavoriteTrack::from).collect(),
     });
     ipc.broadcast(&build_status_message(auth, &state));
+    Ok(())
+}
+
+fn add_playlist_track(auth: &AuthManager, player: &Mutex<Player>, ipc: &IpcServer, playlist_id: String, track_id: u64) -> Result<(), String> {
+    api_call(auth, |api, _| api.add_playlist_track(&playlist_id, track_id))?;
+    let current = player.lock().map_err(|e| e.to_string())?.current_playlist_id.clone();
+    if current.as_deref() == Some(playlist_id.as_str()) {
+        load_playlist_tracks(auth, player, ipc, playlist_id)?;
+    }
     Ok(())
 }
 
@@ -799,6 +843,8 @@ fn main() {
                                 | "resume"
                                 | "search"
                                 | "get_playlists"
+                                | "create_playlist"
+                                | "add_playlist_track"
                                 | "get_playlist_tracks"
                                 | "set_audio_quality"
                                 | "toggle_shuffle"
@@ -846,6 +892,26 @@ fn main() {
                                             error: &error,
                                         });
                                     }
+                                }
+                                "create_playlist" => {
+                                    if let Err(error) = create_playlist(
+                                        &auth_ref,
+                                        &player_ref,
+                                        &ipc_ref,
+                                        cmd.title,
+                                        cmd.description,
+                                    ) {
+                                        ipc_ref.broadcast(&PlayerMessage::PlaylistsError {
+                                            error: &error,
+                                        });
+                                    }
+                                }
+                                "add_playlist_track" => {
+                                    let playlist_id = cmd.playlist_id.or(cmd.uuid).unwrap_or_default();
+                                    let result = if playlist_id.is_empty() { Err("playlist_id is required".to_string()) }
+                                        else if let Some(track_id) = cmd.track_id { add_playlist_track(&auth_ref, &player_ref, &ipc_ref, playlist_id, track_id) }
+                                        else { Err("track_id is required".to_string()) };
+                                    if let Err(error) = result { ipc_ref.broadcast(&serde_json::json!({"type":"playback_error","error":error})); }
                                 }
                                 "get_playlist_tracks" => {
                                     let playlist_id =
@@ -907,7 +973,7 @@ fn main() {
                                 }
                                 "toggle_favorite" => {
                                     if let Err(error) =
-                                        toggle_favorite(&auth_ref, &player_ref, &ipc_ref)
+                                        toggle_favorite(&auth_ref, &player_ref, &ipc_ref, cmd.track_id)
                                     {
                                         ipc_ref.broadcast(&PlayerMessage::PlaybackError {
                                             error: &error,

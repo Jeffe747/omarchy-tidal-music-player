@@ -241,6 +241,13 @@ pub fn parse_playlists(json: &str) -> Result<Vec<Playlist>, String> {
     Ok(page.items)
 }
 
+pub fn parse_created_playlist(json: &str) -> Result<Playlist, String> {
+    let mut playlist: Playlist =
+        serde_json::from_str(json).map_err(|e| format!("Failed to parse created playlist: {e}"))?;
+    playlist.set_art_url();
+    Ok(playlist)
+}
+
 pub fn parse_playlist_tracks(json: &str) -> Result<Vec<TrackItem>, String> {
     #[derive(Deserialize)]
     struct Page {
@@ -462,6 +469,27 @@ impl TidalApiClient {
         parse_playlists(&body)
     }
 
+    pub fn create_playlist(
+        &self,
+        user_id: u64,
+        title: &str,
+        description: Option<&str>,
+    ) -> Result<Playlist, String> {
+        let url = format!("{API_BASE}/users/{user_id}/playlists");
+        let mut request = ureq::post(&url)
+            .query("countryCode", &self.country_code)
+            .query("title", title);
+        if let Some(description) = description {
+            request = request.query("description", description);
+        }
+        let body = self
+            .request(request, &format!("/v1/users/{user_id}/playlists"))
+            .map_err(|e| format!("Create playlist request failed: {}", e.ipc_message()))?
+            .into_string()
+            .map_err(|e| format!("Failed to read created playlist: {e}"))?;
+        parse_created_playlist(&body)
+    }
+
     pub fn get_playlist_tracks(&self, uuid: &str) -> Result<Vec<TrackItem>, String> {
         let url = format!("{API_BASE}/playlists/{}/tracks", encode_query(uuid));
         let body = self
@@ -476,6 +504,18 @@ impl TidalApiClient {
             .into_string()
             .map_err(|e| format!("Failed to read playlist tracks: {e}"))?;
         parse_playlist_tracks(&body)
+    }
+
+    pub fn add_playlist_track(&self, uuid: &str, track_id: u64) -> Result<(), String> {
+        let url = format!("{API_BASE}/playlists/{}/tracks", encode_query(uuid));
+        let request = ureq::post(&url)
+            .set("If-None-Match", "*")
+            .query("trackIds", &track_id.to_string())
+            .query("countryCode", &self.country_code)
+            .query("onArtifactNotFound", "FAIL");
+        self.request(request, &format!("/v1/playlists/{uuid}/tracks"))
+            .map(|_| ())
+            .map_err(|e| format!("Add playlist track failed: {}", e.ipc_message()))
     }
 
     pub fn set_favorite(&self, user_id: u64, track_id: u64, favorite: bool) -> Result<(), String> {
@@ -762,6 +802,18 @@ mod tests {
         )
         .unwrap();
         assert_eq!(tracks[0].id, 9);
+    }
+
+    #[test]
+    fn created_playlist_parses_and_sets_art_url() {
+        let playlist = parse_created_playlist(
+            r#"{"uuid":"new-123","title":"New Mix","description":null,"numberOfTracks":0,"squareImage":"aa-bb"}"#,
+        )
+        .unwrap();
+        assert_eq!(playlist.uuid, "new-123");
+        assert_eq!(playlist.title, "New Mix");
+        assert_eq!(playlist.description, "");
+        assert_eq!(playlist.art_url, "https://resources.tidal.com/images/aa/bb/640x640.jpg");
     }
 
     #[test]

@@ -20,6 +20,11 @@ Panel {
   property int keyboardIndex: -1
   property bool enterPending: false
   property bool iconOnly: true
+  property var contextMenuTrack: null
+  property real contextMenuX: 0
+  property real contextMenuY: 0
+  property bool contextMenuOpen: false
+  property bool playlistSubmenuOpen: false
   readonly property string barLabel: {
     if (iconOnly || !tidalService || !tidalService.trackTitle) return ""
     var label = tidalService.trackTitle + " — " + tidalService.trackArtist
@@ -36,7 +41,17 @@ Panel {
   implicitHeight: button.implicitHeight
 
   function barLabelText() { return tidalService && tidalService.trackTitle ? tidalService.trackTitle + " — " + tidalService.trackArtist : "" }
+  function openContextMenu(track, x, y) {
+    contextMenuTrack = track
+    playlistSubmenuOpen = false
+    contextMenuX = Math.max(Style.spacing.sm, Math.min(keyCatcher.width - trackContextMenu.width - Style.spacing.sm, x))
+    contextMenuY = Math.max(Style.spacing.sm, Math.min(keyCatcher.height - trackContextMenu.height - Style.spacing.sm, y))
+    contextMenuOpen = true
+  }
+  function closeContextMenu() { contextMenuOpen = false; playlistSubmenuOpen = false; contextMenuTrack = null }
   function goBack() {
+    if (contextMenuOpen) { closeContextMenu(); return }
+    if (libraryView && libraryView.creatingPlaylist) { libraryView.cancelCreatingPlaylist(); return }
     if (confirmLogout) { confirmLogout = false; return }
     if (tidalService && tidalService.explorationView) {
       var restoreSearch = !!searchField.text.trim() && (tidalService.explorationSearchRequestId >= 0 || tidalService.searching)
@@ -94,8 +109,9 @@ Panel {
     open: root.opened
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(380))
-    contentHeight: panel.fittedContentHeight(mainColumn.implicitHeight)
+    contentHeight: panel.fittedContentHeight(root.settingsOpen ? (settingsColumn.implicitHeight + Style.spacing.popupPadding * 2) : mainColumn.implicitHeight)
     onOpenChanged: {
+      if (!open) root.closeContextMenu()
       if (open && tidalService) {
         tidalService.initializeForWidget()
         if (tidalService.authenticated && tidalService.playlists.length === 0) tidalService.loadPlaylists()
@@ -130,6 +146,7 @@ Panel {
           service: tidalService
           bar: root.bar
           onSettingsRequested: root.settingsOpen = !root.settingsOpen
+          onChromecastRequested: if (tidalService && typeof tidalService.requestChromecast === "function") tidalService.requestChromecast()
           onExploreArtist: function(id, name) { searchDebounce.stop(); if (tidalService) tidalService.exploreArtist(id, name) }
           onExploreAlbum: function(id, name) { searchDebounce.stop(); if (tidalService) tidalService.exploreAlbum(id, name) }
         }
@@ -206,6 +223,98 @@ Panel {
           onExploreArtist: function(id, name) { searchDebounce.stop(); if (tidalService) tidalService.exploreArtist(id, name) }
           onExploreAlbum: function(id, name) { searchDebounce.stop(); if (tidalService) tidalService.exploreAlbum(id, name) }
           onOpenPlaylist: function(id) { if (tidalService) tidalService.loadPlaylistTracks(id) }
+          onContextMenuRequested: function(track, lx, ly) {
+            var pos = libraryView.mapToItem(keyCatcher, lx, ly)
+            root.openContextMenu(track, pos.x, pos.y)
+          }
+        }
+      }
+      MouseArea {
+        objectName: "tidalContextMenuBackdrop"
+        anchors.fill: parent
+        z: 19
+        visible: root.contextMenuOpen
+        acceptedButtons: Qt.AllButtons
+        onClicked: root.closeContextMenu()
+      }
+      Rectangle {
+        id: trackContextMenu
+        objectName: "tidalTrackContextMenu"
+        z: 20
+        visible: root.contextMenuOpen && !!root.contextMenuTrack
+        x: root.contextMenuX
+        y: root.contextMenuY
+        width: Style.space(190)
+        height: root.playlistSubmenuOpen ? Math.min(Style.space(280), Style.space(48) + Math.max(1, tidalService ? tidalService.playlists.length : 0) * Style.spacing.popupRowHeight) : Style.space(96)
+        color: Color.popups.background
+        border.color: Color.muted
+        border.width: Style.normalBorderWidth
+        radius: Style.cornerRadius
+        clip: true
+        Column {
+          anchors.fill: parent
+          spacing: 0
+          Rectangle {
+            objectName: "tidalContextFavoriteAction"
+            visible: !root.playlistSubmenuOpen
+            width: parent.width
+            height: Style.spacing.popupRowHeight + Style.spacing.sm
+            color: favoriteMouse.containsMouse ? Style.hoverFill : Style.normalFill
+            Row { anchors.fill: parent; anchors.margins: Style.spacing.md; spacing: Style.spacing.md
+              Text { textFormat: Text.PlainText; text: tidalService && root.contextMenuTrack && tidalService.isTrackFavorite(root.contextMenuTrack.id) ? "󰋕" : "󰋑"; color: Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body }
+              Text { textFormat: Text.PlainText; text: tidalService && root.contextMenuTrack && tidalService.isTrackFavorite(root.contextMenuTrack.id) ? "Remove favorite" : "Favorite"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body }
+            }
+            MouseArea { id: favoriteMouse; anchors.fill: parent; hoverEnabled: true; onClicked: { if (tidalService && root.contextMenuTrack) tidalService.toggleTrackFavorite(root.contextMenuTrack.id); root.closeContextMenu() } }
+          }
+          Rectangle {
+            objectName: "tidalContextPlaylistAction"
+            visible: !root.playlistSubmenuOpen
+            width: parent.width
+            height: Style.spacing.popupRowHeight + Style.spacing.sm
+            color: playlistMouse.containsMouse ? Style.hoverFill : Style.normalFill
+            Row { anchors.fill: parent; anchors.margins: Style.spacing.md; spacing: Style.spacing.md
+              Text { textFormat: Text.PlainText; text: "󰲸"; color: Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body }
+              Text { textFormat: Text.PlainText; text: "Add to playlist"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; width: parent.width - Style.spacing.xxl; elide: Text.ElideRight }
+              Text { textFormat: Text.PlainText; text: "›"; color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.body }
+            }
+            MouseArea { id: playlistMouse; anchors.fill: parent; hoverEnabled: true; onClicked: { root.playlistSubmenuOpen = true; if (tidalService && !tidalService.playlists.length) tidalService.loadPlaylists() } }
+          }
+          Rectangle {
+            visible: root.playlistSubmenuOpen
+            width: parent.width
+            height: Style.spacing.popupRowHeight
+            color: Style.hoverFill
+            Text { anchors.fill: parent; anchors.margins: Style.spacing.md; verticalAlignment: Text.AlignVCenter; textFormat: Text.PlainText; text: "‹  Select playlist"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body }
+            MouseArea { anchors.fill: parent; onClicked: root.playlistSubmenuOpen = false }
+          }
+          ListView {
+            objectName: "tidalContextPlaylistList"
+            visible: root.playlistSubmenuOpen && !!tidalService && tidalService.playlists.length > 0
+            width: parent.width
+            height: Math.max(0, parent.height - Style.spacing.popupRowHeight)
+            model: tidalService ? tidalService.playlists : []
+            clip: true
+            delegate: Rectangle {
+              required property var modelData
+              width: ListView.view.width
+              height: Style.spacing.popupRowHeight
+              color: itemMouse.containsMouse ? Style.hoverFill : Style.normalFill
+              Text { anchors.fill: parent; anchors.margins: Style.spacing.md; verticalAlignment: Text.AlignVCenter; textFormat: Text.PlainText; text: modelData.title || "Untitled playlist"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; elide: Text.ElideRight }
+              MouseArea { id: itemMouse; anchors.fill: parent; hoverEnabled: true; onClicked: { if (tidalService && root.contextMenuTrack) tidalService.addTrackToPlaylist(modelData.uuid, root.contextMenuTrack.id); root.closeContextMenu() } }
+            }
+          }
+          Text {
+            visible: root.playlistSubmenuOpen && (!tidalService || !tidalService.playlists.length)
+            width: parent.width
+            height: Style.spacing.popupRowHeight
+            horizontalAlignment: Text.AlignHCenter
+            verticalAlignment: Text.AlignVCenter
+            textFormat: Text.PlainText
+            text: tidalService && tidalService.playlistsLoading ? "Loading playlists…" : "No playlists found"
+            color: Color.muted
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+          }
         }
       }
       Rectangle {
@@ -213,15 +322,50 @@ Panel {
         visible: root.settingsOpen
         anchors.fill: parent
         z: 5
+        clip: true
         color: Color.popups.background
         radius: Style.cornerRadius
         border.color: Color.muted
         border.width: Style.normalBorderWidth
-        Column {
+        MouseArea {
+          objectName: "tidalSettingsBackdropMouseArea"
           anchors.fill: parent
+          acceptedButtons: Qt.AllButtons
+        }
+        Column {
+          id: settingsColumn
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.top: parent.top
           anchors.margins: Style.spacing.popupPadding
           spacing: Style.spacing.lg
-          Text { text: "Settings"; textFormat: Text.PlainText; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.title; font.bold: true }
+          Item {
+            width: parent.width
+            height: Math.max(Style.spacing.controlHeight, settingsTitle.implicitHeight)
+            Text {
+              id: settingsTitle
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              text: "Settings"
+              textFormat: Text.PlainText
+              color: Color.foreground
+              font.family: Style.font.family
+              font.pixelSize: Style.font.title
+              font.bold: true
+            }
+            Ui.PanelActionButton {
+              id: closeButton
+              objectName: "tidalSettingsCloseButton"
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              size: Style.spacing.controlHeight
+              iconText: "󰅖"
+              tooltipText: "Close"
+              Accessible.role: Accessible.Button
+              Accessible.name: tooltipText
+              onClicked: root.settingsOpen = false
+            }
+          }
           Text { text: "Audio quality for the next track"; textFormat: Text.PlainText; color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
           Ui.ButtonGroup {
             options: [{value:"HI_RES_LOSSLESS",label:"Hi-Res"},{value:"LOSSLESS",label:"Lossless"},{value:"HIGH",label:"High AAC"}]
@@ -233,8 +377,11 @@ Panel {
           Text { text: "Daemon"; textFormat: Text.PlainText; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; font.bold: true }
           Text { width: parent.width; textFormat: Text.PlainText; text: !tidalService ? "Unavailable" : ((tidalService.daemonSocket && tidalService.daemonSocket.connected ? "Connected" : "Disconnected") + " · " + (tidalService.daemonBinaryExists ? "Binary ready" : "Binary missing")); color: tidalService && tidalService.daemonSocket && tidalService.daemonSocket.connected ? Color.accent : Color.urgent; font.family: Style.font.family; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
           Text { width: parent.width; textFormat: Text.PlainText; text: tidalService ? tidalService.binaryPath : ""; color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption; elide: Text.ElideMiddle }
-          Ui.Button { text: "Logout"; onClicked: root.confirmLogout = true }
-          Ui.Button { text: "Close"; onClicked: root.settingsOpen = false }
+          Row {
+            spacing: Style.spacing.md
+            Ui.Button { text: "Logout"; onClicked: root.confirmLogout = true }
+            Ui.Button { text: "Close"; onClicked: root.settingsOpen = false }
+          }
         }
       }
       Ui.ConfirmDialog {

@@ -9,6 +9,7 @@ Rectangle {
   property bool showArt: false
   property string durationText: ""
   signal play()
+  signal contextMenuRequested(var track, real mouseX, real mouseY)
   signal exploreArtist(var artistId, string artistName)
   signal exploreAlbum(var albumId, string albumTitle)
 
@@ -78,8 +79,14 @@ Rectangle {
             id: artistMouse
             anchors.fill: parent
             hoverEnabled: true
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
             cursorShape: root.track.artist ? Qt.PointingHandCursor : Qt.ArrowCursor
-            onClicked: if (root.track.artist) root.exploreArtist(root.track.artist_id || 0, root.track.artist)
+            onClicked: function(mouse) {
+              if (mouse && mouse.button === Qt.RightButton) {
+                var p = mapToItem(root, mouse.x, mouse.y)
+                root.contextMenuRequested(root.track, p.x, p.y)
+              } else if (root.track.artist) root.exploreArtist(root.track.artist_id || 0, root.track.artist)
+            }
           }
         }
         Text {
@@ -105,8 +112,14 @@ Rectangle {
             id: albumMouse
             anchors.fill: parent
             hoverEnabled: true
+            acceptedButtons: Qt.LeftButton | Qt.RightButton
             cursorShape: root.track.album ? Qt.PointingHandCursor : Qt.ArrowCursor
-            onClicked: if (root.track.album) root.exploreAlbum(root.track.album_id || 0, root.track.album)
+            onClicked: function(mouse) {
+              if (mouse && mouse.button === Qt.RightButton) {
+                var p = mapToItem(root, mouse.x, mouse.y)
+                root.contextMenuRequested(root.track, p.x, p.y)
+              } else if (root.track.album) root.exploreAlbum(root.track.album_id || 0, root.track.album)
+            }
           }
         }
       }
@@ -125,7 +138,11 @@ Rectangle {
     objectName: "tidalFavoriteClick"
     z: -1
     anchors.fill: parent
+    acceptedButtons: Qt.LeftButton | Qt.RightButton
     cursorShape: Qt.PointingHandCursor
-    onClicked: root.play()
+    onClicked: function(mouse) {
+      if (mouse && mouse.button === Qt.RightButton) root.contextMenuRequested(root.track, mouse.x, mouse.y)
+      else root.play()
+    }
   }
 }

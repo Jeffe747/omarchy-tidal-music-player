@@ -9,6 +9,7 @@ Column {
   property string view: "favorites"
   property int keyboardIndex: -1
   property string playlistFilter: ""
+  property bool creatingPlaylist: false
   readonly property bool filterFocused: filterField.activeFocus
   property var activeItems: {
     if (!service) return []
@@ -26,6 +27,7 @@ Column {
   signal exploreArtist(var artistId, string artistName)
   signal exploreAlbum(var albumId, string albumTitle)
   signal openPlaylist(string id)
+  signal contextMenuRequested(var track, real x, real y)
 
   width: parent ? parent.width : implicitWidth
   spacing: Style.spacing.md
@@ -40,12 +42,60 @@ Column {
     if (view === "playlists") root.openPlaylist(item.uuid)
     else root.playTrack(item.id)
   }
+  function cancelCreatingPlaylist() { creatingPlaylist = false; newPlaylistField.text = "" }
 
   Row {
     visible: root.view === "favorites" || root.view === "playlists" || root.view === "playlistTracks"
     spacing: Style.spacing.md
     Ui.Button { text: "Favorites" + (root.service ? " " + root.service.favorites.length : ""); selected: root.view === "favorites"; onClicked: root.selectTab("favorites") }
     Ui.Button { text: "Playlists" + (root.service ? " " + root.service.playlists.length : ""); selected: root.view === "playlists" || root.view === "playlistTracks"; onClicked: root.selectTab("playlists") }
+  }
+  Ui.Button {
+    objectName: "tidalCreatePlaylistButton"
+    visible: root.view === "playlists" && !root.creatingPlaylist
+    text: "+ Create playlist"
+    iconText: "󰐕"
+    onClicked: {
+      root.creatingPlaylist = true
+      Qt.callLater(function() { newPlaylistField.forceActiveFocus() })
+    }
+  }
+  Row {
+    visible: root.view === "playlists" && root.creatingPlaylist
+    width: parent.width
+    spacing: Style.spacing.sm
+    Ui.TextField {
+      id: newPlaylistField
+      objectName: "tidalNewPlaylistField"
+      width: Math.max(0, parent.width - submitPlaylistBtn.implicitWidth - cancelPlaylistBtn.implicitWidth - Style.spacing.sm * 2)
+      placeholderText: "Playlist name…"
+      onAccepted: {
+        if (text.trim() && root.service) {
+          root.service.createPlaylist(text.trim())
+          text = ""
+          root.creatingPlaylist = false
+        }
+      }
+    }
+    Ui.Button {
+      id: submitPlaylistBtn
+      objectName: "tidalSubmitPlaylistButton"
+      text: "Create"
+      enabled: newPlaylistField.text.trim().length > 0
+      onClicked: {
+        if (newPlaylistField.text.trim() && root.service) {
+          root.service.createPlaylist(newPlaylistField.text.trim())
+          newPlaylistField.text = ""
+          root.creatingPlaylist = false
+        }
+      }
+    }
+    Ui.Button {
+      id: cancelPlaylistBtn
+      objectName: "tidalCancelPlaylistButton"
+      text: "Cancel"
+      onClicked: root.cancelCreatingPlaylist()
+    }
   }
   Ui.Button {
     visible: root.view === "playlistTracks"
@@ -162,6 +212,10 @@ Column {
       current: !!root.service && root.service.currentTrackId === rowData.id
       cursor: root.keyboardIndex === rowIndex
       onPlay: root.playTrack(rowData.id)
+      onContextMenuRequested: function(track, x, y) {
+        var p = mapToItem(root, x, y)
+        root.contextMenuRequested(track, p.x, p.y)
+      }
       onExploreArtist: function(id, name) { root.exploreArtist(id, name) }
       onExploreAlbum: function(id, name) { root.exploreAlbum(id, name) }
     }

@@ -465,6 +465,13 @@ Item {
     sendCommand({ "command": "get_playlists" })
   }
 
+  function createPlaylist(title, description) {
+    if (!title || !title.trim()) return
+    root.playlistsLoading = true
+    root.playlistsError = ""
+    sendCommand({ "command": "create_playlist", "title": title.trim(), "description": description || "" })
+  }
+
   function loadPlaylistTracks(playlistId) {
     root.currentPlaylistId = playlistId
     root.playlistTracks = []
@@ -488,6 +495,12 @@ Item {
   function toggleShuffle() { sendCommand({ "command": "toggle_shuffle" }) }
   function cycleRepeat() { sendCommand({ "command": "cycle_repeat" }) }
   function toggleFavorite() { sendCommand({ "command": "toggle_favorite" }) }
+  function addTrackToPlaylist(playlistId, trackId) { sendCommand({ "command": "add_playlist_track", "playlist_id": playlistId, "track_id": trackId }) }
+  function toggleTrackFavorite(trackId) { sendCommand({ "command": "toggle_favorite", "track_id": trackId }) }
+  function isTrackFavorite(trackId) {
+    for (var i = 0; i < root.favorites.length; i++) if (root.favorites[i].id === trackId) return true
+    return false
+  }
   function closeExploration() {
     if (explorationSearchRequestId >= 0) clearSearch()
     explorationSearchRequestId = -1

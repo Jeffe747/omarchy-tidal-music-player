@@ -101,6 +101,10 @@ pub struct IpcCommand {
     #[serde(default)]
     pub playlist_id: Option<String>,
     #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
     pub uuid: Option<String>,
     #[serde(default)]
     pub quality: Option<String>,
@@ -259,6 +263,18 @@ mod tests {
             serde_json::from_value(serde_json::json!({"command":"get_album_tracks","album_id":12}))
                 .unwrap();
         assert_eq!(album.album_id, Some(12));
+    }
+
+    #[test]
+    fn test_song_context_commands_deserialize_optional_track_ids() {
+        let add: IpcCommand = serde_json::from_str(r#"{"command":"add_playlist_track","playlist_id":"abc","track_id":42}"#).unwrap();
+        assert_eq!(add.command, "add_playlist_track");
+        assert_eq!(add.playlist_id.as_deref(), Some("abc"));
+        assert_eq!(add.track_id, Some(42));
+        let favorite: IpcCommand = serde_json::from_str(r#"{"command":"toggle_favorite","track_id":42}"#).unwrap();
+        assert_eq!(favorite.track_id, Some(42));
+        let current: IpcCommand = serde_json::from_str(r#"{"command":"toggle_favorite"}"#).unwrap();
+        assert_eq!(current.track_id, None);
     }
 
     #[test]

@@ -13,6 +13,7 @@ Column {
   property real pendingSeek: -1
   property real wheelRemainder: 0
   signal settingsRequested()
+  signal chromecastRequested()
   signal exploreArtist(var artistId, string artistName)
   signal exploreAlbum(var albumId, string albumTitle)
 
@@ -63,7 +64,7 @@ Column {
         Text {
           id: title
           objectName: "tidalNowPlayingTitle"
-          width: Math.max(0, parent.width - settings.implicitWidth - (quality.visible ? quality.implicitWidth + favorite.implicitWidth + Style.spacing.sm * 3 : Style.spacing.sm))
+          width: Math.max(0, parent.width - settings.implicitWidth - chromecast.implicitWidth - (quality.visible ? quality.implicitWidth + favorite.implicitWidth + Style.spacing.sm * 4 : Style.spacing.sm * 2))
           textFormat: Text.PlainText
           text: root.service && root.service.trackTitle ? root.service.trackTitle : "Nothing playing"
           color: root.service && root.service.trackTitle ? Color.foreground : Color.muted
@@ -92,6 +93,16 @@ Column {
           Accessible.role: Accessible.Button
           Accessible.name: tooltipText
           onClicked: if (root.service) root.service.toggleFavorite()
+        }
+        Ui.PanelActionButton {
+          id: chromecast
+          objectName: "tidalChromecastButton"
+          size: Style.spacing.controlHeight
+          iconText: "󰄘"
+          tooltipText: "Chromecast"
+          Accessible.role: Accessible.Button
+          Accessible.name: tooltipText
+          onClicked: root.chromecastRequested()
         }
         Ui.PanelActionButton {
           id: settings
