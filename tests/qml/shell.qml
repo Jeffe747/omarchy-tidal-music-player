@@ -221,6 +221,14 @@ ShellRoot {
       }
       root.check(root.service.trackAlbum === "Test album" && root.service.trackDuration === 180,
                  "Album and duration must follow playback status")
+      var seekSlider = findObject(root.widget, "tidalSeekSlider")
+      root.service.handleDaemonMessage({ type: "status", authenticated: true, is_playing: false,
+        track_id: 42, track_title: "Test song", track_artist: "Test artist",
+        track_album: "Test album", duration: 180, position: 45.0 })
+      root.check(root.service.trackPosition === 45.0,
+                 "Paused status must preserve the daemon playback position")
+      root.check(seekSlider !== null && Math.abs(seekSlider.value - 0.25) < 0.001,
+                 "Seek slider must retain its progress while paused")
       var state = findObject(root.widget, "tidalFavoritesState")
       root.service.handleDaemonMessage({ type: "favorites_error", error: "Favorites unavailable" })
       root.check(state !== null && state.visible && state.text === "Favorites unavailable",

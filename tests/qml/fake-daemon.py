@@ -10,6 +10,7 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
     connection, _ = server.accept()
     authenticated = False
     playing = False
+    position = 0.0
     playlists = []
     track = {
         "id": 42, "title": "Test song", "artist": "Test artist",
@@ -32,8 +33,11 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
                     "track_album": track["album"] if playing else "",
                     "track_art_url": track["art_url"] if playing else "",
                     "duration": track["duration"] if playing else 0,
+                    "position": position,
                 }
                 connection.sendall((json.dumps(status) + "\n").encode())
+            elif command == "seek":
+                position = float(message.get("position", position))
             elif command == "get_favorites":
                 connection.sendall((json.dumps({"type": "favorites_loaded", "tracks": [track]}) + "\n").encode())
             elif command == "get_playlists":
@@ -61,6 +65,7 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
                 if message["track_id"] != track["id"]:
                     raise ValueError("Unexpected track_id")
                 playing = True
+                position = 45.0
                 connection.sendall((json.dumps({"type": "playback_started", "track_id": track["id"]}) + "\n").encode())
                 connection.sendall((json.dumps({
                     "type": "status", "authenticated": True, "is_playing": True,
@@ -68,4 +73,5 @@ with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
                     "track_title": track["title"], "track_artist": track["artist"],
                     "track_album": track["album"], "track_art_url": track["art_url"],
                     "duration": track["duration"],
+                    "position": position,
                 }) + "\n").encode())

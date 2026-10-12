@@ -163,8 +163,8 @@ fn build_status_message(auth_manager: &AuthManager, player: &Player) -> IpcState
         track_album: track.map(|t| t.album_title().to_string()),
         track_art_url: track.map(|t| cover_url(t.cover())),
         duration: Some(track.map(|t| t.duration as f64).unwrap_or(0.0)),
-        position: if playing {
-            player.engine.position().ok()
+        position: if player.current.is_some() {
+            player.engine.position().ok().or(Some(0.0))
         } else {
             Some(0.0)
         },

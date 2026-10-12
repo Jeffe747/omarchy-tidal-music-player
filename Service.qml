@@ -293,7 +293,9 @@ Item {
       root.trackAlbum = msg.track_album || ""
       root.trackArtUrl = msg.track_art_url || ""
       root.trackDuration = msg.duration || 0.0
-      root.trackPosition = msg.position || 0.0
+      if (msg.position !== undefined && msg.position !== null) {
+        root.trackPosition = Math.max(0, Number(msg.position) || 0)
+      }
       root.audioQuality = msg.audio_quality || "LOSSLESS"
       root.preferredAudioQuality = msg.preferred_audio_quality || root.preferredAudioQuality || "LOSSLESS"
       root.shuffle = msg.shuffle === true
