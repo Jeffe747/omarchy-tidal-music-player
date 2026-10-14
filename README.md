@@ -1,16 +1,25 @@
-# Omarchy Tidal Music Player v1.0.0 (`jaj.tidal`)
+# Omarchy Tidal Music Player (`jaj.tidal`)
 
-> High-fidelity Tidal music streaming, library search, and player controls tailored for the [Omarchy](https://omarchy.org/) desktop with Quickshell and Hyprland.
+The dedicated Tidal music player for the [Omarchy](https://omarchy.org/) Linux desktop, built for Quickshell, Hyprland, and Wayland.
 
----
+## Overview
 
-## Highlights
+`jaj.tidal` brings Tidal playback and library browsing into Omarchy as a native desktop feature. It replaces the need for a heavy Electron or browser-based player with a lean Quickshell interface backed by a headless Rust daemon. The shell handles presentation and interaction; the daemon handles authentication, catalog requests, playback, and desktop integration.
 
-- **Lossless & Hi-Res Audio:** Streams unencrypted FLAC (16-bit / 44.1 kHz) and Hi-Res Lossless (up to 24-bit / 192 kHz) via PipeWire and headless `mpv`.
-- **System Theme Integration:** 100% reactive to Omarchy themes (`catppuccin`, `tokyo-night`, `nord`, etc.) via `qs.Commons.Color`.
-- **Zero-Friction Device Login:** Seamless OAuth 2.0 device pairing via `link.tidal.com` directly from the bar popup.
-- **Self-hydrating daemon:** the plugin downloads the matching official release binary on first launch when no local or system daemon is available.
-- **MPRIS Desktop Integration:** Registers `org.mpris.MediaPlayer2.Tidal` on D-Bus, seamlessly connecting to Omarchy's `omarchy.media` widget and keyboard media keys.
+## Design Goals & Philosophy
+
+- **Native Omarchy design language:** The interface follows `qs.Commons.Color` and `qs.Commons.Style`, responds live to theme changes, avoids foreign styling, and uses smooth, restrained animations.
+- **Extreme efficiency and low footprint:** A lean Rust daemon communicates with Quickshell over a Unix domain socket. Headless `mpv` handles decoding and sends audio directly to PipeWire.
+- **Bit-perfect audio fidelity:** Lossless FLAC playback preserves the delivered audio stream, including Hi-Res Lossless up to 24-bit / 192 kHz when available from the account and track.
+- **Zero-configuration, one-command setup:** The plugin can bootstrap its matching release daemon binary on first launch. End users do not need build tools, and OAuth 2.0 device pairing completes through Tidal's device login flow.
+- **Deep desktop and MPRIS2 interoperability:** The player registers as `org.mpris.MediaPlayer2.Tidal` and works with keyboard media keys, `playerctl`, and Omarchy's `omarchy.media` integration.
+
+## What It Does
+
+- **Status bar widget and hero card:** Shows now-playing status and artwork with playback controls, a volume slider, and a seekbar.
+- **Library and catalog discovery:** Browse favorites and playlists, create playlists inline, search the catalog, explore artists and albums, and start Song Radio.
+- **Track context actions:** Toggle favorites, add tracks to playlists, or open Song Radio for a track.
+- **Desktop media control:** Integrates with MPRIS2 and `playerctl`, with PipeWire volume control and keyboard media keys.
 
 ---
 
