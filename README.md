@@ -104,6 +104,14 @@ when no system, user-state, bundled, or development binary is available. The
 daemon uses system runtime libraries; Omarchy/Quickshell, `mpv`, PipeWire,
 `curl` or `wget`, and `xdg-open` remain runtime requirements.
 
+### Removal
+
+To remove the plugin from Omarchy:
+
+```sh
+omarchy plugin remove jaj.tidal --yes
+```
+
 ### AUR Package Installation
 
 ```sh
