@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -26,6 +27,9 @@ jobs:
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
+      - name: Install system dependencies
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: sudo apt-get update && sudo apt-get install -y libdbus-1-dev pkg-config
       - name: Install cross
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: cargo install cross --git https://github.com/cross-rs/cross --locked
@@ -34,7 +38,7 @@ jobs:
         run: cargo build --release --target x86_64-unknown-linux-gnu --manifest-path backend/Cargo.toml --locked
       - name: Build aarch64 release
         if: matrix.target == 'aarch64-unknown-linux-gnu'
-        run: cross build --release --target aarch64-unknown-linux-gnu --manifest-path backend/Cargo.toml --locked
+        run: cross build --release --target aarch64-unknown-linux-gnu --manifest-path backend/Cargo.toml --locked --features dbus/vendored
       - name: Strip and optionally compress x86_64 binary
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         run: |
