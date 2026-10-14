@@ -128,7 +128,7 @@ Column {
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
           font.underline: artistMouse.containsMouse && !!root.service && !!root.service.trackArtist
-          MouseArea { id: artistMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: root.service && root.service.trackArtist ? Qt.PointingHandCursor : Qt.ArrowCursor; onClicked: if (root.service && root.service.trackArtist) root.exploreArtist(root.service.currentArtistId || 0, root.service.trackArtist) }
+          MouseArea { id: artistMouse; Accessible.role: Accessible.Link; Accessible.name: root.service ? root.service.trackArtist : ""; anchors.fill: parent; hoverEnabled: true; cursorShape: root.service && root.service.trackArtist ? Qt.PointingHandCursor : Qt.ArrowCursor; onClicked: if (root.service && root.service.trackArtist) root.exploreArtist(root.service.currentArtistId || 0, root.service.trackArtist) }
         }
         Text { textFormat: Text.PlainText; text: "·"; color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
         Text {
@@ -140,7 +140,7 @@ Column {
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
           font.underline: albumMouse.containsMouse && !!root.service && !!root.service.trackAlbum
-          MouseArea { id: albumMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: root.service && root.service.trackAlbum ? Qt.PointingHandCursor : Qt.ArrowCursor; onClicked: if (root.service && root.service.trackAlbum) root.exploreAlbum(root.service.currentAlbumId || 0, root.service.trackAlbum) }
+          MouseArea { id: albumMouse; Accessible.role: Accessible.Link; Accessible.name: root.service ? root.service.trackAlbum : ""; anchors.fill: parent; hoverEnabled: true; cursorShape: root.service && root.service.trackAlbum ? Qt.PointingHandCursor : Qt.ArrowCursor; onClicked: if (root.service && root.service.trackAlbum) root.exploreAlbum(root.service.currentAlbumId || 0, root.service.trackAlbum) }
         }
       }
     }
@@ -163,6 +163,8 @@ Column {
     Text { anchors.verticalCenter: parent.verticalCenter; textFormat: Text.PlainText; text: root.formatTime(!root.service ? 0 : (seek.dragging ? seek.liveValue * root.service.trackDuration : (root.pendingSeek >= 0 ? root.pendingSeek : root.service.trackPosition))); color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
     Ui.PanelSlider {
       id: seek
+      Accessible.role: Accessible.Slider
+      Accessible.name: "Seek position"
       objectName: "tidalSeekSlider"
       bar: root.bar
       width: Math.max(0, parent.width - parent.children[0].implicitWidth - parent.children[2].implicitWidth - Style.spacing.md * 2)
@@ -178,19 +180,21 @@ Column {
     anchors.horizontalCenter: parent.horizontalCenter
     spacing: Style.spacing.lg
     readonly property real controlButtonSize: Style.spacing.controlHeight + Style.spacing.md
-    Ui.PanelActionButton { objectName: "tidalShuffleButton"; iconText: "󰒝"; tooltipText: "Shuffle"; size: parent.controlButtonSize; foreground: root.service && root.service.shuffle ? Color.accent : Color.foreground; onClicked: if (root.service) root.service.toggleShuffle() }
-    Ui.PanelActionButton { objectName: "tidalPrevButton"; iconText: "󰒮"; tooltipText: "Previous"; size: parent.controlButtonSize; onClicked: if (root.service) root.service.previous() }
-    Ui.PanelActionButton { objectName: "tidalPlayButton"; iconText: root.service && root.service.isPlaying ? "󰏤" : "󰐊"; tooltipText: root.service && root.service.isPlaying ? "Pause" : "Play"; size: parent.controlButtonSize; foreground: Color.accent; bordered: true; onClicked: if (root.service) root.service.togglePlay() }
-    Ui.PanelActionButton { objectName: "tidalNextButton"; iconText: "󰒭"; tooltipText: "Next"; size: parent.controlButtonSize; onClicked: if (root.service) root.service.next() }
-    Ui.PanelActionButton { objectName: "tidalRepeatButton"; iconText: root.service && root.service.repeatMode === "one" ? "󰑘" : "󰑖"; tooltipText: "Repeat"; size: parent.controlButtonSize; foreground: root.service && root.service.repeatMode !== "off" ? Color.accent : Color.foreground; onClicked: if (root.service) root.service.cycleRepeat() }
+    Ui.PanelActionButton { objectName: "tidalShuffleButton"; Accessible.role: Accessible.Button; Accessible.name: "Shuffle"; iconText: "󰒝"; tooltipText: "Shuffle"; size: parent.controlButtonSize; foreground: root.service && root.service.shuffle ? Color.accent : Color.foreground; onClicked: if (root.service) root.service.toggleShuffle() }
+    Ui.PanelActionButton { objectName: "tidalPrevButton"; Accessible.role: Accessible.Button; Accessible.name: "Previous track"; iconText: "󰒮"; tooltipText: "Previous"; size: parent.controlButtonSize; onClicked: if (root.service) root.service.previous() }
+    Ui.PanelActionButton { objectName: "tidalPlayButton"; Accessible.role: Accessible.Button; Accessible.name: root.service && root.service.isPlaying ? "Pause" : "Play"; iconText: root.service && root.service.isPlaying ? "󰏤" : "󰐊"; tooltipText: root.service && root.service.isPlaying ? "Pause" : "Play"; size: parent.controlButtonSize; foreground: Color.accent; bordered: true; onClicked: if (root.service) root.service.togglePlay() }
+    Ui.PanelActionButton { objectName: "tidalNextButton"; Accessible.role: Accessible.Button; Accessible.name: "Next track"; iconText: "󰒭"; tooltipText: "Next"; size: parent.controlButtonSize; onClicked: if (root.service) root.service.next() }
+    Ui.PanelActionButton { objectName: "tidalRepeatButton"; Accessible.role: Accessible.Button; Accessible.name: "Repeat"; iconText: root.service && root.service.repeatMode === "one" ? "󰑘" : "󰑖"; tooltipText: "Repeat"; size: parent.controlButtonSize; foreground: root.service && root.service.repeatMode !== "off" ? Color.accent : Color.foreground; onClicked: if (root.service) root.service.cycleRepeat() }
   }
   Row {
     width: parent.width
     spacing: Style.spacing.md
     visible: !!root.sink && !!root.sink.audio
-    Ui.PanelActionButton { iconText: root.sink && root.sink.audio && root.sink.audio.muted ? "󰖁" : "󰕾"; tooltipText: "Mute audio"; onClicked: if (root.sink && root.sink.audio) root.sink.audio.muted = !root.sink.audio.muted }
+    Ui.PanelActionButton { Accessible.role: Accessible.Button; Accessible.name: "Mute audio"; iconText: root.sink && root.sink.audio && root.sink.audio.muted ? "󰖁" : "󰕾"; tooltipText: "Mute audio"; onClicked: if (root.sink && root.sink.audio) root.sink.audio.muted = !root.sink.audio.muted }
     Ui.PanelSlider {
       id: volume
+      Accessible.role: Accessible.Slider
+      Accessible.name: "Volume"
       bar: root.bar
       width: Math.max(0, parent.width - parent.children[0].implicitWidth - volumeLabel.implicitWidth - Style.spacing.md * 2)
       maximum: 1.5

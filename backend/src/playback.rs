@@ -80,10 +80,9 @@ impl PlaybackEngine {
         if let Some(child) = self.mpv_process.as_mut() {
             if child.try_wait().map_err(|e| e.to_string())?.is_some() {
                 self.stop_process()?;
+            } else if UnixStream::connect(&self.mpv_socket_path).is_ok() {
+                return Ok(());
             }
-        }
-        if UnixStream::connect(&self.mpv_socket_path).is_ok() {
-            return Ok(());
         }
         self.stop_process()?;
         if self.mpv_socket_path.exists() {

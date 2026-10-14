@@ -2,7 +2,10 @@
   "schemaVersion": 1,
   "id": "jaj.tidal",
   "name": "Tidal Music",
-  "version": "0.1.0",
+  "version": "1.0.0",
+  "homepage": "https://github.com/Jeffe747/omarchy-tidal-music-player",
+  "repository": "https://github.com/Jeffe747/omarchy-tidal-music-player.git",
+  "license": "MIT",
   "author": "jaj",
   "description": "High-fidelity Tidal music streaming with Omarchy system theme integration",
   "kinds": [

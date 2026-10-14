@@ -77,6 +77,8 @@ Rectangle {
           font.underline: artistMouse.containsMouse && !!root.track.artist
           MouseArea {
             id: artistMouse
+            Accessible.role: Accessible.Link
+            Accessible.name: root.track.artist || "Unknown artist"
             anchors.fill: parent
             hoverEnabled: true
             acceptedButtons: Qt.LeftButton | Qt.RightButton
@@ -110,6 +112,8 @@ Rectangle {
           font.underline: albumMouse.containsMouse && !!root.track.album
           MouseArea {
             id: albumMouse
+            Accessible.role: Accessible.Link
+            Accessible.name: root.track.album || "Unknown album"
             anchors.fill: parent
             hoverEnabled: true
             acceptedButtons: Qt.LeftButton | Qt.RightButton

@@ -1,0 +1,14 @@
+[Unit]
+Description=Tidal Music Streaming Daemon (MPRIS & IPC)
+Documentation=https://github.com/Jeffe747/omarchy-tidal-music-player
+After=pipewire.service sound.target
+Wants=pipewire.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/tidal-daemon
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

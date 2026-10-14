@@ -58,13 +58,22 @@ impl Player {
 }
 
 fn settings_path() -> std::path::PathBuf {
-    std::env::var_os("XDG_STATE_HOME")
+    if let Some(path) = std::env::var_os("TIDAL_SETTINGS_PATH") {
+        return std::path::PathBuf::from(path);
+    }
+    let state_dir = std::env::var_os("XDG_STATE_HOME")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| {
             std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
                 .join(".local/state")
-        })
-        .join("omarchy/tidal/settings.json")
+        });
+    let legacy = state_dir.join("omarchy/tidal/settings.json");
+    let standard = state_dir.join("tidal/settings.json");
+    if legacy.exists() && !standard.exists() {
+        legacy
+    } else {
+        standard
+    }
 }
 fn load_quality_preference() -> String {
     std::fs::read_to_string(settings_path())
@@ -296,7 +305,10 @@ fn create_playlist(
     title: Option<String>,
     description: Option<String>,
 ) -> Result<(), String> {
-    let title = title.as_deref().map(str::trim).filter(|title| !title.is_empty())
+    let title = title
+        .as_deref()
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
         .ok_or("title is required")?;
     let playlist = api_call(auth, |api, user_id| {
         api.create_playlist(
@@ -339,19 +351,31 @@ fn toggle_favorite(
     let (known_track, was_favorite) = {
         let state = player.lock().map_err(|e| e.to_string())?;
         let track = if let Some(id) = target_track_id {
-            state.favorites.iter().find(|item| item.id == id).cloned()
+            state
+                .favorites
+                .iter()
+                .find(|item| item.id == id)
+                .cloned()
                 .or_else(|| state.queue.iter().find(|item| item.id == id).cloned())
                 .or_else(|| state.current.as_ref().filter(|item| item.id == id).cloned())
         } else {
             state.current.clone()
         };
-        let favorite = target_track_id.and_then(|id| state.favorites.iter().find(|t| t.id == id).map(|_| id))
-            .is_some() || track.as_ref().is_some_and(|item| state.favorites.iter().any(|fav| fav.id == item.id));
+        let favorite = target_track_id
+            .and_then(|id| state.favorites.iter().find(|t| t.id == id).map(|_| id))
+            .is_some()
+            || track
+                .as_ref()
+                .is_some_and(|item| state.favorites.iter().any(|fav| fav.id == item.id));
         (track, favorite)
     };
-    let track = if let Some(track) = known_track { track } else if let Some(id) = target_track_id {
+    let track = if let Some(track) = known_track {
+        track
+    } else if let Some(id) = target_track_id {
         api_call(auth, |api, _| api.get_track(id))?
-    } else { return Err("No current track".to_string()) };
+    } else {
+        return Err("No current track".to_string());
+    };
     api_call(auth, |api, user_id| {
         api.set_favorite(
             user_id.ok_or("Session has no user ID")?,
@@ -378,9 +402,21 @@ fn toggle_favorite(
     Ok(())
 }
 
-fn add_playlist_track(auth: &AuthManager, player: &Mutex<Player>, ipc: &IpcServer, playlist_id: String, track_id: u64) -> Result<(), String> {
-    api_call(auth, |api, _| api.add_playlist_track(&playlist_id, track_id))?;
-    let current = player.lock().map_err(|e| e.to_string())?.current_playlist_id.clone();
+fn add_playlist_track(
+    auth: &AuthManager,
+    player: &Mutex<Player>,
+    ipc: &IpcServer,
+    playlist_id: String,
+    track_id: u64,
+) -> Result<(), String> {
+    api_call(auth, |api, _| {
+        api.add_playlist_track(&playlist_id, track_id)
+    })?;
+    let current = player
+        .lock()
+        .map_err(|e| e.to_string())?
+        .current_playlist_id
+        .clone();
     if current.as_deref() == Some(playlist_id.as_str()) {
         load_playlist_tracks(auth, player, ipc, playlist_id)?;
     }
@@ -910,11 +946,24 @@ fn main() {
                                     }
                                 }
                                 "add_playlist_track" => {
-                                    let playlist_id = cmd.playlist_id.or(cmd.uuid).unwrap_or_default();
-                                    let result = if playlist_id.is_empty() { Err("playlist_id is required".to_string()) }
-                                        else if let Some(track_id) = cmd.track_id { add_playlist_track(&auth_ref, &player_ref, &ipc_ref, playlist_id, track_id) }
-                                        else { Err("track_id is required".to_string()) };
-                                    if let Err(error) = result { ipc_ref.broadcast(&serde_json::json!({"type":"playback_error","error":error})); }
+                                    let playlist_id =
+                                        cmd.playlist_id.or(cmd.uuid).unwrap_or_default();
+                                    let result = if playlist_id.is_empty() {
+                                        Err("playlist_id is required".to_string())
+                                    } else if let Some(track_id) = cmd.track_id {
+                                        add_playlist_track(
+                                            &auth_ref,
+                                            &player_ref,
+                                            &ipc_ref,
+                                            playlist_id,
+                                            track_id,
+                                        )
+                                    } else {
+                                        Err("track_id is required".to_string())
+                                    };
+                                    if let Err(error) = result {
+                                        ipc_ref.broadcast(&serde_json::json!({"type":"playback_error","error":error}));
+                                    }
                                 }
                                 "get_playlist_tracks" => {
                                     let playlist_id =
@@ -975,9 +1024,12 @@ fn main() {
                                     broadcast_status(&auth_ref, &player_ref, &ipc_ref);
                                 }
                                 "toggle_favorite" => {
-                                    if let Err(error) =
-                                        toggle_favorite(&auth_ref, &player_ref, &ipc_ref, cmd.track_id)
-                                    {
+                                    if let Err(error) = toggle_favorite(
+                                        &auth_ref,
+                                        &player_ref,
+                                        &ipc_ref,
+                                        cmd.track_id,
+                                    ) {
                                         ipc_ref.broadcast(&PlayerMessage::PlaybackError {
                                             error: &error,
                                         });

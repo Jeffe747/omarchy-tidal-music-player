@@ -223,6 +223,8 @@ Column {
   Component {
     id: playlistRow
     Rectangle {
+      Accessible.role: Accessible.ListItem
+      Accessible.name: rowData.title || "Untitled playlist"
       property var rowData: ({})
       property int rowIndex: -1
       width: list.width

@@ -27,9 +27,23 @@ fn open(path: &Path) -> io::Result<File> {
 }
 
 pub fn init() -> io::Result<()> {
-    let home = std::env::var_os("HOME")
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "HOME is unset"))?;
-    let path = std::path::PathBuf::from(home).join(".local/state/omarchy/tidal/daemon.log");
+    let path = if let Some(path) = std::env::var_os("TIDAL_LOG_PATH") {
+        std::path::PathBuf::from(path)
+    } else {
+        let state_dir = std::env::var_os("XDG_STATE_HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|| {
+                std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+                    .join(".local/state")
+            });
+        let legacy = state_dir.join("omarchy/tidal/daemon.log");
+        let standard = state_dir.join("tidal/daemon.log");
+        if legacy.exists() && !standard.exists() {
+            legacy
+        } else {
+            standard
+        }
+    };
     LOG.set(Mutex::new(open(&path)?))
         .map_err(|_| io::Error::new(io::ErrorKind::AlreadyExists, "Log already initialized"))
 }

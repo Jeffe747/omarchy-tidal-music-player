@@ -1,0 +1,18 @@
+pkgbase = tidal-daemon
+	pkgdesc = Lean background daemon for Tidal music streaming with MPRIS2 and IPC
+	pkgver = 1.0.0
+	pkgrel = 1
+	url = https://github.com/Jeffe747/omarchy-tidal-music-player
+	arch = x86_64
+	arch = aarch64
+	license = MIT
+	makedepends = cargo
+	makedepends = rust
+	depends = mpv
+	depends = pipewire
+	depends = dbus
+	depends = glibc
+	source = tidal-daemon-1.0.0.tar.gz::https://github.com/Jeffe747/omarchy-tidal-music-player/archive/refs/tags/v1.0.0.tar.gz
+	sha256sums = SKIP
+
+pkgname = tidal-daemon

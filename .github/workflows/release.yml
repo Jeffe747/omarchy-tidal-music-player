@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact_name: tidal-daemon-x86_64
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact_name: tidal-daemon-aarch64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: Install cross
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: cargo install cross --git https://github.com/cross-rs/cross --locked
+      - name: Build x86_64 release
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: cargo build --release --target x86_64-unknown-linux-gnu --manifest-path backend/Cargo.toml --locked
+      - name: Build aarch64 release
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: cross build --release --target aarch64-unknown-linux-gnu --manifest-path backend/Cargo.toml --locked
+      - name: Strip and optionally compress x86_64 binary
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y upx-ucl || true
+          strip backend/target/${{ matrix.target }}/release/tidal-daemon
+          if command -v upx >/dev/null 2>&1; then
+            upx --best --lzma backend/target/${{ matrix.target }}/release/tidal-daemon || echo "UPX compression failed; publishing the stripped binary"
+          else
+            echo "UPX unavailable; publishing the stripped binary"
+          fi
+      - name: Strip aarch64 binary
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: sudo apt-get update && sudo apt-get install -y binutils-aarch64-linux-gnu && aarch64-linux-gnu-strip backend/target/aarch64-unknown-linux-gnu/release/tidal-daemon
+      - name: Stage release binary
+        run: install -Dm755 backend/target/${{ matrix.target }}/release/tidal-daemon "dist/${{ matrix.artifact_name }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: dist/${{ matrix.artifact_name }}
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Create checksums
+        working-directory: dist
+        run: sha256sum tidal-daemon-x86_64 tidal-daemon-aarch64 > SHA256SUMS
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/tidal-daemon-x86_64
+            dist/tidal-daemon-aarch64
+            dist/SHA256SUMS
+          generate_release_notes: true

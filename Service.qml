@@ -7,10 +7,14 @@ Item {
 
   property var shell: null
   readonly property string socketPath: Quickshell.env("XDG_RUNTIME_DIR") + "/tidal.sock"
-  readonly property string sessionPath: Quickshell.env("TIDAL_SESSION_PATH") || (Quickshell.env("HOME") + "/.local/state/omarchy/tidal/session.json")
+  readonly property string sessionPath: Quickshell.env("TIDAL_SESSION_PATH") || (Quickshell.env("HOME") + "/.local/state/tidal/session.json")
   readonly property string bundledBinaryPath: Qt.resolvedUrl("bin/tidal-daemon").toString().replace(/^file:\/\//, "")
   readonly property string developmentBinaryPath: Qt.resolvedUrl("backend/target/release/tidal-daemon").toString().replace(/^file:\/\//, "")
-  property string selectedBinaryPath: bundledBinaryPath
+  readonly property string stateBinaryPath: Quickshell.env("HOME") + "/.local/state/tidal/bin/tidal-daemon"
+  readonly property string legacyStateBinaryPath: Quickshell.env("HOME") + "/.local/state/omarchy/tidal/bin/tidal-daemon"
+  property string selectedBinaryPath: ""
+  property bool bootstrapping: false
+  property string bootstrapStatus: "Setting up Tidal engine…"
   readonly property string binaryPath: selectedBinaryPath
   readonly property string buildScriptMessage: "Tidal daemon missing or not executable. Reinstall the plugin to restore bin/tidal-daemon, or run scripts/build.sh in a development checkout."
 
@@ -88,23 +92,17 @@ Item {
   Process {
     id: binaryCheckProc
     command: ["sh", "-c",
-      'for path do if test -f "$path" && test -x "$path"; then printf "%s\\n" "$path"; exit 0; fi; done; exit 1',
-      "tidal-binary-check", root.bundledBinaryPath, root.developmentBinaryPath]
+      'sys_bin="$(command -v tidal-daemon 2>/dev/null)"; for path in "$sys_bin" "/usr/bin/tidal-daemon" "$3" "$4" "$1" "$2"; do if test -n "$path" && test -f "$path" && test -x "$path"; then printf "%s\\n" "$path"; exit 0; fi; done; exit 1',
+      "tidal-binary-check", root.bundledBinaryPath, root.developmentBinaryPath, root.stateBinaryPath, root.legacyStateBinaryPath]
     stdout: StdioCollector { id: binaryCheckOutput }
     running: false
     onExited: function(exitCode) {
       root.daemonBinaryExists = (exitCode === 0)
+      if (root.daemonBinaryExists) root.bootstrapping = false
       if (root.daemonBinaryExists) root.selectedBinaryPath = binaryCheckOutput.text.trim()
       if (exitCode !== 0) {
-        root.authError = root.buildScriptMessage
-        root.pendingCommands = []
-        root.authPending = false
-        root.searching = false
-        root.favoritesLoading = false
-        root.favoritesError = root.buildScriptMessage
-        root.playlistsLoading = false
-        root.playlistTracksLoading = false
-      } else if (root.authError === root.buildScriptMessage) {
+        root.beginBootstrap()
+      } else if (root.authError === root.buildScriptMessage || root.authError.indexOf("Tidal daemon missing.") === 0) {
         root.authError = ""
       }
       if (root.daemonBinaryExists && root.pendingCommands.length > 0) {
@@ -120,9 +118,36 @@ Item {
     }
   }
 
+  function beginBootstrap() {
+    if (bootstrapProc.running || root.bootstrapping) return
+    root.bootstrapping = true
+    root.bootstrapStatus = "Setting up Tidal engine…"
+    bootstrapProc.running = true
+  }
+
+  Process {
+    id: bootstrapProc
+    command: ["sh", "-c", 'set -eu; arch="$(uname -m)"; case "$arch" in x86_64|amd64) asset=tidal-daemon-x86_64 ;; aarch64|arm64) asset=tidal-daemon-aarch64 ;; *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; esac; dest="$1"; mkdir -p "$(dirname "$dest")"; tmp="${dest}.tmp.$$"; if command -v curl >/dev/null 2>&1; then curl -fL --retry 2 "https://github.com/Jeffe747/omarchy-tidal-music-player/releases/download/v1.0.0/${asset}" -o "$tmp" || { rm -f "$tmp"; exit 1; }; elif command -v wget >/dev/null 2>&1; then wget -O "$tmp" "https://github.com/Jeffe747/omarchy-tidal-music-player/releases/download/v1.0.0/${asset}" || { rm -f "$tmp"; exit 1; }; else echo "curl or wget is required" >&2; exit 1; fi; chmod +x "$tmp"; mv "$tmp" "$dest"', "tidal-bootstrap", root.stateBinaryPath]
+    running: false
+    onExited: function(exitCode) {
+      root.bootstrapping = false
+      if (exitCode === 0) {
+        root.selectedBinaryPath = root.stateBinaryPath
+        root.daemonBinaryExists = true
+        root.authError = ""
+        root.checkSavedSession()
+        root.ensureDaemonRunning()
+      } else {
+        root.authError = "Tidal daemon missing. Run 'yay -S tidal-daemon' or install binary."
+        root.pendingCommands = []
+        root.authPending = false
+      }
+    }
+  }
+
   Process {
     id: sessionCheckProc
-    command: ["sh", "-c", 'test -s "$1"', "tidal-session-check", root.sessionPath]
+    command: ["sh", "-c", 'test -s "$1" || test -s "$2"', "tidal-session-check", root.sessionPath, Quickshell.env("HOME") + "/.local/state/omarchy/tidal/session.json"]
     running: false
     onExited: function(exitCode) {
       root.savedSessionExists = (exitCode === 0)

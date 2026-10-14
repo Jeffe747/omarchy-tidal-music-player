@@ -13,9 +13,9 @@ const TOKEN_URL: &str = "https://auth.tidal.com/v1/oauth2/token";
 
 pub const DEFAULT_CLIENT_ID: &str = "4N3n6Q1x95LL5K7p";
 const DEFAULT_AUTH_TOKEN_BYTES: &[u8] = &[
-    111, 75, 79, 88, 102, 74, 87, 51, 55, 49, 99, 88, 54, 120, 97, 90, 48, 80, 121, 104, 103,
-    71, 78, 66, 100, 78, 76, 108, 66, 90, 100, 52, 65, 75, 75, 89, 111, 117, 103, 77, 106,
-    105, 107, 61,
+    111, 75, 79, 88, 102, 74, 87, 51, 55, 49, 99, 88, 54, 120, 97, 90, 48, 80, 121, 104, 103, 71,
+    78, 66, 100, 78, 76, 108, 66, 90, 100, 52, 65, 75, 75, 89, 111, 117, 103, 77, 106, 105, 107,
+    61,
 ];
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -108,7 +108,11 @@ impl AuthManager {
             .unwrap_or_else(|| DEFAULT_CLIENT_ID.to_string());
         let secret = env_secret.or_else(|| {
             if id == DEFAULT_CLIENT_ID {
-                Some(std::str::from_utf8(DEFAULT_AUTH_TOKEN_BYTES).unwrap().to_string())
+                Some(
+                    std::str::from_utf8(DEFAULT_AUTH_TOKEN_BYTES)
+                        .unwrap()
+                        .to_string(),
+                )
             } else {
                 None
             }
@@ -127,10 +131,7 @@ impl AuthManager {
                 .as_deref()
                 .is_none_or(|secret| secret.trim().is_empty())
         {
-            return Err(
-                "No client secret is configured for this Tidal client"
-                    .to_string(),
-            );
+            return Err("No client secret is configured for this Tidal client".to_string());
         }
         Ok(())
     }
@@ -145,11 +146,21 @@ impl AuthManager {
     }
 
     pub fn session_file_path() -> PathBuf {
-        if let Ok(path) = std::env::var("TIDAL_SESSION_PATH") {
+        if let Some(path) = std::env::var_os("TIDAL_SESSION_PATH") {
             return PathBuf::from(path);
         }
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        PathBuf::from(home).join(".local/state/omarchy/tidal/session.json")
+        let state_dir = std::env::var_os("XDG_STATE_HOME")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| {
+                PathBuf::from(std::env::var_os("HOME").unwrap_or_default()).join(".local/state")
+            });
+        let legacy = state_dir.join("omarchy/tidal/session.json");
+        let standard = state_dir.join("tidal/session.json");
+        if legacy.exists() && !standard.exists() {
+            legacy
+        } else {
+            standard
+        }
     }
 
     pub fn load_session(&self) -> Option<Session> {
@@ -199,7 +210,9 @@ impl AuthManager {
     }
 
     pub fn is_token_expired(&self, session: &Session) -> bool {
-        session.expires_at.is_some_and(|expiry| token_near_expiry(expiry, current_unix_timestamp(), 60))
+        session
+            .expires_at
+            .is_some_and(|expiry| token_near_expiry(expiry, current_unix_timestamp(), 60))
     }
 
     pub fn request_device_code(&self) -> Result<DeviceAuthInfo, String> {
@@ -461,15 +474,25 @@ mod tests {
     #[test]
     fn test_default_client_credentials_work_without_environment() {
         let secret = std::str::from_utf8(DEFAULT_AUTH_TOKEN_BYTES).unwrap();
-        let auth = AuthManager::with_credentials(DEFAULT_CLIENT_ID.to_string(), Some(secret.into()));
+        let auth =
+            AuthManager::with_credentials(DEFAULT_CLIENT_ID.to_string(), Some(secret.into()));
         assert!(auth.check_credentials().is_ok());
         assert!(AuthManager::new(None).check_credentials().is_ok());
 
         for secret in [None, Some(String::new()), Some("  ".to_string())] {
             let auth = AuthManager::with_credentials(DEFAULT_CLIENT_ID.to_string(), secret);
-            assert!(auth.request_device_code().unwrap_err().contains("No client secret"));
-            assert!(auth.refresh_session("test-refresh").unwrap_err().contains("No client secret"));
-            assert!(matches!(auth.poll_token_once("test-device"), PollResult::Error(_)));
+            assert!(auth
+                .request_device_code()
+                .unwrap_err()
+                .contains("No client secret"));
+            assert!(auth
+                .refresh_session("test-refresh")
+                .unwrap_err()
+                .contains("No client secret"));
+            assert!(matches!(
+                auth.poll_token_once("test-device"),
+                PollResult::Error(_)
+            ));
             assert!(auth.poll_token("test-device", 1, 1).is_err());
         }
         let auth = AuthManager::with_credentials(

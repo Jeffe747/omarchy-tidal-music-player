@@ -73,7 +73,7 @@ with tempfile.TemporaryDirectory(prefix="tidal-daemon-smoke-") as runtime:
             raise RuntimeError((stdout + stderr).decode())
     assert not Path(runtime, "tidal.sock").exists(), "Daemon must clean up its socket"
     assert not Path(runtime, "tidal-mpv.sock").exists()
-    log = Path(runtime, ".local/state/omarchy/tidal/daemon.log")
+    log = Path(runtime, ".local/state/tidal/daemon.log")
     assert log.stat().st_mode & 0o777 == 0o600
     assert log.parent.stat().st_mode & 0o777 == 0o700
     lines = log.read_text()

@@ -165,7 +165,7 @@ Panel {
           }
           Text {
             width: parent.width
-            visible: !!tidalService && !tidalService.daemonBinaryExists
+            visible: !!tidalService && !tidalService.daemonBinaryExists && !tidalService.bootstrapping
             textFormat: Text.PlainText
             text: tidalService ? tidalService.buildScriptMessage : ""
             color: Color.urgent
@@ -184,7 +184,8 @@ Panel {
           }
           Ui.Button { visible: !!tidalService && !!tidalService.authPending; text: "Open link.tidal.com"; onClicked: if (tidalService) Quickshell.execDetached(["xdg-open", tidalService.authUrl]) }
           Text { visible: !!tidalService && !!tidalService.authError; textFormat: Text.PlainText; text: tidalService ? tidalService.authError : ""; color: Color.urgent; font.family: Style.font.family; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap; width: parent.width }
-          Ui.Button { visible: !tidalService || !tidalService.authPending; enabled: !!tidalService; text: "Login with Tidal"; onClicked: tidalService.startAuth() }
+          Text { visible: !!tidalService && tidalService.bootstrapping; textFormat: Text.PlainText; text: tidalService ? tidalService.bootstrapStatus : "Setting up Tidal engine…"; color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+          Ui.Button { visible: !tidalService || !tidalService.authPending; enabled: !!tidalService && !tidalService.bootstrapping; text: tidalService && tidalService.bootstrapping ? "Setting up Tidal…" : "Login with Tidal"; onClicked: if (tidalService) tidalService.startAuth() }
         }
         Ui.TextField {
           id: searchField
@@ -239,6 +240,8 @@ Panel {
       }
       Rectangle {
         id: trackContextMenu
+        Accessible.role: Accessible.PopupMenu
+        Accessible.name: "Track context menu"
         objectName: "tidalTrackContextMenu"
         z: 20
         visible: root.contextMenuOpen && !!root.contextMenuTrack
@@ -256,6 +259,8 @@ Panel {
           spacing: 0
           Rectangle {
             objectName: "tidalContextFavoriteAction"
+            Accessible.role: Accessible.MenuItem
+            Accessible.name: tidalService && root.contextMenuTrack && tidalService.isTrackFavorite(root.contextMenuTrack.id) ? "Remove favorite" : "Favorite"
             visible: !root.playlistSubmenuOpen
             width: parent.width
             height: Style.spacing.popupRowHeight + Style.spacing.sm
@@ -264,10 +269,12 @@ Panel {
               Text { textFormat: Text.PlainText; text: tidalService && root.contextMenuTrack && tidalService.isTrackFavorite(root.contextMenuTrack.id) ? "󰋕" : "󰋑"; color: Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body }
               Text { textFormat: Text.PlainText; text: tidalService && root.contextMenuTrack && tidalService.isTrackFavorite(root.contextMenuTrack.id) ? "Remove favorite" : "Favorite"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body }
             }
-            MouseArea { id: favoriteMouse; anchors.fill: parent; hoverEnabled: true; onClicked: { if (tidalService && root.contextMenuTrack) tidalService.toggleTrackFavorite(root.contextMenuTrack.id); root.closeContextMenu() } }
+            MouseArea { id: favoriteMouse; anchors.fill: parent; cursorShape: Qt.PointingHandCursor; hoverEnabled: true; onClicked: { if (tidalService && root.contextMenuTrack) tidalService.toggleTrackFavorite(root.contextMenuTrack.id); root.closeContextMenu() } }
           }
           Rectangle {
             objectName: "tidalContextPlaylistAction"
+            Accessible.role: Accessible.MenuItem
+            Accessible.name: "Add to playlist"
             visible: !root.playlistSubmenuOpen
             width: parent.width
             height: Style.spacing.popupRowHeight + Style.spacing.sm
@@ -277,10 +284,12 @@ Panel {
               Text { textFormat: Text.PlainText; text: "Add to playlist"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; width: parent.width - Style.spacing.xxl; elide: Text.ElideRight }
               Text { textFormat: Text.PlainText; text: "›"; color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.body }
             }
-            MouseArea { id: playlistMouse; anchors.fill: parent; hoverEnabled: true; onClicked: { root.playlistSubmenuOpen = true; if (tidalService && !tidalService.playlists.length) tidalService.loadPlaylists() } }
+            MouseArea { id: playlistMouse; anchors.fill: parent; cursorShape: Qt.PointingHandCursor; hoverEnabled: true; onClicked: { root.playlistSubmenuOpen = true; if (tidalService && !tidalService.playlists.length) tidalService.loadPlaylists() } }
           }
           Rectangle {
             objectName: "tidalContextRadioAction"
+            Accessible.role: Accessible.MenuItem
+            Accessible.name: "Go to song radio"
             visible: !root.playlistSubmenuOpen
             width: parent.width
             height: Style.spacing.popupRowHeight + Style.spacing.sm
@@ -297,7 +306,7 @@ Panel {
             height: Style.spacing.popupRowHeight
             color: Style.hoverFill
             Text { anchors.fill: parent; anchors.margins: Style.spacing.md; verticalAlignment: Text.AlignVCenter; textFormat: Text.PlainText; text: "‹  Select playlist"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body }
-            MouseArea { anchors.fill: parent; onClicked: root.playlistSubmenuOpen = false }
+            MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.playlistSubmenuOpen = false }
           }
           ListView {
             objectName: "tidalContextPlaylistList"
@@ -307,12 +316,14 @@ Panel {
             model: tidalService ? tidalService.playlists : []
             clip: true
             delegate: Rectangle {
+              Accessible.role: Accessible.MenuItem
+              Accessible.name: modelData.title || "Untitled playlist"
               required property var modelData
               width: ListView.view.width
               height: Style.spacing.popupRowHeight
               color: itemMouse.containsMouse ? Style.hoverFill : Style.normalFill
               Text { anchors.fill: parent; anchors.margins: Style.spacing.md; verticalAlignment: Text.AlignVCenter; textFormat: Text.PlainText; text: modelData.title || "Untitled playlist"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; elide: Text.ElideRight }
-              MouseArea { id: itemMouse; anchors.fill: parent; hoverEnabled: true; onClicked: { if (tidalService && root.contextMenuTrack) tidalService.addTrackToPlaylist(modelData.uuid, root.contextMenuTrack.id); root.closeContextMenu() } }
+              MouseArea { id: itemMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { if (tidalService && root.contextMenuTrack) tidalService.addTrackToPlaylist(modelData.uuid, root.contextMenuTrack.id); root.closeContextMenu() } }
             }
           }
           Text {

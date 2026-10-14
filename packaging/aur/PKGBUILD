@@ -1,0 +1,30 @@
+_pkgname=omarchy-tidal-music-player
+pkgname=tidal-daemon
+pkgver=1.0.0
+pkgrel=1
+pkgdesc='Lean background daemon for Tidal music streaming with MPRIS2 and IPC'
+arch=('x86_64' 'aarch64')
+url='https://github.com/Jeffe747/omarchy-tidal-music-player'
+license=('MIT')
+depends=('mpv' 'pipewire' 'dbus' 'glibc')
+makedepends=('cargo' 'rust')
+source=("${pkgname}-${pkgver}.tar.gz::https://github.com/Jeffe747/omarchy-tidal-music-player/archive/refs/tags/v${pkgver}.tar.gz")
+sha256sums=('SKIP')
+
+build() {
+  cd "$_pkgname-$pkgver/backend"
+  cargo build --release --locked
+}
+
+check() {
+  cd "$_pkgname-$pkgver/backend"
+  cargo test --release --locked
+}
+
+package() {
+  cd "$_pkgname-$pkgver"
+  install -Dm755 "backend/target/release/tidal-daemon" "$pkgdir/usr/bin/tidal-daemon"
+  install -Dm644 extra/tidal-daemon.service "$pkgdir/usr/lib/systemd/user/tidal-daemon.service"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+}

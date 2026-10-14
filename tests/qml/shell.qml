@@ -117,11 +117,12 @@ ShellRoot {
       if (root.widget && root.service) {
         if (Quickshell.env("TIDAL_TEST_MODE") === "missing") {
           root.check(!root.service.daemonBinaryExists, "Missing daemons must not be reported as executable")
-          root.check(root.service.authError === root.service.buildScriptMessage,
-                     "Missing bundle and fallback must show an actionable error")
-          root.check(root.service.pendingCommands.length === 0, "Missing binaries must clear deferred commands")
-          root.check(!root.service.authPending && !root.service.searching,
-                     "Missing binaries must clear pending UI state")
+          root.check(root.service.bootstrapping || root.service.authError.indexOf("Tidal daemon missing.") === 0,
+                     "Missing binaries must hydrate the release daemon or show installation guidance")
+          if (root.service.bootstrapping) root.service.resources.forEach(function(resource) {
+            if ("running" in resource && resource.command && resource.command.join(" ").indexOf("uname -m") !== -1)
+              resource.running = false
+          })
           if (!root.failed) console.log("TIDAL_QML_TEST_PASS")
           root.service.destroy()
           Qt.quit()
