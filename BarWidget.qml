@@ -192,7 +192,7 @@ Panel {
           objectName: "tidalSearchField"
           visible: root.isAuthenticated && !root.settingsOpen && root.view !== "explore"
           width: parent.width
-          placeholderText: "Search Tidal tracks…  /"
+          placeholderText: "Search Tidal tracks…"
           onTextChanged: {
             root.keyboardIndex = -1
             searchDebounce.stop()
