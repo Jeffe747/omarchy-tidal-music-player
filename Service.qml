@@ -7,7 +7,7 @@ Item {
 
   property var shell: null
   readonly property string channel: Quickshell.env("TIDAL_CHANNEL") || "stable"
-  readonly property string pluginVersion: "1.0.59"
+  readonly property string pluginVersion: "1.0.60"
   property string daemonVersion: ""
   readonly property string socketPath: Quickshell.env("XDG_RUNTIME_DIR") + "/tidal.sock"
   readonly property string sessionPath: Quickshell.env("TIDAL_SESSION_PATH") || (Quickshell.env("HOME") + "/.local/state/tidal/session.json")
