@@ -137,7 +137,7 @@ Item {
         root.checkSavedSession()
         root.ensureDaemonRunning()
       } else {
-        root.authError = "Tidal daemon missing. Run 'yay -S tidal-daemon' or install binary."
+        root.authError = "Tidal daemon missing. Failed to bootstrap release binary or find tidal-daemon on PATH."
         root.pendingCommands = []
         root.authPending = false
       }

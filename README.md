@@ -99,10 +99,12 @@ For the live milestone progress tracker and task checklist, see **[`PROGRESS.md`
 omarchy plugin add https://github.com/Jeffe747/omarchy-tidal-music-player --enable
 ```
 
-On first launch, `Service.qml` downloads the matching official release binary
-when no system, user-state, bundled, or development binary is available. The
-daemon uses system runtime libraries; Omarchy/Quickshell, `mpv`, PipeWire,
-`curl` or `wget`, and `xdg-open` remain runtime requirements.
+On first launch, the plugin automatically bootstraps the matching official
+release binary when no system, user-state, bundled, or development binary is
+available. The download is SHA-256 pinned and verified before use, so no Rust,
+Cargo, or separate daemon package is needed. The daemon uses system runtime
+libraries; Omarchy/Quickshell, `mpv`, PipeWire, `curl` or `wget`, and `xdg-open`
+remain runtime requirements.
 
 ### Removal
 
@@ -112,29 +114,36 @@ To remove the plugin from Omarchy:
 omarchy plugin remove jaj.tidal --yes
 ```
 
-### AUR Package Installation
-
-```sh
-yay -S tidal-daemon
-```
-
 ### Building from Source
 
 ```sh
 cargo build --release --manifest-path backend/Cargo.toml
 ```
 
-### AUR Installation & Systemd Service
+### Standalone Daemon & Systemd Service (Optional)
 
-Install the daemon from the AUR with `yay -S tidal-daemon` or, on Omarchy,
-`omarchy pkg aur add tidal-daemon`. Start it as a user service:
+For standalone use, either build the daemon from source:
+
+```sh
+cargo build --release --manifest-path backend/Cargo.toml
+```
+
+Or install locally from the included PKGBUILD:
+
+```sh
+cd packaging/aur
+makepkg -si
+```
+
+Once installed, enable the user service:
 
 ```sh
 systemctl --user enable --now tidal-daemon.service
 ```
 
-The package installs `tidal-daemon` to `/usr/bin` and its user unit. The daemon registers the `Tidal` MPRIS player. Standard tools can control it
-and read its metadata:
+The local package installs `tidal-daemon` to `/usr/bin` and its user unit. The
+daemon registers the `Tidal` MPRIS player. Standard tools can control it and
+read its metadata:
 
 ```sh
 playerctl -p Tidal play-pause
