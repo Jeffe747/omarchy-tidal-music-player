@@ -10,8 +10,7 @@ Item {
   readonly property string sessionPath: Quickshell.env("TIDAL_SESSION_PATH") || (Quickshell.env("HOME") + "/.local/state/tidal/session.json")
   readonly property string bundledBinaryPath: Qt.resolvedUrl("bin/tidal-daemon").toString().replace(/^file:\/\//, "")
   readonly property string developmentBinaryPath: Qt.resolvedUrl("backend/target/release/tidal-daemon").toString().replace(/^file:\/\//, "")
-  readonly property string stateBinaryPath: Quickshell.env("HOME") + "/.local/state/tidal/bin/tidal-daemon"
-  readonly property string legacyStateBinaryPath: Quickshell.env("HOME") + "/.local/state/omarchy/tidal/bin/tidal-daemon"
+  readonly property string stateBinaryPath: Quickshell.env("HOME") + "/.local/state/omarchy/tidal/bin/tidal-daemon"
   property string selectedBinaryPath: ""
   property bool bootstrapping: false
   property string bootstrapStatus: "Setting up Tidal engine…"
@@ -92,8 +91,8 @@ Item {
   Process {
     id: binaryCheckProc
     command: ["sh", "-c",
-      'sys_bin="$(command -v tidal-daemon 2>/dev/null)"; for path in "$sys_bin" "/usr/bin/tidal-daemon" "$3" "$4" "$1" "$2"; do if test -n "$path" && test -f "$path" && test -x "$path"; then printf "%s\\n" "$path"; exit 0; fi; done; exit 1',
-      "tidal-binary-check", root.bundledBinaryPath, root.developmentBinaryPath, root.stateBinaryPath, root.legacyStateBinaryPath]
+      'sys_bin="$(command -v tidal-daemon 2>/dev/null || true)"; for path in "$1" "$3" "$sys_bin" "/usr/bin/tidal-daemon" "$2"; do if test -n "$path" && test -f "$path" && test -x "$path"; then printf "%s\\n" "$path"; exit 0; fi; done; exit 1',
+      "tidal-binary-check", root.bundledBinaryPath, root.developmentBinaryPath, root.stateBinaryPath]
     stdout: StdioCollector { id: binaryCheckOutput }
     running: false
     onExited: function(exitCode) {

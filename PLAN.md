@@ -86,6 +86,23 @@ By implementing the standard `org.mpris.MediaPlayer2.Tidal` interface on D-Bus:
 ### Choice: **Rust**
 Rust provides the optimal combination of memory safety, zero-cost abstractions, predictable low latency, and a compact standalone binary without garbage collection overhead.
 
+### Self-hydrating multi-architecture runtime contract
+
+The release runtime supports Linux `x86_64` and `aarch64`. `Service.qml` first
+uses the tracked `bin/tidal-daemon`, then
+`~/.local/state/omarchy/tidal/bin/tidal-daemon`, then a system `tidal-daemon`
+from `PATH` (including `/usr/bin/tidal-daemon`). If no usable daemon exists, it
+downloads the matching precompiled release asset and hydrates the state copy;
+end users do not need Rust or Cargo. The release workflow is tag-triggered and
+publishes one binary per architecture.
+
+Every download must pass pinned SHA-256 verification before installation. The
+expected digest is pinned in the bootstrap command and mirrored in root
+`SHA256SUMS`. This cryptographic check ensures that a changed or replaced
+mutable release asset cannot be installed unless its digest is deliberately
+updated in the reviewed source. The compliance verifier audits both digest
+syntax and byte-for-byte agreement between the pins and checksum manifest.
+
 ---
 
 ## 3. Binary Size Minimization Strategy
@@ -290,6 +307,13 @@ The verification script `scripts/verify.sh` runs the following automated checks:
 3. **Omarchy Plugin & Manifest Validation**:
    - `omarchy plugin validate .` must exit with return code `0`.
    - QML component syntax and property bindings validation.
+4. **Release Checksum Integrity Gate**:
+   - Root `SHA256SUMS` must contain valid 64-character SHA-256 digests for the
+     `x86_64` and `aarch64` release assets.
+   - The digests pinned in `Service.qml` must match those entries exactly;
+     missing, malformed, duplicate, or mismatched entries fail compliance.
+   - This gate is part of `scripts/verify-omarchy-compliance.sh`, and therefore
+     runs under `scripts/verify.sh`.
 
 ### Milestone-by-Milestone Verification Gates
 

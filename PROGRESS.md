@@ -136,6 +136,8 @@ passed; the M2 gate is complete.
 
 ## Activity Log
 
+| 2026-10-15 | This change | Completed Marketplace review supply-chain hardening (Issue #11555): pinned SHA-256 verification in `Service.qml`, synchronized root `SHA256SUMS`, and added an automated checksum synchronization audit to the compliance verification suite. Cleaned the search input placeholder in `BarWidget.qml`. | Codex |
+
 | 2026-10-09 | This change | Implemented the compact hero controls, integrated PipeWire volume, omnibox keyboard access, segmented tabs, compact rows, and panel shortcuts. `TIDAL_UPX=1 ./scripts/build.sh`, `WAYLAND_DISPLAY=wayland-1 ./scripts/verify.sh`, compliance audit, and `omarchy plugin validate .` passed; 49 Rust tests and four QML runtime scenarios passed. Bundle is 777,736 bytes. | Codex |
 
 | 2026-10-09 | This change | Completed M7 resilience and release work: added refresh-on-401 retry, transient transport classification surfaced as retryable errors, safe expiry calculation tests, optional UPX packaging/validation, and rebuilt stripped bundle (1,707,520 bytes). `./scripts/verify.sh` passed (45 tests plus daemon smoke and compliance), `omarchy plugin validate .` passed, and four stock themes were applied before restoring Bear2. CLI startup measured 5.98 ms. UPX and Wayland visual/runtime checks unavailable on this host. | Codex |

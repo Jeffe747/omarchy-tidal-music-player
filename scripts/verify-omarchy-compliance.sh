@@ -259,7 +259,59 @@ else
 fi
 
 # -----------------------------------------------------------------------------
-# 11. Summary
+# 11. Pinned Release Digest & Checksum Integrity
+# -----------------------------------------------------------------------------
+echo "--> 11. Checking pinned release digest and checksum integrity..."
+CHECKSUMS="$SCRIPT_DIR/SHA256SUMS"
+SERVICE="$SCRIPT_DIR/Service.qml"
+if [[ ! -f "$CHECKSUMS" || ! -r "$CHECKSUMS" ]]; then
+  fail "SHA256SUMS is missing or unreadable at repository root"
+else
+  if [[ ! -r "$SERVICE" ]]; then
+    fail "Service.qml is missing or unreadable; cannot audit pinned release digests"
+  else
+    checksum_ok=1
+    for arch in x86_64 aarch64; do
+      asset="tidal-daemon-$arch"
+      mapfile -t checksum_lines < <(awk -v asset="$asset" '$2 == asset { print $1 }' "$CHECKSUMS")
+      if (( ${#checksum_lines[@]} != 1 )); then
+        fail "SHA256SUMS must contain exactly one digest for $asset"
+        checksum_ok=0
+        continue
+      fi
+      checksum_hash="${checksum_lines[0]}"
+      if [[ ! "$checksum_hash" =~ ^[[:xdigit:]]{64}$ ]]; then
+        fail "SHA256SUMS digest for $asset is malformed (expected 64 hexadecimal characters)"
+        checksum_ok=0
+        continue
+      fi
+
+      expected_hash=""
+      while IFS= read -r line; do
+        if [[ "$line" =~ asset=$asset\;[[:space:]]expected=([[:xdigit:]]+) ]]; then
+          expected_hash="${BASH_REMATCH[1]}"
+          break
+        fi
+      done < "$SERVICE"
+      if [[ -z "$expected_hash" ]]; then
+        fail "Service.qml bootstrap command has no pinned expected digest for $asset"
+        checksum_ok=0
+      elif [[ ! "$expected_hash" =~ ^[[:xdigit:]]{64}$ ]]; then
+        fail "Service.qml pinned digest for $asset is malformed (expected 64 hexadecimal characters)"
+        checksum_ok=0
+      elif [[ "$expected_hash" != "$checksum_hash" ]]; then
+        fail "Service.qml pinned digest for $asset does not match SHA256SUMS"
+        checksum_ok=0
+      fi
+    done
+    if (( checksum_ok != 0 )); then
+      pass "Pinned x86_64 and aarch64 bootstrap digests match SHA256SUMS"
+    fi
+  fi
+fi
+
+# -----------------------------------------------------------------------------
+# 12. Summary
 # -----------------------------------------------------------------------------
 echo ""
 if (( FAILED != 0 )); then

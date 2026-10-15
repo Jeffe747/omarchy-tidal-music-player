@@ -128,7 +128,51 @@ Compiles `tidal-daemon` in release mode with size optimization profiles:
 - Copies the stripped release artifact to tracked `bin/tidal-daemon` with mode
   `755`, then verifies the bundle is at most **1,800,000 bytes (1.8 MB)**.
 - Commit the updated bundle with backend changes. `Service.qml` checks this
-  executable first, falling back to the development release path if unavailable.
+  executable first. On systems without a local executable it hydrates a pinned
+  release binary into the per-user state directory.
+
+### Self-hydrating release engine
+
+`Service.qml` resolves the daemon in this order:
+
+1. Tracked local bundle `bin/tidal-daemon`, which also supports developer builds.
+2. Hydrated state binary at `~/.local/state/omarchy/tidal/bin/tidal-daemon`.
+3. A system `tidal-daemon` found on `PATH` (with `/usr/bin/tidal-daemon` as the
+   conventional system location).
+
+If none is executable, the service downloads the architecture-matched release
+asset (`tidal-daemon-x86_64` or `tidal-daemon-aarch64`) and installs it in the
+state directory. The bootstrap supports `x86_64`/`amd64` and
+`aarch64`/`arm64`; `curl` or `wget` and a SHA-256 utility are needed only for
+this first hydration. Playback still uses the host's `mpv` and PipeWire.
+
+The release workflow in `.github/workflows/release.yml` runs only for pushed
+`v*` tags. It builds and publishes the two architecture-specific binaries and a
+release `SHA256SUMS` file. Commits pushed to `main` do not rebuild or replace
+those release assets, so their published bytes and digests remain unchanged.
+
+The repository-root `SHA256SUMS` records the expected release asset digests.
+`Service.qml` pins the same SHA-256 values in its bootstrap command and checks
+the downloaded temporary file before it is made executable or moved into the
+state directory. Keep these values synchronized: this pin prevents a mutable
+release asset from silently replacing the trusted daemon. The compliance
+verification script checks digest format and exact synchronization between
+`SHA256SUMS` and the service pins.
+
+#### Maintainer release checklist
+
+1. Bump the version in `manifest.json`.
+2. Create and push the semantic version tag, for example:
+   `git tag -a vX.Y.Z -m "Release vX.Y.Z"` and `git push origin vX.Y.Z`.
+3. Wait for the GitHub Actions release workflow to compile and publish both
+   architecture binaries and `SHA256SUMS`.
+4. Calculate SHA-256 for `tidal-daemon-x86_64` and `tidal-daemon-aarch64` from
+   the published release assets.
+5. Update the repository-root `SHA256SUMS` and the corresponding hardcoded
+   `expected=` values in `Service.qml`.
+6. Run `./scripts/verify.sh` to confirm checksum synchronization and project
+   compliance.
+7. Commit and push the updated digests and documentation to `main`.
 
 ### 2. Running Unit Tests (`cargo test`)
 Runs the comprehensive Rust unit test suite:
