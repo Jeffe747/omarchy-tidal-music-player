@@ -64,7 +64,7 @@ Column {
         Text {
           id: title
           objectName: "tidalNowPlayingTitle"
-          width: Math.max(0, parent.width - settings.implicitWidth - chromecast.implicitWidth - (quality.visible ? quality.implicitWidth + favorite.implicitWidth + Style.spacing.sm * 4 : Style.spacing.sm * 2))
+          width: Math.max(0, parent.width - settings.implicitWidth - chromecast.implicitWidth - (favorite.visible ? favorite.implicitWidth + Style.spacing.sm * 3 : Style.spacing.sm * 2))
           textFormat: Text.PlainText
           text: root.service && root.service.trackTitle ? root.service.trackTitle : "Nothing playing"
           color: root.service && root.service.trackTitle ? Color.foreground : Color.muted
@@ -72,17 +72,6 @@ Column {
           font.pixelSize: Style.font.title
           font.bold: true
           elide: Text.ElideRight
-        }
-        Text {
-          id: quality
-          visible: !!root.service && !!root.service.trackTitle
-          textFormat: Text.PlainText
-          text: root.service && root.service.audioQuality === "HI_RES_LOSSLESS" ? "HI-RES" : (root.service && root.service.audioQuality === "HIGH" ? "HIGH" : "LOSSLESS")
-          color: Color.accent
-          font.family: Style.font.family
-          font.pixelSize: Style.font.caption
-          font.bold: true
-          anchors.verticalCenter: parent.verticalCenter
         }
         Ui.PanelActionButton {
           id: favorite

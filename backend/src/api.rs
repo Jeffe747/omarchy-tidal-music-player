@@ -326,6 +326,13 @@ pub fn parse_search_results(json: &str) -> Result<Vec<TrackItem>, String> {
 
 #[derive(Deserialize)]
 struct FavoritesPage {
+    #[serde(rename = "totalNumberOfItems", default)]
+    total_number_of_items: Option<u64>,
+    #[serde(default)]
+    offset: Option<u64>,
+    #[serde(default)]
+    limit: Option<u64>,
+    #[serde(default)]
     items: Vec<FavoriteEntry>,
 }
 
@@ -418,14 +425,16 @@ impl TidalApiClient {
 
     pub fn get_favorites(&self, user_id: u64) -> Result<Vec<TrackItem>, String> {
         let url = format!("{API_BASE}/users/{user_id}/favorites/tracks");
+        let mut offset: u64 = 0;
+        let limit: u64 = 100;
         let mut tracks = Vec::new();
         loop {
             let json = self
                 .request(
                     ureq::get(&url)
                         .query("countryCode", &self.country_code)
-                        .query("limit", "100")
-                        .query("offset", &tracks.len().to_string())
+                        .query("limit", &limit.to_string())
+                        .query("offset", &offset.to_string())
                         .query("order", "DATE")
                         .query("orderDirection", "DESC"),
                     &format!("/v1/users/{user_id}/favorites/tracks"),
@@ -433,10 +442,16 @@ impl TidalApiClient {
                 .map_err(|e| format!("Favorites request failed: {}", e.ipc_message()))?
                 .into_string()
                 .map_err(|e| format!("Failed to read favorites: {e}"))?;
-            let items = parse_favorites(&json)?;
-            let count = items.len();
-            tracks.extend(items);
-            if count < 100 {
+            let page: FavoritesPage = serde_json::from_str(&json)
+                .map_err(|e| format!("Failed to parse favorites: {e}"))?;
+            let count = page.items.len();
+            let total = page.total_number_of_items;
+            tracks.extend(page.items.into_iter().map(|entry| entry.item));
+            offset += limit;
+            if count == 0
+                || offset >= 50_000
+                || total.map(|total| offset >= total).unwrap_or(count < limit as usize)
+            {
                 return Ok(tracks);
             }
         }
@@ -1057,6 +1072,18 @@ mod tests {
         assert_eq!(tracks[0].album_title(), "Album");
         assert_eq!(tracks[0].duration, 180);
         assert_eq!(tracks[0].cover(), "ab-cd-ef");
+    }
+
+    #[test]
+    fn test_favorites_page_pagination_metadata() {
+        let page: FavoritesPage = serde_json::from_str(
+            r#"{"totalNumberOfItems":2128,"limit":100,"offset":100,"items":[{"item":{"id":42,"title":"Song"}}]}"#,
+        )
+        .unwrap();
+        assert_eq!(page.total_number_of_items, Some(2128));
+        assert_eq!(page.limit, Some(100));
+        assert_eq!(page.offset, Some(100));
+        assert_eq!(page.items.len(), 1);
     }
 
     #[test]
