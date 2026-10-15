@@ -159,6 +159,14 @@ release asset from silently replacing the trusted daemon. The compliance
 verification script checks digest format and exact synchronization between
 `SHA256SUMS` and the service pins.
 
+#### Rolling development channel
+
+To track precompiled development builds published from pushes to `main`, add
+`TIDAL_CHANNEL=dev` to `~/.config/omarchy/env` and restart the shell. The plugin
+then bootstraps the rolling `dev` release without local compilation. Use
+**Update dev engine** in Settings to fetch the latest build after a new push.
+Leave the variable unset (or set it to `stable`) to remain pinned to `v1.0.0`.
+
 #### Maintainer release checklist
 
 1. Bump the version in `manifest.json`.

@@ -6,6 +6,7 @@ Item {
   id: root
 
   property var shell: null
+  readonly property string channel: Quickshell.env("TIDAL_CHANNEL") || "stable"
   readonly property string socketPath: Quickshell.env("XDG_RUNTIME_DIR") + "/tidal.sock"
   readonly property string sessionPath: Quickshell.env("TIDAL_SESSION_PATH") || (Quickshell.env("HOME") + "/.local/state/tidal/session.json")
   readonly property string bundledBinaryPath: Qt.resolvedUrl("bin/tidal-daemon").toString().replace(/^file:\/\//, "")
@@ -91,8 +92,8 @@ Item {
   Process {
     id: binaryCheckProc
     command: ["sh", "-c",
-      'sys_bin="$(command -v tidal-daemon 2>/dev/null || true)"; for path in "$1" "$3" "$sys_bin" "/usr/bin/tidal-daemon" "$2"; do if test -n "$path" && test -f "$path" && test -x "$path"; then printf "%s\\n" "$path"; exit 0; fi; done; exit 1',
-      "tidal-binary-check", root.bundledBinaryPath, root.developmentBinaryPath, root.stateBinaryPath]
+      'sys_bin="$(command -v tidal-daemon 2>/dev/null || true)"; if [ "$4" = dev ]; then path="$3"; if test -f "$path" && test -x "$path"; then printf "%s\\n" "$path"; exit 0; fi; else for path in "$1" "$3" "$sys_bin" "/usr/bin/tidal-daemon" "$2"; do if test -n "$path" && test -f "$path" && test -x "$path"; then printf "%s\\n" "$path"; exit 0; fi; done; fi; exit 1',
+      "tidal-binary-check", root.bundledBinaryPath, root.developmentBinaryPath, root.stateBinaryPath, root.channel]
     stdout: StdioCollector { id: binaryCheckOutput }
     running: false
     onExited: function(exitCode) {
@@ -124,9 +125,20 @@ Item {
     bootstrapProc.running = true
   }
 
+  function stopDaemon() {
+    if (daemonProcess.running) daemonProcess.running = false
+  }
+
+  function updateEngine() {
+    if (bootstrapProc.running || root.bootstrapping) return
+    stopDaemon()
+    root.daemonBinaryExists = false
+    root.beginBootstrap()
+  }
+
   Process {
     id: bootstrapProc
-    command: ["sh", "-c", 'set -eu; arch="$(uname -m)"; case "$arch" in x86_64|amd64) asset=tidal-daemon-x86_64; expected=d2667dc91bd99ab44e87001974e9552ceee8a24dd8c985478afba5b44ddc67ec ;; aarch64|arm64) asset=tidal-daemon-aarch64; expected=151eece893151952e94bab953d9ea0bfaa18d8d717c400c382210011982911cf ;; *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; esac; dest="$1"; mkdir -p "$(dirname "$dest")"; tmp="${dest}.tmp.$$"; if command -v curl >/dev/null 2>&1; then curl -fL --retry 2 "https://github.com/Jeffe747/omarchy-tidal-music-player/releases/download/v1.0.0/${asset}" -o "$tmp" || { rm -f "$tmp"; exit 1; }; elif command -v wget >/dev/null 2>&1; then wget -O "$tmp" "https://github.com/Jeffe747/omarchy-tidal-music-player/releases/download/v1.0.0/${asset}" || { rm -f "$tmp"; exit 1; }; else echo "curl or wget is required" >&2; exit 1; fi; actual="$(sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp")"; actual="${actual%% *}"; if [ "$actual" != "$expected" ]; then echo "Checksum verification failed: expected $expected, got $actual" >&2; rm -f "$tmp"; exit 2; fi; chmod +x "$tmp"; mv -f "$tmp" "$dest"', "tidal-bootstrap", root.stateBinaryPath]
+    command: ["sh", "-c", 'set -eu; arch="$(uname -m)"; case "$arch" in x86_64|amd64) asset=tidal-daemon-x86_64; expected=d2667dc91bd99ab44e87001974e9552ceee8a24dd8c985478afba5b44ddc67ec ;; aarch64|arm64) asset=tidal-daemon-aarch64; expected=151eece893151952e94bab953d9ea0bfaa18d8d717c400c382210011982911cf ;; *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; esac; channel="${2:-stable}"; tag="v1.0.0"; check_mode="hardcoded"; if [ "$channel" = "dev" ]; then tag="dev"; check_mode="remote"; fi; base_url="https://github.com/Jeffe747/omarchy-tidal-music-player/releases/download/${tag}"; if [ "$check_mode" = "remote" ]; then expected="$(curl -fsSL "${base_url}/SHA256SUMS" | awk -v a="$asset" \'$2 == a { print $1 }\')"; fi; dest="$1"; mkdir -p "$(dirname "$dest")"; tmp="${dest}.tmp.$$"; if command -v curl >/dev/null 2>&1; then curl -fL --retry 2 "${base_url}/${asset}" -o "$tmp" || { rm -f "$tmp"; exit 1; }; elif command -v wget >/dev/null 2>&1; then wget -O "$tmp" "${base_url}/${asset}" || { rm -f "$tmp"; exit 1; }; else echo "curl or wget is required" >&2; exit 1; fi; actual="$(sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp")"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then echo "Checksum verification failed: expected $expected, got $actual" >&2; rm -f "$tmp"; exit 2; fi; chmod +x "$tmp"; mv -f "$tmp" "$dest"', "tidal-bootstrap", root.stateBinaryPath, root.channel]
     running: false
     onExited: function(exitCode) {
       root.bootstrapping = false

@@ -399,6 +399,8 @@ Panel {
           PanelSeparator { width: parent.width }
           Text { text: "Daemon"; textFormat: Text.PlainText; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; font.bold: true }
           Text { width: parent.width; textFormat: Text.PlainText; text: !tidalService ? "Unavailable" : ((tidalService.daemonSocket && tidalService.daemonSocket.connected ? "Connected" : "Disconnected") + " · " + (tidalService.daemonBinaryExists ? "Binary ready" : "Binary missing")); color: tidalService && tidalService.daemonSocket && tidalService.daemonSocket.connected ? Color.accent : Color.urgent; font.family: Style.font.family; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
+          Text { text: "Channel: " + (tidalService ? tidalService.channel : "stable"); color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+          Ui.Button { visible: !!tidalService && tidalService.channel === "dev"; text: "Update dev engine"; onClicked: if (tidalService) tidalService.updateEngine() }
           Text { width: parent.width; textFormat: Text.PlainText; text: tidalService ? tidalService.binaryPath : ""; color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption; elide: Text.ElideMiddle }
           Row {
             spacing: Style.spacing.md
