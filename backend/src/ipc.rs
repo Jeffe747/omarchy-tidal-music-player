@@ -118,6 +118,8 @@ pub struct IpcCommand {
 pub struct IpcStateMessage {
     #[serde(rename = "type")]
     pub msg_type: String,
+    #[serde(default)]
+    pub daemon_version: Option<String>,
     pub authenticated: bool,
     pub is_playing: bool,
     #[serde(default)]
@@ -287,6 +289,7 @@ mod tests {
     fn test_ipc_state_message_serialization() {
         let msg = IpcStateMessage {
             msg_type: "status".to_string(),
+            daemon_version: Some("1.0.59".to_string()),
             authenticated: true,
             is_playing: false,
             track_id: Some(42),

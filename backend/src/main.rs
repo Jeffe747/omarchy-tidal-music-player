@@ -164,6 +164,7 @@ fn build_status_message(auth_manager: &AuthManager, player: &Player) -> IpcState
     let track = player.current.as_ref();
     IpcStateMessage {
         msg_type: "status".to_string(),
+        daemon_version: Some(env!("CARGO_PKG_VERSION").to_string()),
         authenticated,
         is_playing: playing,
         track_id: track.map(|t| t.id),

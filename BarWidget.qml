@@ -400,6 +400,21 @@ Panel {
           Text { text: "Daemon"; textFormat: Text.PlainText; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; font.bold: true }
           Text { width: parent.width; textFormat: Text.PlainText; text: !tidalService ? "Unavailable" : ((tidalService.daemonSocket && tidalService.daemonSocket.connected ? "Connected" : "Disconnected") + " · " + (tidalService.daemonBinaryExists ? "Binary ready" : "Binary missing")); color: tidalService && tidalService.daemonSocket && tidalService.daemonSocket.connected ? Color.accent : Color.urgent; font.family: Style.font.family; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }
           Text { text: "Channel: " + (tidalService ? tidalService.channel : "stable"); color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+          Row {
+            spacing: Style.spacing.xs
+            Text { text: "v" + (tidalService ? tidalService.pluginVersion : "1.0.59"); color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.caption; font.bold: true }
+            Rectangle {
+              id: devBadge
+              visible: !!tidalService && tidalService.channel === "dev"
+              radius: Style.cornerRadius
+              color: Color.accent
+              width: devBadgeText.implicitWidth + Style.spacing.xs * 2
+              height: devBadgeText.implicitHeight + 2
+              Text { id: devBadgeText; anchors.centerIn: parent; text: "dev"; color: Color.background; font.family: Style.font.family; font.pixelSize: Style.font.caption; font.bold: true }
+            }
+            Text { text: "· Build " + (tidalService ? tidalService.pluginVersion.split(".")[2] : "59"); color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+          }
+          Text { visible: !!tidalService && !!tidalService.daemonVersion; text: "Engine: v" + tidalService.daemonVersion + (tidalService.channel === "dev" ? "-dev" : ""); color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
           Ui.Button { visible: !!tidalService && tidalService.channel === "dev"; text: "Update dev engine"; onClicked: if (tidalService) tidalService.updateEngine() }
           Text { width: parent.width; textFormat: Text.PlainText; text: tidalService ? tidalService.binaryPath : ""; color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption; elide: Text.ElideMiddle }
           Row {
