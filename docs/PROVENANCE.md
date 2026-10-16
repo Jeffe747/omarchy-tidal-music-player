@@ -1,10 +1,17 @@
 # Release binary provenance
 
-## v1.0.62 x86_64 bundle
+## v1.0.62 release artifacts
 
-The checked-in executable `bin/tidal-daemon` is built from the Rust source in
-`backend/` for the `x86_64-unknown-linux-gnu` target. The package uses Rust
-edition 2021. Build with `cargo build --release --manifest-path
+The checked-in executable `bin/tidal-daemon` is the official x86_64 artifact
+published by the v1.0.62 GitHub Actions release workflow. The release was
+created by [workflow run 38960048424](https://github.com/Jeffe747/omarchy-tidal-music-player/actions/runs/38960048424)
+and published at [v1.0.62](https://github.com/Jeffe747/omarchy-tidal-music-player/releases/tag/v1.0.62).
+The x86_64 release artifact is 1,796,936 bytes and its digest matches
+`SHA256SUMS` and the runtime pin in `Service.qml`.
+
+The workflow builds from the Rust source in `backend/` with Cargo for
+`x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`. The package uses
+Rust edition 2021. Build locally with `cargo build --release --manifest-path
 backend/Cargo.toml --locked`, then apply:
 
 ```sh
@@ -16,27 +23,19 @@ true`, `codegen-units = 1`, `panic = "abort"`, and `strip = true`.
 
 | Artifact | Size | SHA-256 |
 | --- | ---: | --- |
-| `backend/target/release/tidal-daemon` | 1,730,256 bytes | `6c84f7b144b5e151483d6faadcf3917043aec7f94eb5bfd3eb718643e56b1f4a` |
-| `bin/tidal-daemon` | 1,730,256 bytes | `6c84f7b144b5e151483d6faadcf3917043aec7f94eb5bfd3eb718643e56b1f4a` |
+| `bin/tidal-daemon` / `tidal-daemon-x86_64` | 1,796,936 bytes | `73d79845a170fd7395ccf8309963b0bfe9e0509f57543f261e5103d3f990598e` |
+| `tidal-daemon-aarch64` | Published by release workflow | `c9a10114e1f4bbcdbe61856cf4d5c29cae2fcbd88973f7bf8f8064f4049b8d84` |
 
-`./scripts/build.sh` confirmed the two x86_64 files are byte-for-byte identical.
-`Service.qml` checks the bundled executable's SHA-256 against the pinned digest
-before selecting it for execution. The stable bootstrap uses the same pin and
-downloads release tag `v1.0.62`.
+The local Cargo build may differ byte-for-byte from the official Ubuntu-built
+release artifact. `scripts/verify-size.sh` therefore accepts the bundled x86_64
+artifact when its digest matches the canonical `SHA256SUMS` entry. `Service.qml`
+checks the bundled executable's SHA-256 against the architecture-specific pin
+before selecting it for execution. The stable bootstrap verifies downloads
+against the same pins and uses release tag `v1.0.62`.
 
 ## Release workflow
 
 `.github/workflows/release.yml` builds x86_64 with Cargo and applies the strip
 command above. It does not install or run UPX. The development release workflow
-uses the same x86_64 strip command.
-
-## aarch64 limitation
-
-This environment did not have `cross` or an aarch64 Rust target/toolchain, so a
-v1.0.62 aarch64 artifact could not be built and independently hashed here. The
-currently configured aarch64 digest remains the prior known release digest
-`151eece893151952e94bab953d9ea0bfaa18d8d717c400c382210011982911cf`; it is
-retained in `Service.qml` and `SHA256SUMS` for consistency. The aarch64 release
-workflow will generate and publish the checksum for its newly built artifact.
-The CI artifact digest must be recorded here and pinned in `Service.qml` and
-the root `SHA256SUMS` once that build is available.
+uses the same x86_64 strip command. The published artifact checksums are recorded
+in the repository `SHA256SUMS` and pinned in `Service.qml`.

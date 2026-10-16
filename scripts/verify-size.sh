@@ -53,10 +53,16 @@ verify_binary "$BIN_PATH" "$MAX_SIZE_BYTES"
 if [[ -f "$RELEASE_BIN" ]]; then
   verify_binary "$RELEASE_BIN" "$((2560 * 1024))"
   if ! cmp -s "$BIN_PATH" "$RELEASE_BIN"; then
-    echo "  [FAIL] Bundled daemon differs from the release build. Run ./scripts/build.sh." >&2
-    exit 1
+    canonical_digest=$(awk '$2 == "tidal-daemon-x86_64" { print $1; exit }' "$SCRIPT_DIR/SHA256SUMS")
+    bundled_digest=$(sha256sum "$BIN_PATH" | awk '{ print $1 }')
+    if [[ -z "$canonical_digest" || "$bundled_digest" != "$canonical_digest" ]]; then
+      echo "  [FAIL] Bundled daemon differs from the release build and canonical release digest. Run ./scripts/build.sh." >&2
+      exit 1
+    fi
+    echo "  [PASS] Bundled daemon matches the canonical x86_64 release digest; local Cargo build differs."
+  else
+    echo "  [PASS] Bundled daemon matches the release build."
   fi
-  echo "  [PASS] Bundled daemon matches the release build."
 fi
 
 echo "==> Binary verification passed successfully."
