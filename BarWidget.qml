@@ -187,7 +187,7 @@ Panel {
           Text { visible: !!tidalService && tidalService.bootstrapping; textFormat: Text.PlainText; text: tidalService ? tidalService.bootstrapStatus : "Setting up Tidal engine…"; color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
           Ui.Button { visible: !tidalService || !tidalService.authPending; enabled: !!tidalService && !tidalService.bootstrapping; text: tidalService && tidalService.bootstrapping ? "Setting up Tidal…" : "Login with Tidal"; onClicked: if (tidalService) tidalService.startAuth() }
         }
-        Ui.TextField {
+        SafeTextField {
           id: searchField
           objectName: "tidalSearchField"
           visible: root.isAuthenticated && !root.settingsOpen && root.view !== "explore"
@@ -402,7 +402,7 @@ Panel {
           Text { text: "Channel: " + (tidalService ? tidalService.channel : "stable"); color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
           Row {
             spacing: Style.spacing.xs
-            Text { text: "v" + (tidalService ? tidalService.pluginVersion : "1.0.60"); color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.caption; font.bold: true }
+            Text { text: "v" + (tidalService ? tidalService.pluginVersion : "1.0.61"); color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.caption; font.bold: true }
             Rectangle {
               id: devBadge
               visible: !!tidalService && tidalService.channel === "dev"
@@ -412,7 +412,7 @@ Panel {
               height: devBadgeText.implicitHeight + 2
               Text { id: devBadgeText; anchors.centerIn: parent; text: "dev"; color: Color.background; font.family: Style.font.family; font.pixelSize: Style.font.caption; font.bold: true }
             }
-            Text { text: "· Build " + (tidalService ? tidalService.pluginVersion.split(".")[2] : "60"); color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+            Text { text: "· Build " + (tidalService ? tidalService.pluginVersion.split(".")[2] : "61"); color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
           }
           Text { visible: !!tidalService && !!tidalService.daemonVersion; text: "Engine: v" + tidalService.daemonVersion + (tidalService.channel === "dev" ? "-dev" : ""); color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
           Ui.Button { visible: !!tidalService && tidalService.channel === "dev"; text: "Update dev engine"; onClicked: if (tidalService) tidalService.updateEngine() }

@@ -64,7 +64,7 @@ Column {
     visible: root.view === "playlists" && root.creatingPlaylist
     width: parent.width
     spacing: Style.spacing.sm
-    Ui.TextField {
+    SafeTextField {
       id: newPlaylistField
       objectName: "tidalNewPlaylistField"
       width: Math.max(0, parent.width - submitPlaylistBtn.implicitWidth - cancelPlaylistBtn.implicitWidth - Style.spacing.sm * 2)
@@ -144,7 +144,7 @@ Column {
       }
     }
   }
-  Ui.TextField {
+  SafeTextField {
     id: filterField
     visible: root.view === "playlistTracks"
     width: parent.width
