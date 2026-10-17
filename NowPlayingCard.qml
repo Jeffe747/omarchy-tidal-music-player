@@ -64,7 +64,7 @@ Column {
         Text {
           id: title
           objectName: "tidalNowPlayingTitle"
-          width: Math.max(0, parent.width - settings.implicitWidth - chromecast.implicitWidth - (favorite.visible ? favorite.implicitWidth + Style.spacing.sm * 3 : Style.spacing.sm * 2))
+          width: Math.max(0, parent.width - settings.implicitWidth - (chromecast.visible ? chromecast.implicitWidth + Style.spacing.sm : 0) - (favorite.visible ? favorite.implicitWidth + Style.spacing.sm : 0) - Style.spacing.sm)
           textFormat: Text.PlainText
           text: root.service && root.service.trackTitle ? root.service.trackTitle : (root.service && root.service.trackLoading ? "Loading track…" : "Nothing playing")
           color: root.service && (root.service.trackTitle || root.service.trackLoading) ? Color.foreground : Color.muted
@@ -86,6 +86,7 @@ Column {
         Ui.PanelActionButton {
           id: chromecast
           objectName: "tidalChromecastButton"
+          visible: false
           size: Style.spacing.controlHeight
           iconText: "󰄘"
           tooltipText: "Chromecast"

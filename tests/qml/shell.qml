@@ -202,9 +202,8 @@ ShellRoot {
       var chromecast = findObject(root.widget, "tidalChromecastButton")
       root.check(shuffle !== null && prev !== null && play !== null && next !== null && repeat !== null,
                  "All playback controls must be present")
-      root.check(chromecast !== null && chromecast.visible,
-                 "Chromecast action must be visible beside Settings")
-      if (chromecast) root.check(chromecast.iconText === "󰄘", "Chromecast must use the Material Design Cast icon")
+      root.check(chromecast !== null && !chromecast.visible,
+                 "Chromecast action must be hidden until cast protocol support is available")
       root.widget.settingsOpen = true
       var settingsBackdrop = findObject(root.widget, "tidalSettingsBackdropMouseArea")
       var settingsClose = findObject(root.widget, "tidalSettingsCloseButton")

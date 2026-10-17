@@ -311,7 +311,7 @@ Artist links open dedicated artist top-track views; album links open album track
 
 ### Playback card and settings
 
-The playback card shows artwork, track and artist/album details, the negotiated audio quality badge, favorite toggle, Chromecast action, seek bar, shuffle/repeat and transport controls, and a PipeWire volume slider. The settings overlay provides the audio quality ladder (**Hi-Res**, **Lossless**, **High AAC**), daemon connection status, and logout with a confirmation step. The quality badge reports the negotiated stream quality when Tidal falls back from the selected tier.
+The playback card shows artwork, track and artist/album details, the negotiated audio quality badge, favorite toggle, seek bar, shuffle/repeat and transport controls, and a PipeWire volume slider. The settings overlay provides the audio quality ladder (**Hi-Res**, **Lossless**, **High AAC**), daemon connection status, and logout with a confirmation step. The quality badge reports the negotiated stream quality when Tidal falls back from the selected tier.
 
 ## License
 
