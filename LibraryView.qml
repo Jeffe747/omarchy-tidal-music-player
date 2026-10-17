@@ -48,12 +48,12 @@ Column {
     visible: root.view === "favorites" || root.view === "playlists" || root.view === "playlistTracks"
     spacing: Style.spacing.md
     Ui.Button {
-      text: "Favorites " + (root.service ? (root.service.favoritesTotal ? root.service.favoritesTotal : root.service.favorites.length) : "") + (root.service && (root.service.favoritesLoading || root.service.favoritesInProgress) ? " 󰑮" : "")
+      text: "Favorites " + (root.service ? (root.service.favoritesTotal ? root.service.favoritesTotal : root.service.favorites.length) : "")
       selected: root.view === "favorites"
       onClicked: root.selectTab("favorites")
     }
     Ui.Button {
-      text: "Playlists " + (root.service ? root.service.playlists.length : "") + (root.service && root.service.playlistsLoading ? " 󰑮" : "")
+      text: "Playlists " + (root.service ? root.service.playlists.length : "")
       selected: root.view === "playlists" || root.view === "playlistTracks"
       onClicked: root.selectTab("playlists")
     }
@@ -153,7 +153,7 @@ Column {
       Text {
         objectName: "tidalExploreCategory"
         textFormat: Text.PlainText
-        text: root.service && root.service.explorationView === "album" ? "󰀥 ALBUM" : root.service && root.service.explorationView === "radio" ? "󰐹 SONG RADIO" : "󰠃 ARTIST"
+        text: root.service && root.service.explorationView === "album" ? "󰀥 ALBUM" : root.service && root.service.explorationView === "radio" ? "󰐹 SONG RADIO" : "󰝚 ARTIST"
         color: Color.accent
         font.family: Style.font.family
         font.pixelSize: Style.font.caption
@@ -202,14 +202,6 @@ Column {
     Column {
       anchors.centerIn: parent
       spacing: Style.spacing.md
-      Text {
-        anchors.horizontalCenter: parent.horizontalCenter
-        textFormat: Text.PlainText
-        text: "󰑮"
-        color: Color.accent
-        font.family: Style.font.family
-        font.pixelSize: Style.font.title
-      }
       Text {
         anchors.horizontalCenter: parent.horizontalCenter
         textFormat: Text.PlainText
@@ -330,13 +322,6 @@ Column {
     Row {
       anchors.centerIn: parent
       spacing: Style.spacing.sm
-      Text {
-        textFormat: Text.PlainText
-        text: "󰑮"
-        color: Color.accent
-        font.family: Style.font.family
-        font.pixelSize: Style.font.caption
-      }
       Text {
         textFormat: Text.PlainText
         text: root.service ? "Loading more tracks (" + root.service.favorites.length + (root.service.favoritesTotal ? " / " + root.service.favoritesTotal : "") + ")…" : ""
