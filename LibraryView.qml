@@ -47,8 +47,44 @@ Column {
   Row {
     visible: root.view === "favorites" || root.view === "playlists" || root.view === "playlistTracks"
     spacing: Style.spacing.md
-    Ui.Button { text: "Favorites" + (root.service ? " " + (root.service.favoritesTotal ? root.service.favoritesTotal : root.service.favorites.length) : ""); selected: root.view === "favorites"; onClicked: root.selectTab("favorites") }
-    Ui.Button { text: "Playlists" + (root.service ? " " + root.service.playlists.length : ""); selected: root.view === "playlists" || root.view === "playlistTracks"; onClicked: root.selectTab("playlists") }
+    Ui.Button {
+      text: "Favorites " + (root.service ? (root.service.favoritesTotal ? root.service.favoritesTotal : root.service.favorites.length) : "") + (root.service && (root.service.favoritesLoading || root.service.favoritesInProgress) ? " 󰑮" : "")
+      selected: root.view === "favorites"
+      onClicked: root.selectTab("favorites")
+    }
+    Ui.Button {
+      text: "Playlists " + (root.service ? root.service.playlists.length : "") + (root.service && root.service.playlistsLoading ? " 󰑮" : "")
+      selected: root.view === "playlists" || root.view === "playlistTracks"
+      onClicked: root.selectTab("playlists")
+    }
+  }
+  Item {
+    id: libraryProgressBar
+    width: parent.width
+    height: Style.space(2)
+    visible: !!root.service && (root.service.favoritesLoading || root.service.favoritesInProgress || root.service.playlistsLoading || root.service.playlistTracksLoading || root.service.explorationLoading || root.service.searching)
+    clip: true
+    Rectangle {
+      anchors.fill: parent
+      color: Style.hoverFill
+    }
+    Rectangle {
+      id: progressIndicator
+      height: parent.height
+      width: Math.max(Style.space(60), parent.width * 0.35)
+      radius: height / 2
+      color: Color.accent
+      SequentialAnimation on x {
+        running: libraryProgressBar.visible
+        loops: Animation.Infinite
+        NumberAnimation {
+          from: -progressIndicator.width
+          to: libraryProgressBar.width
+          duration: 900
+          easing.type: Easing.InOutCubic
+        }
+      }
+    }
   }
   Ui.Button {
     objectName: "tidalCreatePlaylistButton"
@@ -196,18 +232,68 @@ Column {
     wrapMode: Text.WordWrap
   }
   Ui.Button { visible: root.view === "favorites" && !!root.service && !!root.service.favoritesError; text: "Retry favorites"; onClicked: root.service.loadFavorites() }
+  Column {
+    id: skeletonContainer
+    visible: !!root.service && ((root.view === "playlistTracks" && root.service.playlistTracksLoading) || (root.view === "explore" && root.service.explorationLoading))
+    width: parent.width
+    spacing: Style.spacing.sm
+    Repeater {
+      model: 4
+      Rectangle {
+        width: skeletonContainer.width
+        height: Style.spacing.popupRowHeight + Style.spacing.xxl
+        radius: Style.cornerRadius
+        color: Style.normalFill
+        opacity: 0.6
+        SequentialAnimation on opacity {
+          running: skeletonContainer.visible
+          loops: Animation.Infinite
+          NumberAnimation { from: 0.35; to: 0.75; duration: 650; easing.type: Easing.InOutSine }
+          NumberAnimation { from: 0.75; to: 0.35; duration: 650; easing.type: Easing.InOutSine }
+        }
+        Row {
+          anchors.fill: parent
+          anchors.margins: Style.spacing.sm
+          spacing: Style.spacing.md
+          Rectangle {
+            width: parent.height
+            height: parent.height
+            radius: Style.cornerRadius
+            color: Style.hoverFill
+          }
+          Column {
+            anchors.verticalCenter: parent.verticalCenter
+            spacing: Style.spacing.xs
+            width: Math.max(0, parent.width - parent.height - Style.spacing.md * 2)
+            Rectangle {
+              width: parent.width * 0.55
+              height: Style.space(12)
+              radius: Style.space(3)
+              color: Style.hoverFill
+            }
+            Rectangle {
+              width: parent.width * 0.35
+              height: Style.space(10)
+              radius: Style.space(3)
+              color: Style.hoverFill
+            }
+          }
+        }
+      }
+    }
+  }
   Text {
     visible: !!root.service && (root.view === "search" || root.view === "explore" || root.view === "playlists" || root.view === "playlistTracks")
       && (root.view === "search" ? (root.service.searching || root.service.searchError || (root.service.searchCompleted && !root.service.searchResults.length))
-        : root.view === "explore" ? (root.service.explorationLoading || root.service.explorationError || !root.service.explorationTracks.length)
+        : root.view === "explore" ? (!root.service.explorationLoading && (root.service.explorationError || !root.service.explorationTracks.length))
         : root.view === "playlists" ? (root.service.playlistsLoading || root.service.playlistsError || !root.service.playlists.length)
-        : (root.service.playlistTracksLoading || root.service.playlistTracksError || !root.activeItems.length))
+        : (!root.service.playlistTracksLoading && (root.service.playlistTracksError || !root.activeItems.length)))
     width: parent.width
     textFormat: Text.PlainText
     text: !root.service ? "" : root.view === "search" ? (root.service.searching ? "Searching..." : (root.service.searchError || "No tracks found"))
-      : root.view === "explore" ? (root.service.explorationLoading ? "Loading tracks..." : (root.service.explorationError || "No tracks found"))
+      : root.view === "explore" ? (root.service.explorationError || "No tracks found")
       : root.view === "playlists" ? (root.service.playlistsLoading ? "Loading playlists..." : (root.service.playlistsError || "No playlists found"))
-      : (root.service.playlistTracksLoading ? "Loading tracks..." : (root.service.playlistTracksError || "No tracks found"))
+      : (root.service.playlistTracksError || "No tracks found")
     color: root.service && (root.service.searchError || root.service.explorationError || root.service.playlistsError || root.service.playlistTracksError) ? Color.urgent : Color.muted
     font.family: Style.font.family
     font.pixelSize: Style.font.caption

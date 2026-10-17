@@ -161,6 +161,49 @@ Column {
       onReleased: function(v) { if (root.service) { root.pendingSeek = v * root.service.trackDuration; root.service.seek(root.pendingSeek) } }
       // PanelSlider's wheel handler lives inside the component. Disable it here.
       MouseArea { anchors.fill: parent; acceptedButtons: Qt.NoButton; onWheel: function(wheel) { wheel.accepted = true } }
+      Rectangle {
+        id: pulseHalo
+        visible: !!root.service && root.service.trackLoading
+        width: seek.knobSize + Style.space(12)
+        height: width
+        radius: width / 2
+        anchors.verticalCenter: parent.verticalCenter
+        x: Math.max(0, Math.min(seek.width - width, seek.width * seek.progress - width / 2))
+        color: Color.accent
+        opacity: 0.35
+        z: 2
+        SequentialAnimation on scale {
+          running: pulseHalo.visible
+          loops: Animation.Infinite
+          NumberAnimation { from: 0.85; to: 1.45; duration: 650; easing.type: Easing.InOutQuad }
+          NumberAnimation { from: 1.45; to: 0.85; duration: 650; easing.type: Easing.InOutQuad }
+        }
+        SequentialAnimation on opacity {
+          running: pulseHalo.visible
+          loops: Animation.Infinite
+          NumberAnimation { from: 0.45; to: 0.1; duration: 650; easing.type: Easing.InOutQuad }
+          NumberAnimation { from: 0.1; to: 0.45; duration: 650; easing.type: Easing.InOutQuad }
+        }
+      }
+      Rectangle {
+        id: pulseRing
+        visible: pulseHalo.visible
+        width: seek.knobSize + Style.space(4)
+        height: width
+        radius: width / 2
+        anchors.verticalCenter: parent.verticalCenter
+        x: Math.max(0, Math.min(seek.width - width, seek.width * seek.progress - width / 2))
+        color: "transparent"
+        border.color: Color.accent
+        border.width: Style.space(2)
+        z: 3
+        SequentialAnimation on opacity {
+          running: pulseRing.visible
+          loops: Animation.Infinite
+          NumberAnimation { from: 0.9; to: 0.3; duration: 450; easing.type: Easing.InOutSine }
+          NumberAnimation { from: 0.3; to: 0.9; duration: 450; easing.type: Easing.InOutSine }
+        }
+      }
     }
     Text { anchors.verticalCenter: parent.verticalCenter; textFormat: Text.PlainText; text: root.formatTime(root.service ? root.service.trackDuration : 0); color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
   }

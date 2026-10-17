@@ -31,6 +31,7 @@ Item {
   property bool savedSessionExists: false
 
   property bool isPlaying: false
+  property bool trackLoading: false
   property string trackTitle: ""
   property string trackArtist: ""
   property string trackAlbum: ""
@@ -83,6 +84,7 @@ Item {
       favoritesError = ""
       playbackError = ""
       currentTrackId = null
+      trackLoading = false
     }
   }
 
@@ -464,11 +466,14 @@ Item {
         ? "Song radio is not available for this track." : error
     } else if (msg.type === "playback_started") {
       root.currentTrackId = msg.track_id
+      root.trackLoading = false
       root.playbackError = ""
     } else if (msg.type === "position_changed") {
       root.trackPosition = Math.max(0, Number(msg.position) || 0)
       if (msg.duration !== undefined) root.trackDuration = Math.max(0, Number(msg.duration) || 0)
+      if (root.trackPosition > 0 && root.trackLoading) root.trackLoading = false
     } else if (msg.type === "playback_error") {
+      root.trackLoading = false
       root.playbackError = msg.error || "Unable to play track"
     }
     if (root.authenticated && !root.favoritesRequested) root.loadFavorites()
@@ -496,14 +501,17 @@ Item {
   }
 
   function next() {
+    root.trackLoading = true
     sendCommand({ "command": "next" })
   }
 
   function previous() {
+    root.trackLoading = true
     sendCommand({ "command": "previous" })
   }
 
   function seek(seconds) {
+    root.trackLoading = true
     sendCommand({ "command": "seek", "position": seconds })
   }
 
@@ -534,6 +542,7 @@ Item {
 
   function playTrack(trackId) {
     root.playbackError = ""
+    root.trackLoading = true
     sendCommand({ "command": "play_track", "track_id": trackId })
   }
 
