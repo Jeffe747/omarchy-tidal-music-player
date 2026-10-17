@@ -37,8 +37,7 @@ Column {
     width: parent.width
     spacing: Style.spacing.lg
     Rectangle {
-      visible: !!root.service && (!!root.service.trackTitle || root.service.trackLoading)
-      width: visible ? Style.space(60) : 0
+      width: Style.space(60)
       height: width
       radius: Style.cornerRadius
       color: Style.hoverFill
@@ -47,15 +46,16 @@ Column {
         id: cover
         objectName: "tidalNowPlayingArt"
         anchors.fill: parent
-        source: root.service ? root.service.trackArtUrl : ""
+        visible: !!root.service && !!root.service.trackArtUrl
+        source: root.service && root.service.trackArtUrl ? root.service.trackArtUrl : ""
         sourceSize: Qt.size(width * Screen.devicePixelRatio, height * Screen.devicePixelRatio)
         fillMode: Image.PreserveAspectCrop
         asynchronous: true
       }
-      Text { anchors.centerIn: parent; visible: cover.status !== Image.Ready; textFormat: Text.PlainText; text: "󰝚"; color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.title }
+      Text { anchors.centerIn: parent; visible: !cover.visible || cover.status !== Image.Ready; textFormat: Text.PlainText; text: "󰝚"; color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.title }
     }
     Column {
-      width: Math.max(0, parent.width - (cover.parent.visible ? cover.parent.width + Style.spacing.lg : 0))
+      width: Math.max(0, parent.width - Style.space(60) - Style.spacing.lg)
       anchors.verticalCenter: parent.verticalCenter
       spacing: Style.spacing.xs
       Row {
@@ -75,13 +75,16 @@ Column {
         }
         Ui.PanelActionButton {
           id: favorite
-          visible: !!root.service && !!root.service.trackTitle
+          visible: true
+          enabled: !!root.service && !!root.service.trackTitle
           size: Style.spacing.controlHeight
           iconText: root.service && root.service.currentTrackFavorite ? "󰋑" : "󰋕"
-          tooltipText: "Toggle favorite"
+          foreground: enabled ? (root.service && root.service.currentTrackFavorite ? Color.accent : Color.foreground) : Color.muted
+          opacity: enabled ? 1.0 : 0.4
+          tooltipText: enabled ? "Toggle favorite" : ""
           Accessible.role: Accessible.Button
-          Accessible.name: tooltipText
-          onClicked: if (root.service) root.service.toggleFavorite()
+          Accessible.name: "Toggle favorite"
+          onClicked: if (root.service && enabled) root.service.toggleFavorite()
         }
         Ui.PanelActionButton {
           id: chromecast
@@ -106,11 +109,23 @@ Column {
         }
       }
       Row {
-        visible: !!root.service && (!!root.service.trackTitle || root.service.trackLoading)
         width: parent.width
         spacing: Style.spacing.xs
+        height: Math.max(artist.implicitHeight, nullSubtitle.implicitHeight)
+        Text {
+          id: nullSubtitle
+          visible: !root.service || (!root.service.trackTitle && !root.service.trackLoading)
+          textFormat: Text.PlainText
+          text: "Select a track to start listening"
+          color: Color.muted
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+          elide: Text.ElideRight
+          width: parent.width
+        }
         Text {
           id: artist
+          visible: !nullSubtitle.visible
           textFormat: Text.PlainText
           text: root.service ? root.service.trackArtist : ""
           width: Math.min(implicitWidth, parent.width * 0.45)
@@ -121,8 +136,17 @@ Column {
           font.underline: artistMouse.containsMouse && !!root.service && !!root.service.trackArtist
           MouseArea { id: artistMouse; Accessible.role: Accessible.Link; Accessible.name: root.service ? root.service.trackArtist : ""; anchors.fill: parent; hoverEnabled: true; cursorShape: root.service && root.service.trackArtist ? Qt.PointingHandCursor : Qt.ArrowCursor; onClicked: if (root.service && root.service.trackArtist) root.exploreArtist(root.service.currentArtistId || 0, root.service.trackArtist) }
         }
-        Text { textFormat: Text.PlainText; text: "·"; color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
         Text {
+          visible: !nullSubtitle.visible && !!root.service && (!!root.service.trackArtist || !!root.service.trackAlbum)
+          textFormat: Text.PlainText
+          text: "·"
+          color: Color.muted
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
+        }
+        Text {
+          id: album
+          visible: !nullSubtitle.visible
           textFormat: Text.PlainText
           text: root.service ? root.service.trackAlbum : ""
           width: Math.max(0, parent.width - artist.width - Style.spacing.xs * 2 - Style.spacing.sm)
@@ -148,19 +172,20 @@ Column {
     font.pixelSize: Style.font.caption
   }
   Row {
-    visible: !!root.service && (!!root.service.trackTitle || root.service.trackLoading)
     width: parent.width
     spacing: Style.spacing.md
-    Text { anchors.verticalCenter: parent.verticalCenter; textFormat: Text.PlainText; text: root.formatTime(!root.service ? 0 : (seek.dragging ? seek.liveValue * root.service.trackDuration : (root.pendingSeek >= 0 ? root.pendingSeek : root.service.trackPosition))); color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+    opacity: root.service && (root.service.trackTitle || root.service.trackLoading) ? 1.0 : 0.4
+    Text { anchors.verticalCenter: parent.verticalCenter; textFormat: Text.PlainText; text: root.formatTime(!root.service || !root.service.trackTitle ? 0 : (seek.dragging ? seek.liveValue * root.service.trackDuration : (root.pendingSeek >= 0 ? root.pendingSeek : root.service.trackPosition))); color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
     Ui.PanelSlider {
       id: seek
       Accessible.role: Accessible.Slider
       Accessible.name: "Seek position"
       objectName: "tidalSeekSlider"
       bar: root.bar
+      enabled: !!root.service && root.service.trackDuration > 0
       width: Math.max(0, parent.width - parent.children[0].implicitWidth - parent.children[2].implicitWidth - Style.spacing.md * 2)
       value: root.service && root.service.trackDuration > 0 ? Math.max(0, Math.min(1, root.service.trackPosition / root.service.trackDuration)) : 0
-      onReleased: function(v) { if (root.service) { root.pendingSeek = v * root.service.trackDuration; root.service.seek(root.pendingSeek) } }
+      onReleased: function(v) { if (root.service && root.service.trackDuration > 0) { root.pendingSeek = v * root.service.trackDuration; root.service.seek(root.pendingSeek) } }
       // PanelSlider's wheel handler lives inside the component. Disable it here.
       MouseArea { anchors.fill: parent; acceptedButtons: Qt.NoButton; onWheel: function(wheel) { wheel.accepted = true } }
       Rectangle {
@@ -208,7 +233,7 @@ Column {
         }
       }
     }
-    Text { anchors.verticalCenter: parent.verticalCenter; textFormat: Text.PlainText; text: root.formatTime(root.service ? root.service.trackDuration : 0); color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+    Text { anchors.verticalCenter: parent.verticalCenter; textFormat: Text.PlainText; text: root.formatTime(root.service && root.service.trackTitle ? root.service.trackDuration : 0); color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
   }
   Row {
     visible: !!root.service
