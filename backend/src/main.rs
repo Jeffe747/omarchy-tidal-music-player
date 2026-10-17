@@ -641,12 +641,15 @@ fn play_track(
     let (direct_url, stream_mime) =
         PlaybackEngine::parse_stream_url_and_mime(&info.manifest_mime_type, &info.manifest)?;
     if let Some(session) = player.cast_session.clone().filter(|_| player.cast_active) {
-        if let Some(ref proxy) = player.stream_proxy {
+        let stream_url = if let Some(ref proxy) = player.stream_proxy {
             proxy.register_track(id, direct_url.clone(), stream_mime.clone());
-        }
+            proxy.stream_url_for_target(id, &session.device.ip)
+        } else {
+            direct_url
+        };
         let _ = player.engine.set_pause(true);
         if let Err(e) = session.load_track(
-            direct_url,
+            stream_url,
             stream_mime,
             track.title.clone(),
             track.artist_name().to_string(),
@@ -912,8 +915,9 @@ fn connect_cast(
         if let Ok(info) = api_call(auth, |api, _| api.get_playback_info(track.id, &preferred_quality)) {
             if let Ok((direct_url, stream_mime)) = PlaybackEngine::parse_stream_url_and_mime(&info.manifest_mime_type, &info.manifest) {
                 proxy.register_track(track.id, direct_url.clone(), stream_mime.clone());
+                let proxy_url = proxy.stream_url_for_target(track.id, &device.ip);
                 let _ = session.load_track(
-                    direct_url,
+                    proxy_url,
                     stream_mime,
                     track.title.clone(),
                     track.artist_name().to_string(),
