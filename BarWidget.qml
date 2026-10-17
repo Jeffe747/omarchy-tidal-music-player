@@ -239,7 +239,12 @@ Panel {
           keyboardIndex: root.keyboardIndex
           onSelectTab: function(tab) {
             root.libraryTab = tab
-            if (tab === "playlists" && tidalService && tidalService.playlists.length === 0) tidalService.loadPlaylists()
+            if (tab === "playlists") {
+              if (tidalService && tidalService.currentPlaylistId) tidalService.closePlaylist()
+              if (tidalService) tidalService.loadPlaylists()
+            } else if (tab === "favorites") {
+              if (tidalService && (!tidalService.favoritesRequested || tidalService.favorites.length === 0)) tidalService.loadFavorites()
+            }
           }
           onBack: root.goBack()
           onPlayTrack: function(id, track) { if (tidalService) tidalService.playTrack(id, track) }
@@ -330,27 +335,30 @@ Panel {
             Text { anchors.fill: parent; anchors.margins: Style.spacing.md; verticalAlignment: Text.AlignVCenter; textFormat: Text.PlainText; text: "‹  Select playlist"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body }
             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.playlistSubmenuOpen = false }
           }
-          ListView {
-            id: contextPlaylistList
-            objectName: "tidalContextPlaylistList"
+          Item {
             visible: root.playlistSubmenuOpen && !!tidalService && tidalService.playlists.length > 0
             width: parent.width
             height: Math.max(0, parent.height - Style.spacing.popupRowHeight)
-            model: tidalService ? tidalService.playlists : []
-            clip: true
-            delegate: Rectangle {
-              Accessible.role: Accessible.MenuItem
-              Accessible.name: modelData.title || "Untitled playlist"
-              required property var modelData
-              width: contextPlaylistList.contentHeight > contextPlaylistList.height ? ListView.view.width - Style.space(10) : ListView.view.width
-              height: Style.spacing.popupRowHeight
-              color: itemMouse.containsMouse ? Style.hoverFill : Style.normalFill
-              Text { anchors.fill: parent; anchors.margins: Style.spacing.md; verticalAlignment: Text.AlignVCenter; textFormat: Text.PlainText; text: modelData.title || "Untitled playlist"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; elide: Text.ElideRight }
-              MouseArea { id: itemMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { if (tidalService && root.contextMenuTrack) tidalService.addTrackToPlaylist(modelData.uuid, root.contextMenuTrack.id); root.closeContextMenu() } }
+            ListView {
+              id: contextPlaylistList
+              objectName: "tidalContextPlaylistList"
+              anchors.fill: parent
+              model: tidalService ? tidalService.playlists : []
+              clip: true
+              delegate: Rectangle {
+                Accessible.role: Accessible.MenuItem
+                Accessible.name: modelData.title || "Untitled playlist"
+                required property var modelData
+                width: contextPlaylistList.contentHeight > contextPlaylistList.height ? ListView.view.width - Style.space(10) : ListView.view.width
+                height: Style.spacing.popupRowHeight
+                color: itemMouse.containsMouse ? Style.hoverFill : Style.normalFill
+                Text { anchors.fill: parent; anchors.margins: Style.spacing.md; verticalAlignment: Text.AlignVCenter; textFormat: Text.PlainText; text: modelData.title || "Untitled playlist"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; elide: Text.ElideRight }
+                MouseArea { id: itemMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { if (tidalService && root.contextMenuTrack) tidalService.addTrackToPlaylist(modelData.uuid, root.contextMenuTrack.id); root.closeContextMenu() } }
+              }
             }
-          }
-          ScrollDot {
-            targetList: contextPlaylistList
+            ScrollDot {
+              targetList: contextPlaylistList
+            }
           }
           Text {
             visible: root.playlistSubmenuOpen && (!tidalService || !tidalService.playlists.length)

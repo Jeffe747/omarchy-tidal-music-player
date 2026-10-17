@@ -219,6 +219,7 @@ Item {
         root.searching = false
         root.favoritesLoading = false
         root.favoritesError = root.authError
+        playlistsWatchdog.stop()
         root.playlistsLoading = false
         root.playlistTracksLoading = false
         root.castDiscovering = false
@@ -248,6 +249,7 @@ Item {
         }
         root.favoritesLoading = false
         root.favoritesRequested = false
+        playlistsWatchdog.stop()
         root.playlistsLoading = false
         root.playlistTracksLoading = false
         root.castDiscovering = false
@@ -312,6 +314,21 @@ Item {
     }
   }
 
+  Timer {
+    id: playlistsWatchdog
+    interval: 8000
+    repeat: false
+    running: false
+    onTriggered: {
+      if (root.playlistsLoading) {
+        root.playlistsLoading = false
+        if (root.playlists.length === 0) {
+          root.playlistsError = "Playlist loading timed out"
+        }
+      }
+    }
+  }
+
   Component.onCompleted: {
     checkDaemonBinary()
   }
@@ -361,6 +378,9 @@ Item {
         root.authCode = ""
         root.authUrl = ""
         root.authError = ""
+        if (root.playlists.length === 0 && !root.playlistsLoading) {
+          root.loadPlaylists()
+        }
       }
       root.isPlaying = msg.is_playing === true
       if (root.trackLoading && (msg.is_playing || msg.track_id === root.currentTrackId)) {
@@ -489,10 +509,12 @@ Item {
       root.favoritesInProgress = false
       root.favoritesError = msg.error || "Unable to load favorites"
     } else if (msg.type === "playlists_loaded") {
+      playlistsWatchdog.stop()
       root.playlistsLoading = false
       root.playlistsError = ""
       root.playlists = msg.playlists || []
     } else if (msg.type === "playlists_error") {
+      playlistsWatchdog.stop()
       root.playlistsLoading = false
       root.playlistsError = msg.error || "Unable to load playlists"
     } else if (msg.type === "playlist_tracks_loaded") {
@@ -636,9 +658,9 @@ Item {
   }
 
   function loadPlaylists() {
-    if (root.playlistsLoading) return
     root.playlistsLoading = true
     root.playlistsError = ""
+    playlistsWatchdog.restart()
     sendCommand({ "command": "get_playlists" })
   }
 

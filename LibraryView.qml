@@ -290,29 +290,48 @@ Column {
     font.family: Style.font.family
     font.pixelSize: Style.font.caption
   }
-  ListView {
-    id: list
-    objectName: "tidalFavoritesList"
-    visible: root.visible
+  Item {
     width: parent.width
-    height: count > 0 ? Math.min(contentHeight, Style.space(280)) : 0
-    clip: true
-    spacing: Style.spacing.sm
-    currentIndex: root.keyboardIndex
-    model: root.activeItems
-    delegate: Loader {
-      required property var modelData
-      required property int index
-      width: list.contentHeight > list.height ? list.width - Style.space(10) : list.width
-      height: Style.spacing.popupRowHeight + Style.spacing.xxl
-      sourceComponent: root.view === "playlists" ? playlistRow : trackRow
-      onLoaded: {
-        if (item) { item.rowData = modelData; item.rowIndex = index }
+    height: list.count > 0 ? Math.min(list.contentHeight, Style.space(280)) : 0
+    visible: root.visible
+
+    ListView {
+      id: list
+      objectName: "tidalFavoritesList"
+      anchors.fill: parent
+      clip: true
+      spacing: Style.spacing.sm
+      currentIndex: root.keyboardIndex
+      model: root.activeItems
+      delegate: Loader {
+        id: rowLoader
+        required property var modelData
+        required property int index
+        width: list.contentHeight > list.height ? list.width - Style.space(10) : list.width
+        height: Style.spacing.popupRowHeight + Style.spacing.xxl
+        sourceComponent: root.view === "playlists" ? playlistRow : trackRow
+        onModelDataChanged: if (item) item.rowData = modelData
+        onIndexChanged: if (item) item.rowIndex = index
+        Binding {
+          target: rowLoader.item
+          property: "rowData"
+          value: rowLoader.modelData
+          when: rowLoader.item !== null
+        }
+        Binding {
+          target: rowLoader.item
+          property: "rowIndex"
+          value: rowLoader.index
+          when: rowLoader.item !== null
+        }
+        onLoaded: {
+          if (item) { item.rowData = modelData; item.rowIndex = index }
+        }
       }
     }
-  }
-  ScrollDot {
-    targetList: list
+    ScrollDot {
+      targetList: list
+    }
   }
   Rectangle {
     id: favoritesProgressBanner
@@ -356,16 +375,17 @@ Column {
   Component {
     id: playlistRow
     Rectangle {
+      id: pRow
       Accessible.role: Accessible.ListItem
-      Accessible.name: rowData.title || "Untitled playlist"
+      Accessible.name: (pRow.rowData && pRow.rowData.title) ? pRow.rowData.title : "Untitled playlist"
       property var rowData: ({})
       property int rowIndex: -1
       width: list.contentHeight > list.height ? list.width - Style.space(10) : list.width
       height: Style.spacing.popupRowHeight + Style.spacing.xxl
       radius: Style.cornerRadius
       color: root.keyboardIndex === rowIndex ? Style.hoverFill : Style.normalFill
-      Text { anchors.left: parent.left; anchors.leftMargin: Style.spacing.md; anchors.verticalCenter: parent.verticalCenter; textFormat: Text.PlainText; text: parent.rowData.title || "Untitled playlist"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; width: parent.width - Style.spacing.xxl; elide: Text.ElideRight }
-      MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.openPlaylist(parent.rowData.uuid) }
+      Text { anchors.left: parent.left; anchors.leftMargin: Style.spacing.md; anchors.verticalCenter: parent.verticalCenter; textFormat: Text.PlainText; text: (pRow.rowData && pRow.rowData.title) ? pRow.rowData.title : "Untitled playlist"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; width: parent.width - Style.spacing.xxl; elide: Text.ElideRight }
+      MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: if (pRow.rowData && pRow.rowData.uuid) root.openPlaylist(pRow.rowData.uuid) }
     }
   }
 }
