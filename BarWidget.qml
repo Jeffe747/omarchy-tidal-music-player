@@ -547,34 +547,46 @@ Panel {
               }
             }
           }
-          Text {
-            text: "Available Devices"
-            textFormat: Text.PlainText
-            color: Color.foreground
-            font.family: Style.font.family
-            font.pixelSize: Style.font.body
-            font.bold: true
-          }
           Row {
-            visible: !!tidalService && tidalService.castDiscovering
+            width: parent.width
             spacing: Style.spacing.sm
+            height: availableDevicesTitle.implicitHeight
             Text {
+              id: availableDevicesTitle
+              text: "Available Devices"
               textFormat: Text.PlainText
-              text: "Searching for Google Cast devices on LAN…"
+              color: Color.foreground
+              font.family: Style.font.family
+              font.pixelSize: Style.font.body
+              font.bold: true
+              anchors.verticalCenter: parent.verticalCenter
+            }
+            Text {
+              visible: !!tidalService && tidalService.castDiscovering
+              textFormat: Text.PlainText
+              text: "· searching…"
               color: Color.muted
               font.family: Style.font.family
               font.pixelSize: Style.font.caption
+              anchors.verticalCenter: parent.verticalCenter
             }
           }
-          Text {
-            visible: !!tidalService && !tidalService.castDiscovering && (!tidalService.castDevices || tidalService.castDevices.length === 0)
-            textFormat: Text.PlainText
-            text: "No Google Cast devices found. Ensure your speakers or TVs are powered on and connected to the same Wi-Fi/LAN."
-            color: Color.muted
-            font.family: Style.font.family
-            font.pixelSize: Style.font.caption
-            wrapMode: Text.WordWrap
+          Item {
+            visible: !!tidalService && (!tidalService.castDevices || tidalService.castDevices.length === 0)
             width: parent.width
+            height: Math.max(emptyText.implicitHeight, Style.space(36))
+            Text {
+              id: emptyText
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              textFormat: Text.PlainText
+              text: tidalService && tidalService.castDiscovering ? "Searching for Google Cast devices on LAN…" : "No Google Cast devices found. Ensure your speakers or TVs are powered on and connected to the same Wi-Fi/LAN."
+              color: Color.muted
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
           }
           Text {
             visible: !!tidalService && !!tidalService.castError
