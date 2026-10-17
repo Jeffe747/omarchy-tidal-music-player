@@ -595,6 +595,20 @@ fn run_session_worker(
                     let _ = write_cast_message(&mut tls_stream, &msg);
                 }
                 CastAction::Disconnect => {
+                    if !session_id.is_empty() {
+                        let stop_payload = serde_json::json!({
+                            "type": "STOP",
+                            "requestId": req_id,
+                            "sessionId": session_id,
+                        });
+                        let stop_msg = CastMessage::new_string(
+                            "sender-0",
+                            "receiver-0",
+                            NS_RECEIVER,
+                            stop_payload.to_string(),
+                        );
+                        let _ = write_cast_message(&mut tls_stream, &stop_msg);
+                    }
                     let close_transport = CastMessage::new_string(
                         "sender-0",
                         &transport_id,
@@ -609,6 +623,7 @@ fn run_session_worker(
                         r#"{"type":"CLOSE"}"#,
                     );
                     let _ = write_cast_message(&mut tls_stream, &close_receiver);
+                    thread::sleep(Duration::from_millis(50));
                     is_active.store(false, Ordering::Relaxed);
                     return;
                 }
@@ -648,6 +663,11 @@ fn run_session_worker(
                 } else if msg.namespace == NS_MEDIA {
                     if let Some(ref text) = msg.payload_utf8 {
                         if let Ok(val) = serde_json::from_str::<serde_json::Value>(text) {
+                            if let Some(msg_type) = val.get("type").and_then(|t| t.as_str()) {
+                                if msg_type == "LOAD_FAILED" {
+                                    crate::log::write(&format!("Cast LOAD_FAILED: {text}"));
+                                }
+                            }
                             if let Some(statuses) = val["status"].as_array() {
                                 if let Some(media_status) = statuses.first() {
                                     if let Some(ms_id) = media_status["mediaSessionId"].as_i64() {
@@ -677,9 +697,13 @@ fn run_session_worker(
                                         };
                                     }
 
-                                    if player_state == "IDLE" && idle_reason == Some("FINISHED") {
-                                        crate::log::write("Cast track playback finished (EOF)");
-                                        on_track_finished();
+                                    if player_state == "IDLE" {
+                                        if idle_reason == Some("FINISHED") {
+                                            crate::log::write("Cast track playback finished (EOF)");
+                                            on_track_finished();
+                                        } else if let Some(reason) = idle_reason {
+                                            crate::log::write(&format!("Cast media IDLE reason: {reason}"));
+                                        }
                                     }
                                 }
                             }

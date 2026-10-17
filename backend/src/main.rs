@@ -642,23 +642,22 @@ fn play_track(
         PlaybackEngine::parse_stream_url_and_mime(&info.manifest_mime_type, &info.manifest)?;
     if let Some(session) = player.cast_session.clone().filter(|_| player.cast_active) {
         if let Some(ref proxy) = player.stream_proxy {
-            proxy.register_track(id, direct_url, stream_mime.clone());
-            let proxy_url = proxy.stream_url_for_target(id, &session.device.ip);
-            let _ = player.engine.set_pause(true);
-            if let Err(e) = session.load_track(
-                proxy_url,
-                stream_mime,
-                track.title.clone(),
-                track.artist_name().to_string(),
-                track.album_title().to_string(),
-                cover_url(track.cover()),
-                0.0,
-            ) {
-                log::write(&format!("Cast load_track failed: {e}"));
-                return Err(e);
-            }
-            player.cast_state = crate::cast::CastState::Buffering;
+            proxy.register_track(id, direct_url.clone(), stream_mime.clone());
         }
+        let _ = player.engine.set_pause(true);
+        if let Err(e) = session.load_track(
+            direct_url,
+            stream_mime,
+            track.title.clone(),
+            track.artist_name().to_string(),
+            track.album_title().to_string(),
+            cover_url(track.cover()),
+            0.0,
+        ) {
+            log::write(&format!("Cast load_track failed: {e}"));
+            return Err(e);
+        }
+        player.cast_state = crate::cast::CastState::Buffering;
     } else {
         let url = player
             .engine
@@ -912,10 +911,9 @@ fn connect_cast(
     if let Some(track) = current_track {
         if let Ok(info) = api_call(auth, |api, _| api.get_playback_info(track.id, &preferred_quality)) {
             if let Ok((direct_url, stream_mime)) = PlaybackEngine::parse_stream_url_and_mime(&info.manifest_mime_type, &info.manifest) {
-                proxy.register_track(track.id, direct_url, stream_mime.clone());
-                let proxy_url = proxy.stream_url_for_target(track.id, &device.ip);
+                proxy.register_track(track.id, direct_url.clone(), stream_mime.clone());
                 let _ = session.load_track(
-                    proxy_url,
+                    direct_url,
                     stream_mime,
                     track.title.clone(),
                     track.artist_name().to_string(),

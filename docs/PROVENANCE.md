@@ -23,7 +23,7 @@ true`, `codegen-units = 1`, `panic = "abort"`, and `strip = true`.
 
 | Artifact | Size | SHA-256 |
 | --- | ---: | --- |
-| `bin/tidal-daemon` / `tidal-daemon-x86_64` | 1,821,632 bytes | `0596e7feb0571e5f88c46f6c337ae67011e91541147879695930b763050c336c` |
+| `bin/tidal-daemon` / `tidal-daemon-x86_64` | 1,821,400 bytes | `5e745ffa42d38bb83f73fc524e7c2950a81ba2c24ceb8eb888c5e01b5e4c3b79` |
 | `tidal-daemon-aarch64` | Published by release workflow | `9ebf30e2e8bdea09720c2621f0a28ae2188045bfae61830ca8c8e6a3057ee023` |
 
 The local Cargo build may differ byte-for-byte from the official Ubuntu-built

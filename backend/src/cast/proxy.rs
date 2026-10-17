@@ -133,7 +133,8 @@ fn handle_http_client(
         let response = "HTTP/1.1 200 OK\r\n\
             Access-Control-Allow-Origin: *\r\n\
             Access-Control-Allow-Methods: GET, HEAD, OPTIONS\r\n\
-            Access-Control-Allow-Headers: Range, Content-Type, Origin, Accept\r\n\
+            Access-Control-Allow-Headers: *\r\n\
+            Access-Control-Allow-Private-Network: true\r\n\
             Access-Control-Expose-Headers: Content-Length, Content-Range, Accept-Ranges\r\n\
             Access-Control-Max-Age: 86400\r\n\
             Content-Length: 0\r\n\r\n";
@@ -227,7 +228,8 @@ fn handle_http_client(
         Cache-Control: no-cache, no-store, must-revalidate\r\n\
         Access-Control-Allow-Origin: *\r\n\
         Access-Control-Allow-Methods: GET, HEAD, OPTIONS\r\n\
-        Access-Control-Allow-Headers: Range, Content-Type, Origin\r\n\
+        Access-Control-Allow-Headers: *\r\n\
+        Access-Control-Allow-Private-Network: true\r\n\
         Access-Control-Expose-Headers: Content-Length, Content-Range, Accept-Ranges\r\n\
         Connection: keep-alive\r\n"
     );
@@ -290,6 +292,7 @@ mod tests {
         assert!(resp_str.contains("HTTP/1.1 200 OK"));
         assert!(resp_str.contains("Access-Control-Allow-Origin: *"));
         assert!(resp_str.contains("Access-Control-Allow-Methods: GET, HEAD, OPTIONS"));
+        assert!(resp_str.contains("Access-Control-Allow-Private-Network: true"));
         assert!(resp_str.contains("Access-Control-Expose-Headers: Content-Length, Content-Range, Accept-Ranges"));
 
         proxy.stop();
