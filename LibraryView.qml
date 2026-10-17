@@ -47,7 +47,7 @@ Column {
   Row {
     visible: root.view === "favorites" || root.view === "playlists" || root.view === "playlistTracks"
     spacing: Style.spacing.md
-    Ui.Button { text: "Favorites" + (root.service ? " " + root.service.favorites.length : ""); selected: root.view === "favorites"; onClicked: root.selectTab("favorites") }
+    Ui.Button { text: "Favorites" + (root.service ? " " + (root.service.favoritesTotal ? root.service.favoritesTotal : root.service.favorites.length) : ""); selected: root.view === "favorites"; onClicked: root.selectTab("favorites") }
     Ui.Button { text: "Playlists" + (root.service ? " " + root.service.playlists.length : ""); selected: root.view === "playlists" || root.view === "playlistTracks"; onClicked: root.selectTab("playlists") }
   }
   Ui.Button {
@@ -149,14 +149,47 @@ Column {
     visible: root.view === "playlistTracks"
     width: parent.width
     placeholderText: "Filter tracks by title or artist"
-    onTextChanged: root.playlistFilter = text.trim().toLowerCase()
+    onTextChanged: filterDebounce.restart()
+  }
+  Timer {
+    id: filterDebounce
+    interval: 150
+    onTriggered: root.playlistFilter = filterField.text.trim().toLowerCase()
+  }
+  Rectangle {
+    id: favoritesLoadingCard
+    visible: root.view === "favorites" && !!root.service && root.service.favoritesLoading && root.service.favorites.length === 0
+    width: parent.width
+    height: Style.space(160)
+    radius: Style.cornerRadius
+    color: Style.normalFill
+    Column {
+      anchors.centerIn: parent
+      spacing: Style.spacing.md
+      Text {
+        anchors.horizontalCenter: parent.horizontalCenter
+        textFormat: Text.PlainText
+        text: "󰑮"
+        color: Color.accent
+        font.family: Style.font.family
+        font.pixelSize: Style.font.title
+      }
+      Text {
+        anchors.horizontalCenter: parent.horizontalCenter
+        textFormat: Text.PlainText
+        text: "Loading favorites…"
+        color: Color.muted
+        font.family: Style.font.family
+        font.pixelSize: Style.font.body
+      }
+    }
   }
   Text {
     objectName: "tidalFavoritesState"
-    visible: root.view === "favorites" && !!root.service && (root.service.favoritesLoading || root.service.favoritesError || root.service.favorites.length === 0)
+    visible: root.view === "favorites" && !!root.service && !root.service.favoritesLoading && (root.service.favoritesError || root.service.favorites.length === 0)
     width: parent.width
     textFormat: Text.PlainText
-    text: !root.service ? "" : (root.service.favoritesLoading ? "Loading favorites..." : (root.service.favoritesError || "No favorite tracks yet. Add favorites in Tidal."))
+    text: !root.service ? "" : (root.service.favoritesError || "No favorite tracks yet. Add favorites in Tidal.")
     color: root.service && root.service.favoritesError ? Color.urgent : Color.muted
     font.family: Style.font.family
     font.pixelSize: Style.font.caption
@@ -194,9 +227,36 @@ Column {
       required property var modelData
       required property int index
       width: list.width
+      height: Style.spacing.popupRowHeight + Style.spacing.xxl
       sourceComponent: root.view === "playlists" ? playlistRow : trackRow
       onLoaded: {
         if (item) { item.rowData = modelData; item.rowIndex = index }
+      }
+    }
+  }
+  Rectangle {
+    id: favoritesProgressBanner
+    visible: root.view === "favorites" && !!root.service && root.service.favoritesInProgress && root.service.favorites.length > 0
+    width: parent.width
+    height: Style.spacing.popupRowHeight
+    radius: Style.cornerRadius
+    color: Style.normalFill
+    Row {
+      anchors.centerIn: parent
+      spacing: Style.spacing.sm
+      Text {
+        textFormat: Text.PlainText
+        text: "󰑮"
+        color: Color.accent
+        font.family: Style.font.family
+        font.pixelSize: Style.font.caption
+      }
+      Text {
+        textFormat: Text.PlainText
+        text: "Loading more tracks (" + root.service.favorites.length + (root.service.favoritesTotal ? " / " + root.service.favoritesTotal : "") + ")…"
+        color: Color.muted
+        font.family: Style.font.family
+        font.pixelSize: Style.font.caption
       }
     }
   }

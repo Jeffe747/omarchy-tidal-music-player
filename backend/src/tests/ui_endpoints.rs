@@ -63,3 +63,20 @@ fn new_ui_ipc_commands_and_status_fields_deserialize() {
     assert_eq!(status.artist_id, Some(34));
     assert_eq!(status.album_id, Some(12));
 }
+
+#[test]
+fn test_favorites_loading_atomic_guard() {
+    use std::sync::atomic::Ordering;
+    use crate::FAVORITES_LOADING;
+
+    // Verify atomic guard prevents concurrent loading loops
+    assert!(!FAVORITES_LOADING.load(Ordering::SeqCst));
+    assert!(FAVORITES_LOADING
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok());
+    assert!(FAVORITES_LOADING
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err());
+    FAVORITES_LOADING.store(false, Ordering::SeqCst);
+    assert!(!FAVORITES_LOADING.load(Ordering::SeqCst));
+}

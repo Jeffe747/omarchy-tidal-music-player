@@ -157,7 +157,9 @@ Panel {
           Text {
             width: parent.width
             textFormat: Text.PlainText
-            text: "Connect Tidal to start listening"
+            text: (tidalService && (tidalService.savedSessionExists || tidalService.bootstrapping) && !tidalService.authError && !tidalService.authPending)
+                  ? (tidalService.bootstrapping ? "Setting up Tidal engine…" : "Connecting to Tidal…")
+                  : "Connect Tidal to start listening"
             color: Color.foreground
             font.family: Style.font.family
             font.pixelSize: Style.font.title
@@ -185,7 +187,12 @@ Panel {
           Ui.Button { visible: !!tidalService && !!tidalService.authPending; text: "Open link.tidal.com"; onClicked: if (tidalService) Quickshell.execDetached(["xdg-open", tidalService.authUrl]) }
           Text { visible: !!tidalService && !!tidalService.authError; textFormat: Text.PlainText; text: tidalService ? tidalService.authError : ""; color: Color.urgent; font.family: Style.font.family; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap; width: parent.width }
           Text { visible: !!tidalService && tidalService.bootstrapping; textFormat: Text.PlainText; text: tidalService ? tidalService.bootstrapStatus : "Setting up Tidal engine…"; color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
-          Ui.Button { visible: !tidalService || !tidalService.authPending; enabled: !!tidalService && !tidalService.bootstrapping; text: tidalService && tidalService.bootstrapping ? "Setting up Tidal…" : "Login with Tidal"; onClicked: if (tidalService) tidalService.startAuth() }
+          Ui.Button {
+            visible: !tidalService || (!tidalService.authPending && (!tidalService.savedSessionExists || !!tidalService.authError))
+            enabled: !!tidalService && !tidalService.bootstrapping
+            text: tidalService && tidalService.bootstrapping ? "Setting up Tidal…" : "Login with Tidal"
+            onClicked: if (tidalService) tidalService.startAuth()
+          }
         }
         SafeTextField {
           id: searchField

@@ -228,6 +228,7 @@ impl AuthManager {
         // Try primary device_authorization endpoint, fallback if necessary
         crate::log::write("API POST /v1/oauth2/device_authorization");
         let resp = match ureq::post(AUTH_URL)
+            .timeout(Duration::from_secs(10))
             .set("Content-Type", "application/x-www-form-urlencoded")
             .send_form(&form_data)
         {
@@ -236,6 +237,7 @@ impl AuthManager {
                 crate::log::write("API POST /v1/oauth2/device_authorization failed: HTTP 404");
                 crate::log::write("API POST /v1/oauth2/device/authorization");
                 ureq::post(FALLBACK_AUTH_URL)
+                    .timeout(Duration::from_secs(10))
                     .set("Content-Type", "application/x-www-form-urlencoded")
                     .send_form(&form_data)
             }
@@ -276,6 +278,7 @@ impl AuthManager {
 
         crate::log::write("API POST /v1/oauth2/token");
         match ureq::post(TOKEN_URL)
+            .timeout(Duration::from_secs(10))
             .set("Content-Type", "application/x-www-form-urlencoded")
             .send_form(&form_data)
         {
@@ -377,6 +380,7 @@ impl AuthManager {
 
         crate::log::write("API POST /v1/oauth2/token (refresh)");
         let resp = ureq::post(TOKEN_URL)
+            .timeout(Duration::from_secs(10))
             .set("Content-Type", "application/x-www-form-urlencoded")
             .send_form(&form_data)
             .map_err(|e| {

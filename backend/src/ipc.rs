@@ -45,6 +45,25 @@ impl<'a> From<&'a TrackItem> for FavoriteTrack<'a> {
 pub enum PlayerMessage<'a> {
     FavoritesLoaded {
         tracks: Vec<FavoriteTrack<'a>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        offset: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        total: Option<u64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        has_more: Option<bool>,
+    },
+    FavoritesProgress {
+        loaded: usize,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        total: Option<u64>,
+        tracks: Vec<FavoriteTrack<'a>>,
+    },
+    FavoritesComplete {
+        total: usize,
+    },
+    FavoriteUpdated {
+        track_id: u64,
+        is_favorite: bool,
     },
     FavoritesError {
         error: &'a str,
@@ -321,6 +340,9 @@ mod tests {
         let track: TrackItem = serde_json::from_str(r#"{"id":42,"title":"Song","duration":180,"artists":[{"name":"Artist"}],"album":{"title":"Album","cover":"ab-cd"}}"#).unwrap();
         let msg = PlayerMessage::FavoritesLoaded {
             tracks: vec![FavoriteTrack::from(&track)],
+            offset: None,
+            total: None,
+            has_more: None,
         };
         let value = serde_json::to_value(msg).unwrap();
         assert_eq!(value["type"], "favorites_loaded");
@@ -361,5 +383,41 @@ mod tests {
         let value = serde_json::to_value(search).unwrap();
         assert_eq!(value["type"], "search_results");
         assert_eq!(value["results"][0]["id"], 42);
+
+        let paged_favs = PlayerMessage::FavoritesLoaded {
+            tracks: vec![FavoriteTrack::from(&track)],
+            offset: Some(0),
+            total: Some(1900),
+            has_more: Some(true),
+        };
+        let paged_val = serde_json::to_value(paged_favs).unwrap();
+        assert_eq!(paged_val["type"], "favorites_loaded");
+        assert_eq!(paged_val["offset"], 0);
+        assert_eq!(paged_val["total"], 1900);
+        assert_eq!(paged_val["has_more"], true);
+
+        let progress = PlayerMessage::FavoritesProgress {
+            loaded: 200,
+            total: Some(1900),
+            tracks: vec![FavoriteTrack::from(&track)],
+        };
+        let prog_val = serde_json::to_value(progress).unwrap();
+        assert_eq!(prog_val["type"], "favorites_progress");
+        assert_eq!(prog_val["loaded"], 200);
+        assert_eq!(prog_val["total"], 1900);
+
+        let complete = PlayerMessage::FavoritesComplete { total: 1900 };
+        let comp_val = serde_json::to_value(complete).unwrap();
+        assert_eq!(comp_val["type"], "favorites_complete");
+        assert_eq!(comp_val["total"], 1900);
+
+        let fav_upd = PlayerMessage::FavoriteUpdated {
+            track_id: 42,
+            is_favorite: true,
+        };
+        let fav_upd_val = serde_json::to_value(fav_upd).unwrap();
+        assert_eq!(fav_upd_val["type"], "favorite_updated");
+        assert_eq!(fav_upd_val["track_id"], 42);
+        assert_eq!(fav_upd_val["is_favorite"], true);
     }
 }

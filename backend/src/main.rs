@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 pub(crate) static SHUTDOWN: AtomicBool = AtomicBool::new(false);
+pub(crate) static FAVORITES_LOADING: AtomicBool = AtomicBool::new(false);
 
 extern "C" fn request_shutdown(_: libc::c_int) {
     SHUTDOWN.store(true, Ordering::Relaxed);
@@ -267,23 +268,93 @@ fn run_cli_probe(
     Ok(())
 }
 
-fn load_favorites(
-    auth: &AuthManager,
-    player: &Mutex<Player>,
-    ipc: &IpcServer,
-) -> Result<(), String> {
-    let tracks = api_call(auth, |api, user_id| {
-        api.get_favorites(user_id.ok_or("Session has no user ID; please sign in again")?)
-    })?;
-    let mut player = player.lock().map_err(|e| e.to_string())?;
-    player.favorites = tracks;
-    if player.current_playlist_id.is_none() {
-        player.queue = player.favorites.clone();
+fn load_favorites_async(
+    auth: Arc<AuthManager>,
+    player: Arc<Mutex<Player>>,
+    ipc: IpcServer,
+) {
+    if FAVORITES_LOADING
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        return;
     }
-    ipc.broadcast(&PlayerMessage::FavoritesLoaded {
-        tracks: player.favorites.iter().map(FavoriteTrack::from).collect(),
+    thread::spawn(move || {
+        let result = (|| -> Result<(), String> {
+            let (api, user_id) = api_client(&auth)?;
+            let user_id = user_id.ok_or("Session has no user ID; please sign in again")?;
+
+            // 1. Fetch first batch (offset 0, limit 100) immediately
+            let (first_tracks, count, total) = api.get_favorites_page(user_id, 0, 100)?;
+            let has_more = total.map(|t| (count as u64) < t).unwrap_or(count == 100);
+
+            {
+                let mut p = player.lock().map_err(|e| e.to_string())?;
+                p.favorites = first_tracks.clone();
+                if p.current_playlist_id.is_none() {
+                    p.queue = p.favorites.clone();
+                }
+            }
+
+            ipc.broadcast(&PlayerMessage::FavoritesLoaded {
+                tracks: first_tracks.iter().map(FavoriteTrack::from).collect(),
+                offset: Some(0),
+                total,
+                has_more: Some(has_more),
+            });
+
+            if !has_more {
+                ipc.broadcast(&PlayerMessage::FavoritesComplete { total: count });
+                return Ok(());
+            }
+
+            // 2. Fetch subsequent pages progressively in background
+            let mut offset: u64 = 100;
+            let limit: u64 = 100;
+            let mut total_loaded = count;
+
+            while !SHUTDOWN.load(Ordering::Relaxed) {
+                let (page_tracks, page_count, _) = api.get_favorites_page(user_id, offset, limit)?;
+                if page_count == 0 {
+                    break;
+                }
+                total_loaded += page_count;
+
+                {
+                    let mut p = player.lock().map_err(|e| e.to_string())?;
+                    p.favorites.extend(page_tracks.clone());
+                    if p.current_playlist_id.is_none() {
+                        p.queue.extend(page_tracks.clone());
+                    }
+                }
+
+                ipc.broadcast(&PlayerMessage::FavoritesProgress {
+                    loaded: total_loaded,
+                    total,
+                    tracks: page_tracks.iter().map(FavoriteTrack::from).collect(),
+                });
+
+                offset += limit;
+                if total.map(|t| offset >= t).unwrap_or(page_count < limit as usize)
+                    || offset >= 50_000
+                {
+                    break;
+                }
+            }
+
+            ipc.broadcast(&PlayerMessage::FavoritesComplete {
+                total: total_loaded,
+            });
+            Ok(())
+        })();
+
+        FAVORITES_LOADING.store(false, Ordering::SeqCst);
+
+        if let Err(error) = result {
+            log::write(&format!("Async favorites loading failed: {error}"));
+            ipc.broadcast(&PlayerMessage::FavoritesError { error: &error });
+        }
     });
-    Ok(())
 }
 
 fn load_playlists(
@@ -384,21 +455,26 @@ fn toggle_favorite(
             !was_favorite,
         )
     })?;
-    let mut state = player.lock().map_err(|e| e.to_string())?;
-    if was_favorite {
-        state.favorites.retain(|item| item.id != track.id);
-        if state.current_playlist_id.is_none() {
-            state.queue.retain(|item| item.id != track.id);
+    let (is_fav, track_id) = {
+        let mut state = player.lock().map_err(|e| e.to_string())?;
+        if was_favorite {
+            state.favorites.retain(|item| item.id != track.id);
+            if state.current_playlist_id.is_none() {
+                state.queue.retain(|item| item.id != track.id);
+            }
+        } else {
+            state.favorites.push(track.clone());
+            if state.current_playlist_id.is_none() {
+                state.queue.push(track.clone());
+            }
         }
-    } else {
-        state.favorites.push(track.clone());
-        if state.current_playlist_id.is_none() {
-            state.queue.push(track);
-        }
-    }
-    ipc.broadcast(&PlayerMessage::FavoritesLoaded {
-        tracks: state.favorites.iter().map(FavoriteTrack::from).collect(),
+        (!was_favorite, track.id)
+    };
+    ipc.broadcast(&PlayerMessage::FavoriteUpdated {
+        track_id,
+        is_favorite: is_fav,
     });
+    let state = player.lock().map_err(|e| e.to_string())?;
     ipc.broadcast(&build_status_message(auth, &state));
     Ok(())
 }
@@ -470,26 +546,20 @@ fn play_track(
     track_id: Option<u64>,
 ) -> Result<(), String> {
     let id = track_id.ok_or("play_track requires track_id")?;
-    let mut player = player.lock().map_err(|e| e.to_string())?;
-    let track = match player
-        .queue
-        .iter()
-        .chain(player.favorites.iter())
-        .find(|track| track.id == id)
-    {
-        Some(track) => track.clone(),
+    let (cached_track, preferred_quality) = {
+        let p = player.lock().map_err(|e| e.to_string())?;
+        let track = p
+            .queue
+            .iter()
+            .chain(p.favorites.iter())
+            .find(|track| track.id == id)
+            .cloned();
+        (track, p.preferred_quality.clone())
+    };
+    let track = match cached_track {
+        Some(track) => track,
         None => api_call(auth, |api, _| api.get_track(id))?,
     };
-    if !player.queue.iter().any(|item| item.id == id) {
-        if player.favorites.iter().any(|item| item.id == id) {
-            player.queue = player.favorites.clone();
-            player.current_playlist_id = None;
-        } else {
-            player.queue = vec![track.clone()];
-            player.current_playlist_id = None;
-        }
-    }
-    let preferred_quality = player.preferred_quality.clone();
     log::write(&format!(
         "Playback track: id={id}; title={}; artist={}; catalog audio quality={:?}",
         track.title,
@@ -502,6 +572,17 @@ fn play_track(
         _ => "unsupported",
     };
     log::write(&format!("Playback manifest MIME: {mime}"));
+
+    let mut player = player.lock().map_err(|e| e.to_string())?;
+    if !player.queue.iter().any(|item| item.id == id) {
+        if player.favorites.iter().any(|item| item.id == id) {
+            player.queue = player.favorites.clone();
+            player.current_playlist_id = None;
+        } else {
+            player.queue = vec![track.clone()];
+            player.current_playlist_id = None;
+        }
+    }
     let url = player
         .engine
         .resolve_stream_url(&info.manifest_mime_type, &info.manifest)?;
@@ -544,17 +625,40 @@ pub(crate) fn play_or_resume(
     }
     let no_current = player.lock().map_err(|e| e.to_string())?.current.is_none();
     if no_current {
-        load_favorites(auth, player, ipc)?;
         let first = {
-            let state = player.lock().map_err(|e| e.to_string())?;
-            state
-                .queue
-                .first()
-                .or_else(|| state.favorites.first())
-                .map(|track| track.id)
+            let mut waited = 0;
+            loop {
+                let state = player.lock().map_err(|e| e.to_string())?;
+                if let Some(track) = state.queue.first().or_else(|| state.favorites.first()) {
+                    break Some(track.id);
+                }
+                drop(state);
+                if !FAVORITES_LOADING.load(Ordering::SeqCst) || waited >= 10 {
+                    break None;
+                }
+                thread::sleep(std::time::Duration::from_millis(100));
+                waited += 1;
+            }
         };
         if let Some(id) = first {
             return play_track(auth, player, ipc, Some(id));
+        }
+        let (first_tracks, count, _) = api_call(auth, |api, user_id| {
+            api.get_favorites_page(
+                user_id.ok_or("Session has no user ID; please sign in again")?,
+                0,
+                100,
+            )
+        })?;
+        if count > 0 {
+            let first_id = first_tracks[0].id;
+            let mut state = player.lock().map_err(|e| e.to_string())?;
+            state.favorites = first_tracks.clone();
+            if state.current_playlist_id.is_none() {
+                state.queue = first_tracks;
+            }
+            drop(state);
+            return play_track(auth, player, ipc, Some(first_id));
         }
         return Err("No favorite tracks are available".to_string());
     }
@@ -903,88 +1007,113 @@ fn main() {
                                     broadcast_status(&auth_ref, &player_ref, &ipc_ref);
                                 }
                                 "get_favorites" => {
-                                    if let Err(error) =
-                                        load_favorites(&auth_ref, &player_ref, &ipc_ref)
-                                    {
-                                        log::write(&format!("Favorites failed: {error}"));
-                                        ipc_ref.broadcast(&PlayerMessage::FavoritesError {
-                                            error: &error,
-                                        });
-                                    }
+                                    load_favorites_async(
+                                        Arc::clone(&auth_ref),
+                                        Arc::clone(&player_ref),
+                                        ipc_ref.clone(),
+                                    );
                                 }
                                 "search" => {
                                     let request_id = cmd.request_id.unwrap_or_default();
-                                    if let Err(error) =
-                                        search_catalog(&auth_ref, &ipc_ref, cmd.query, request_id)
-                                    {
-                                        log::write(&format!("Search failed: {error}"));
-                                        ipc_ref.broadcast(&PlayerMessage::SearchError {
-                                            request_id,
-                                            error: &error,
-                                        });
-                                    }
+                                    let query = cmd.query;
+                                    let auth = Arc::clone(&auth_ref);
+                                    let ipc = ipc_ref.clone();
+                                    thread::spawn(move || {
+                                        if let Err(error) =
+                                            search_catalog(&auth, &ipc, query, request_id)
+                                        {
+                                            log::write(&format!("Search failed: {error}"));
+                                            ipc.broadcast(&PlayerMessage::SearchError {
+                                                request_id,
+                                                error: &error,
+                                            });
+                                        }
+                                    });
                                 }
                                 "get_playlists" => {
-                                    if let Err(error) =
-                                        load_playlists(&auth_ref, &player_ref, &ipc_ref)
-                                    {
-                                        ipc_ref.broadcast(&PlayerMessage::PlaylistsError {
-                                            error: &error,
-                                        });
-                                    }
+                                    let auth = Arc::clone(&auth_ref);
+                                    let player = Arc::clone(&player_ref);
+                                    let ipc = ipc_ref.clone();
+                                    thread::spawn(move || {
+                                        if let Err(error) =
+                                            load_playlists(&auth, &player, &ipc)
+                                        {
+                                            ipc.broadcast(&PlayerMessage::PlaylistsError {
+                                                error: &error,
+                                            });
+                                        }
+                                    });
                                 }
                                 "create_playlist" => {
-                                    if let Err(error) = create_playlist(
-                                        &auth_ref,
-                                        &player_ref,
-                                        &ipc_ref,
-                                        cmd.title,
-                                        cmd.description,
-                                    ) {
-                                        ipc_ref.broadcast(&PlayerMessage::PlaylistsError {
-                                            error: &error,
-                                        });
-                                    }
+                                    let auth = Arc::clone(&auth_ref);
+                                    let player = Arc::clone(&player_ref);
+                                    let ipc = ipc_ref.clone();
+                                    let title = cmd.title;
+                                    let description = cmd.description;
+                                    thread::spawn(move || {
+                                        if let Err(error) = create_playlist(
+                                            &auth,
+                                            &player,
+                                            &ipc,
+                                            title,
+                                            description,
+                                        ) {
+                                            ipc.broadcast(&PlayerMessage::PlaylistsError {
+                                                error: &error,
+                                            });
+                                        }
+                                    });
                                 }
                                 "add_playlist_track" => {
                                     let playlist_id =
                                         cmd.playlist_id.or(cmd.uuid).unwrap_or_default();
-                                    let result = if playlist_id.is_empty() {
-                                        Err("playlist_id is required".to_string())
-                                    } else if let Some(track_id) = cmd.track_id {
-                                        add_playlist_track(
-                                            &auth_ref,
-                                            &player_ref,
-                                            &ipc_ref,
-                                            playlist_id,
-                                            track_id,
-                                        )
-                                    } else {
-                                        Err("track_id is required".to_string())
-                                    };
-                                    if let Err(error) = result {
-                                        ipc_ref.broadcast(&serde_json::json!({"type":"playback_error","error":error}));
-                                    }
+                                    let track_id = cmd.track_id;
+                                    let auth = Arc::clone(&auth_ref);
+                                    let player = Arc::clone(&player_ref);
+                                    let ipc = ipc_ref.clone();
+                                    thread::spawn(move || {
+                                        let result = if playlist_id.is_empty() {
+                                            Err("playlist_id is required".to_string())
+                                        } else if let Some(track_id) = track_id {
+                                            add_playlist_track(
+                                                &auth,
+                                                &player,
+                                                &ipc,
+                                                playlist_id,
+                                                track_id,
+                                            )
+                                        } else {
+                                            Err("track_id is required".to_string())
+                                        };
+                                        if let Err(error) = result {
+                                            ipc.broadcast(&serde_json::json!({"type":"playback_error","error":error}));
+                                        }
+                                    });
                                 }
                                 "get_playlist_tracks" => {
                                     let playlist_id =
                                         cmd.playlist_id.or(cmd.uuid).unwrap_or_default();
-                                    if playlist_id.is_empty() {
-                                        ipc_ref.broadcast(&PlayerMessage::PlaylistTracksError {
-                                            playlist_id: "",
-                                            error: "playlist_id is required",
-                                        });
-                                    } else if let Err(error) = load_playlist_tracks(
-                                        &auth_ref,
-                                        &player_ref,
-                                        &ipc_ref,
-                                        playlist_id.clone(),
-                                    ) {
-                                        ipc_ref.broadcast(&PlayerMessage::PlaylistTracksError {
-                                            playlist_id: &playlist_id,
-                                            error: &error,
-                                        });
-                                    }
+                                    let auth = Arc::clone(&auth_ref);
+                                    let player = Arc::clone(&player_ref);
+                                    let ipc = ipc_ref.clone();
+                                    thread::spawn(move || {
+                                        if playlist_id.is_empty() {
+                                            ipc.broadcast(&PlayerMessage::PlaylistTracksError {
+                                                playlist_id: "",
+                                                error: "playlist_id is required",
+                                            });
+                                        } else if let Err(error) = load_playlist_tracks(
+                                            &auth,
+                                            &player,
+                                            &ipc,
+                                            playlist_id.clone(),
+                                        ) {
+                                            ipc.broadcast(&PlayerMessage::PlaylistTracksError {
+                                                playlist_id: &playlist_id,
+                                                error: &error,
+                                            });
+                                        }
+                                    });
                                 }
                                 "set_audio_quality" => {
                                     let result = (|| {
@@ -1025,16 +1154,22 @@ fn main() {
                                     broadcast_status(&auth_ref, &player_ref, &ipc_ref);
                                 }
                                 "toggle_favorite" => {
-                                    if let Err(error) = toggle_favorite(
-                                        &auth_ref,
-                                        &player_ref,
-                                        &ipc_ref,
-                                        cmd.track_id,
-                                    ) {
-                                        ipc_ref.broadcast(&PlayerMessage::PlaybackError {
-                                            error: &error,
-                                        });
-                                    }
+                                    let auth = Arc::clone(&auth_ref);
+                                    let player = Arc::clone(&player_ref);
+                                    let ipc = ipc_ref.clone();
+                                    let track_id = cmd.track_id;
+                                    thread::spawn(move || {
+                                        if let Err(error) = toggle_favorite(
+                                            &auth,
+                                            &player,
+                                            &ipc,
+                                            track_id,
+                                        ) {
+                                            ipc.broadcast(&PlayerMessage::PlaybackError {
+                                                error: &error,
+                                            });
+                                        }
+                                    });
                                 }
                                 "get_album_tracks" | "get_artist_tracks" | "get_track_radio" => {
                                     let view = if cmd.command == "get_album_tracks" {
@@ -1049,22 +1184,32 @@ fn main() {
                                         .or(cmd.artist_id)
                                         .or(cmd.track_id)
                                         .unwrap_or_default();
-                                    if let Err(error) = explore(&auth_ref, &ipc_ref, view, id) {
-                                        ipc_ref.broadcast(&PlayerMessage::ExplorationError {
-                                            view,
-                                            error: &error,
-                                        });
-                                    }
+                                    let auth = Arc::clone(&auth_ref);
+                                    let ipc = ipc_ref.clone();
+                                    thread::spawn(move || {
+                                        if let Err(error) = explore(&auth, &ipc, view, id) {
+                                            ipc.broadcast(&PlayerMessage::ExplorationError {
+                                                view,
+                                                error: &error,
+                                            });
+                                        }
+                                    });
                                 }
                                 "play_track" => {
-                                    if let Err(error) =
-                                        play_track(&auth_ref, &player_ref, &ipc_ref, cmd.track_id)
-                                    {
-                                        log::write(&format!("Playback failed: {error}"));
-                                        ipc_ref.broadcast(&PlayerMessage::PlaybackError {
-                                            error: &error,
-                                        });
-                                    }
+                                    let auth = Arc::clone(&auth_ref);
+                                    let player = Arc::clone(&player_ref);
+                                    let ipc = ipc_ref.clone();
+                                    let track_id = cmd.track_id;
+                                    thread::spawn(move || {
+                                        if let Err(error) =
+                                            play_track(&auth, &player, &ipc, track_id)
+                                        {
+                                            log::write(&format!("Playback failed: {error}"));
+                                            ipc.broadcast(&PlayerMessage::PlaybackError {
+                                                error: &error,
+                                            });
+                                        }
+                                    });
                                 }
                                 "toggle_play" | "play" | "resume" | "pause" | "seek" => {
                                     let result = (|| {
@@ -1121,14 +1266,11 @@ fn main() {
                                             &serde_json::json!({ "type": "auth_success" }),
                                         );
                                         broadcast_status(&auth_ref, &player_ref, &ipc_ref);
-                                        if let Err(error) =
-                                            load_favorites(&auth_ref, &player_ref, &ipc_ref)
-                                        {
-                                            log::write(&format!("Favorites failed during session restoration: {error}"));
-                                            ipc_ref.broadcast(&PlayerMessage::FavoritesError {
-                                                error: &error,
-                                            });
-                                        }
+                                        load_favorites_async(
+                                            Arc::clone(&auth_ref),
+                                            Arc::clone(&player_ref),
+                                            ipc_ref.clone(),
+                                        );
                                     } else {
                                         if auth_flag.swap(true, Ordering::SeqCst) {
                                             println!(

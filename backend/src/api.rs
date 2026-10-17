@@ -325,6 +325,7 @@ pub fn parse_search_results(json: &str) -> Result<Vec<TrackItem>, String> {
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct FavoritesPage {
     #[serde(rename = "totalNumberOfItems", default)]
     total_number_of_items: Option<u64>,
@@ -341,10 +342,19 @@ struct FavoriteEntry {
     item: TrackItem,
 }
 
+#[allow(dead_code)]
 pub fn parse_favorites(json: &str) -> Result<Vec<TrackItem>, String> {
+    let (tracks, _, _) = parse_favorites_page(json)?;
+    Ok(tracks)
+}
+
+pub fn parse_favorites_page(json: &str) -> Result<(Vec<TrackItem>, usize, Option<u64>), String> {
     let page: FavoritesPage =
         serde_json::from_str(json).map_err(|e| format!("Failed to parse favorites: {e}"))?;
-    Ok(page.items.into_iter().map(|entry| entry.item).collect())
+    let count = page.items.len();
+    let total = page.total_number_of_items;
+    let tracks: Vec<TrackItem> = page.items.into_iter().map(|entry| entry.item).collect();
+    Ok((tracks, count, total))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -378,6 +388,7 @@ impl TidalApiClient {
     fn request(&self, request: ureq::Request, path: &str) -> Result<ureq::Response, ApiFailure> {
         crate::log::write(&format!("API GET {path}"));
         request
+            .timeout(std::time::Duration::from_secs(10))
             .set("Authorization", &self.auth_header())
             .call()
             .map_err(|error| {
@@ -423,30 +434,37 @@ impl TidalApiClient {
         parse_session_country(&value)
     }
 
-    pub fn get_favorites(&self, user_id: u64) -> Result<Vec<TrackItem>, String> {
+    pub fn get_favorites_page(
+        &self,
+        user_id: u64,
+        offset: u64,
+        limit: u64,
+    ) -> Result<(Vec<TrackItem>, usize, Option<u64>), String> {
         let url = format!("{API_BASE}/users/{user_id}/favorites/tracks");
+        let json = self
+            .request(
+                ureq::get(&url)
+                    .query("countryCode", &self.country_code)
+                    .query("limit", &limit.to_string())
+                    .query("offset", &offset.to_string())
+                    .query("order", "DATE")
+                    .query("orderDirection", "DESC"),
+                &format!("/v1/users/{user_id}/favorites/tracks"),
+            )
+            .map_err(|e| format!("Favorites request failed: {}", e.ipc_message()))?
+            .into_string()
+            .map_err(|e| format!("Failed to read favorites: {e}"))?;
+        parse_favorites_page(&json)
+    }
+
+    #[allow(dead_code)]
+    pub fn get_favorites(&self, user_id: u64) -> Result<Vec<TrackItem>, String> {
         let mut offset: u64 = 0;
         let limit: u64 = 100;
         let mut tracks = Vec::new();
         loop {
-            let json = self
-                .request(
-                    ureq::get(&url)
-                        .query("countryCode", &self.country_code)
-                        .query("limit", &limit.to_string())
-                        .query("offset", &offset.to_string())
-                        .query("order", "DATE")
-                        .query("orderDirection", "DESC"),
-                    &format!("/v1/users/{user_id}/favorites/tracks"),
-                )
-                .map_err(|e| format!("Favorites request failed: {}", e.ipc_message()))?
-                .into_string()
-                .map_err(|e| format!("Failed to read favorites: {e}"))?;
-            let page: FavoritesPage = serde_json::from_str(&json)
-                .map_err(|e| format!("Failed to parse favorites: {e}"))?;
-            let count = page.items.len();
-            let total = page.total_number_of_items;
-            tracks.extend(page.items.into_iter().map(|entry| entry.item));
+            let (page_tracks, count, total) = self.get_favorites_page(user_id, offset, limit)?;
+            tracks.extend(page_tracks);
             offset += limit;
             if count == 0
                 || offset >= 50_000
@@ -1084,6 +1102,17 @@ mod tests {
         assert_eq!(page.limit, Some(100));
         assert_eq!(page.offset, Some(100));
         assert_eq!(page.items.len(), 1);
+    }
+
+    #[test]
+    fn test_parse_favorites_page() {
+        let json = r#"{"totalNumberOfItems":1900,"limit":100,"offset":0,"items":[{"item":{"id":1,"title":"T1"}},{"item":{"id":2,"title":"T2"}}]}"#;
+        let (tracks, count, total) = parse_favorites_page(json).unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(total, Some(1900));
+        assert_eq!(tracks.len(), 2);
+        assert_eq!(tracks[0].id, 1);
+        assert_eq!(tracks[1].id, 2);
     }
 
     #[test]
