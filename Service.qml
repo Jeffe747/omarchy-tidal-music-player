@@ -335,13 +335,17 @@ Item {
         root.authError = ""
       }
       root.isPlaying = msg.is_playing === true
-      root.trackLoading = false
-      root.currentTrackId = msg.track_id !== undefined ? msg.track_id : null
-      root.trackTitle = msg.track_title || ""
-      root.trackArtist = msg.track_artist || ""
-      root.trackAlbum = msg.track_album || ""
-      root.trackArtUrl = msg.track_art_url || ""
-      root.trackDuration = msg.duration || 0.0
+      if (root.trackLoading && (msg.is_playing || msg.track_id === root.currentTrackId)) {
+        root.trackLoading = false
+      }
+      if (!root.trackLoading || msg.track_id === root.currentTrackId || msg.track_id === undefined) {
+        root.currentTrackId = msg.track_id !== undefined ? msg.track_id : null
+        root.trackTitle = msg.track_title || ""
+        root.trackArtist = msg.track_artist || ""
+        root.trackAlbum = msg.track_album || ""
+        root.trackArtUrl = msg.track_art_url || ""
+        root.trackDuration = msg.duration || 0.0
+      }
       if (msg.position !== undefined && msg.position !== null) {
         root.trackPosition = Math.max(0, Number(msg.position) || 0)
       }
@@ -489,7 +493,7 @@ Item {
     } else if (msg.type === "position_changed") {
       root.trackPosition = Math.max(0, Number(msg.position) || 0)
       if (msg.duration !== undefined) root.trackDuration = Math.max(0, Number(msg.duration) || 0)
-      root.trackLoading = false
+      if (root.trackLoading && root.trackPosition > 0.5) root.trackLoading = false
     } else if (msg.type === "playback_error") {
       root.trackLoading = false
       root.playbackError = msg.error || "Unable to play track"
@@ -515,6 +519,9 @@ Item {
   }
 
   function togglePlay() {
+    if (!root.isPlaying) {
+      root.trackLoading = true
+    }
     sendCommand({ "command": "toggle_play" })
   }
 
@@ -558,9 +565,26 @@ Item {
     root.searchCompleted = false
   }
 
-  function playTrack(trackId) {
+  function playTrack(trackId, trackData) {
     root.playbackError = ""
     root.trackLoading = true
+    if (!trackData && root.favorites && root.favorites.length > 0) {
+      for (var i = 0; i < root.favorites.length; i++) {
+        if (root.favorites[i].id === trackId) {
+          trackData = root.favorites[i]
+          break
+        }
+      }
+    }
+    if (trackData && typeof trackData === "object") {
+      root.currentTrackId = trackId
+      if (trackData.title) root.trackTitle = trackData.title
+      if (trackData.artist) root.trackArtist = trackData.artist
+      if (trackData.album) root.trackAlbum = trackData.album
+      if (trackData.art_url) root.trackArtUrl = trackData.art_url
+      if (trackData.duration) root.trackDuration = Math.max(0, Number(trackData.duration) || 0)
+      root.trackPosition = 0
+    }
     sendCommand({ "command": "play_track", "track_id": trackId })
   }
 

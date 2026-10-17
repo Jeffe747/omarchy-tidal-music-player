@@ -37,7 +37,7 @@ Column {
     width: parent.width
     spacing: Style.spacing.lg
     Rectangle {
-      visible: !!root.service && !!root.service.trackTitle
+      visible: !!root.service && (!!root.service.trackTitle || root.service.trackLoading)
       width: visible ? Style.space(60) : 0
       height: width
       radius: Style.cornerRadius
@@ -66,8 +66,8 @@ Column {
           objectName: "tidalNowPlayingTitle"
           width: Math.max(0, parent.width - settings.implicitWidth - chromecast.implicitWidth - (favorite.visible ? favorite.implicitWidth + Style.spacing.sm * 3 : Style.spacing.sm * 2))
           textFormat: Text.PlainText
-          text: root.service && root.service.trackTitle ? root.service.trackTitle : "Nothing playing"
-          color: root.service && root.service.trackTitle ? Color.foreground : Color.muted
+          text: root.service && root.service.trackTitle ? root.service.trackTitle : (root.service && root.service.trackLoading ? "Loading track…" : "Nothing playing")
+          color: root.service && (root.service.trackTitle || root.service.trackLoading) ? Color.foreground : Color.muted
           font.family: Style.font.family
           font.pixelSize: Style.font.title
           font.bold: true
@@ -104,7 +104,7 @@ Column {
         }
       }
       Row {
-        visible: !!root.service && !!root.service.trackTitle
+        visible: !!root.service && (!!root.service.trackTitle || root.service.trackLoading)
         width: parent.width
         spacing: Style.spacing.xs
         Text {
@@ -146,7 +146,7 @@ Column {
     font.pixelSize: Style.font.caption
   }
   Row {
-    visible: !!root.service && !!root.service.trackTitle
+    visible: !!root.service && (!!root.service.trackTitle || root.service.trackLoading)
     width: parent.width
     spacing: Style.spacing.md
     Text { anchors.verticalCenter: parent.verticalCenter; textFormat: Text.PlainText; text: root.formatTime(!root.service ? 0 : (seek.dragging ? seek.liveValue * root.service.trackDuration : (root.pendingSeek >= 0 ? root.pendingSeek : root.service.trackPosition))); color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
@@ -168,7 +168,8 @@ Column {
         height: width
         radius: width / 2
         anchors.verticalCenter: parent.verticalCenter
-        x: Math.max(0, Math.min(seek.width - width, seek.width * seek.progress - width / 2))
+        readonly property real knobCenterX: Math.max(0, Math.min(seek.width - seek.knobSize, seek.width * seek.progress - seek.knobSize / 2)) + seek.knobSize / 2
+        x: knobCenterX - width / 2
         color: Color.accent
         opacity: 0.35
         z: 2
@@ -192,7 +193,7 @@ Column {
         height: width
         radius: width / 2
         anchors.verticalCenter: parent.verticalCenter
-        x: Math.max(0, Math.min(seek.width - width, seek.width * seek.progress - width / 2))
+        x: pulseHalo.knobCenterX - width / 2
         color: "transparent"
         border.color: Color.accent
         border.width: Style.space(2)
@@ -214,7 +215,7 @@ Column {
     readonly property real controlButtonSize: Style.spacing.controlHeight + Style.spacing.md
     Ui.PanelActionButton { objectName: "tidalShuffleButton"; Accessible.role: Accessible.Button; Accessible.name: "Shuffle"; iconText: "󰒝"; tooltipText: "Shuffle"; size: parent.controlButtonSize; foreground: root.service && root.service.shuffle ? Color.accent : Color.foreground; onClicked: if (root.service) root.service.toggleShuffle() }
     Ui.PanelActionButton { objectName: "tidalPrevButton"; Accessible.role: Accessible.Button; Accessible.name: "Previous track"; iconText: "󰒮"; tooltipText: "Previous"; size: parent.controlButtonSize; onClicked: if (root.service) root.service.previous() }
-    Ui.PanelActionButton { objectName: "tidalPlayButton"; Accessible.role: Accessible.Button; Accessible.name: root.service && root.service.isPlaying ? "Pause" : "Play"; iconText: root.service && root.service.isPlaying ? "󰏤" : "󰐊"; tooltipText: root.service && root.service.isPlaying ? "Pause" : "Play"; size: parent.controlButtonSize; foreground: Color.accent; bordered: true; onClicked: if (root.service) root.service.togglePlay() }
+    Ui.PanelActionButton { objectName: "tidalPlayButton"; Accessible.role: Accessible.Button; Accessible.name: root.service && root.service.isPlaying ? "Pause" : "Play"; iconText: root.service && root.service.trackLoading ? "󰑮" : (root.service && root.service.isPlaying ? "󰏤" : "󰐊"); tooltipText: root.service && root.service.isPlaying ? "Pause" : "Play"; size: parent.controlButtonSize; foreground: Color.accent; bordered: true; onClicked: if (root.service) root.service.togglePlay() }
     Ui.PanelActionButton { objectName: "tidalNextButton"; Accessible.role: Accessible.Button; Accessible.name: "Next track"; iconText: "󰒭"; tooltipText: "Next"; size: parent.controlButtonSize; onClicked: if (root.service) root.service.next() }
     Ui.PanelActionButton { objectName: "tidalRepeatButton"; Accessible.role: Accessible.Button; Accessible.name: "Repeat"; iconText: root.service && root.service.repeatMode === "one" ? "󰑘" : "󰑖"; tooltipText: "Repeat"; size: parent.controlButtonSize; foreground: root.service && root.service.repeatMode !== "off" ? Color.accent : Color.foreground; onClicked: if (root.service) root.service.cycleRepeat() }
   }
