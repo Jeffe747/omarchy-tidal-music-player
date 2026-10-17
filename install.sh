@@ -63,4 +63,29 @@ if command -v omarchy-shell >/dev/null 2>&1; then
   echo "  [✓] Triggered shell plugin rescan"
 fi
 
+# 5. Firewall configuration for Google Cast streaming (ports 36420:36425/tcp)
+if [[ -z "${TIDAL_SKIP_FIREWALL:-}" ]] && command -v ufw >/dev/null 2>&1; then
+  echo "==> Checking firewall configuration for Chromecast streaming..."
+  if sudo -n ufw status 2>/dev/null | grep -q "Status: active" || (command -v pkexec >/dev/null 2>&1 && [[ -n "${DISPLAY:-${WAYLAND_DISPLAY:-}}" ]]); then
+    if ! sudo -n ufw status 2>/dev/null | grep -q "36420"; then
+      echo "  ==> Configuring UFW rule for Chromecast audio stream (ports 36420:36425/tcp)..."
+      if sudo -n ufw allow 36420:36425/tcp comment "omarchy-tidal-cast" >/dev/null 2>&1; then
+        echo "  [✓] Allowed inbound TCP ports 36420:36425 via sudo"
+      elif command -v pkexec >/dev/null 2>&1 && [[ -n "${DISPLAY:-${WAYLAND_DISPLAY:-}}" ]]; then
+        if pkexec ufw allow 36420:36425/tcp comment "omarchy-tidal-cast" >/dev/null 2>&1; then
+          echo "  [✓] Allowed inbound TCP ports 36420:36425 via Polkit"
+        else
+          echo "  [i] Note: To allow Chromecast streaming, run: sudo ufw allow 36420:36425/tcp comment 'omarchy-tidal-cast'"
+        fi
+      else
+        echo "  [i] Note: To allow Chromecast streaming, run: sudo ufw allow 36420:36425/tcp comment 'omarchy-tidal-cast'"
+      fi
+    else
+      echo "  [✓] UFW firewall already permits Chromecast streaming (ports 36420:36425/tcp)"
+    fi
+  else
+    echo "  [✓] UFW firewall inactive or not blocking LAN traffic"
+  fi
+fi
+
 echo "==> Installation complete! After source changes or a backend rebuild, run ./install.sh again."

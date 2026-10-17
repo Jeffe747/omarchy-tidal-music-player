@@ -20,9 +20,22 @@ pub struct StreamProxy {
 }
 
 impl StreamProxy {
+    pub const DEFAULT_PORT: u16 = 36420;
+    pub const PORT_RANGE_END: u16 = 36425;
+
     pub fn new() -> Result<Self, String> {
-        let listener = TcpListener::bind("0.0.0.0:0")
-            .map_err(|e| format!("Failed to bind stream proxy port: {e}"))?;
+        let mut listener = None;
+        for port in Self::DEFAULT_PORT..=Self::PORT_RANGE_END {
+            if let Ok(l) = TcpListener::bind(("0.0.0.0", port)) {
+                listener = Some(l);
+                break;
+            }
+        }
+        let listener = match listener {
+            Some(l) => l,
+            None => TcpListener::bind("0.0.0.0:0")
+                .map_err(|e| format!("Failed to bind stream proxy port: {e}"))?,
+        };
         let port = listener
             .local_addr()
             .map_err(|e| format!("Failed to get proxy local address: {e}"))?
