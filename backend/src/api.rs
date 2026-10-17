@@ -423,10 +423,41 @@ impl TidalApiClient {
             })
     }
 
+    fn request_with_retry(
+        &self,
+        path: &str,
+        max_attempts: usize,
+        mut build_req: impl FnMut() -> ureq::Request,
+    ) -> Result<ureq::Response, ApiFailure> {
+        let mut attempt = 0;
+        loop {
+            attempt += 1;
+            let req = build_req();
+            match self.request(req, path) {
+                Ok(response) => return Ok(response),
+                Err(error) => {
+                    if error.retryable && attempt < max_attempts {
+                        crate::log::write(&format!(
+                            "API GET {path} transient error ({}); retrying attempt {}/{}",
+                            error.message,
+                            attempt + 1,
+                            max_attempts
+                        ));
+                        std::thread::sleep(std::time::Duration::from_millis(150 * attempt as u64));
+                        continue;
+                    }
+                    return Err(error);
+                }
+            }
+        }
+    }
+
     pub fn session_country(access_token: String) -> Result<String, String> {
         let client = Self::new(access_token, String::new());
         let response = client
-            .request(ureq::get(&format!("{API_BASE}/sessions")), "/v1/sessions")
+            .request_with_retry("/v1/sessions", 3, || {
+                ureq::get(&format!("{API_BASE}/sessions"))
+            })
             .map_err(|error| format!("Session country request failed: {}", error.message))?;
         let value: serde_json::Value = response
             .into_json()
@@ -441,16 +472,16 @@ impl TidalApiClient {
         limit: u64,
     ) -> Result<(Vec<TrackItem>, usize, Option<u64>), String> {
         let url = format!("{API_BASE}/users/{user_id}/favorites/tracks");
+        let path = format!("/v1/users/{user_id}/favorites/tracks");
         let json = self
-            .request(
+            .request_with_retry(&path, 3, || {
                 ureq::get(&url)
                     .query("countryCode", &self.country_code)
                     .query("limit", &limit.to_string())
                     .query("offset", &offset.to_string())
                     .query("order", "DATE")
-                    .query("orderDirection", "DESC"),
-                &format!("/v1/users/{user_id}/favorites/tracks"),
-            )
+                    .query("orderDirection", "DESC")
+            })
             .map_err(|e| format!("Favorites request failed: {}", e.ipc_message()))?
             .into_string()
             .map_err(|e| format!("Failed to read favorites: {e}"))?;
@@ -476,11 +507,11 @@ impl TidalApiClient {
     }
 
     pub fn get_track(&self, track_id: u64) -> Result<TrackItem, String> {
-        self.request(
-            ureq::get(&format!("{API_BASE}/tracks/{track_id}"))
-                .query("countryCode", &self.country_code),
-            &format!("/v1/tracks/{track_id}"),
-        )
+        let url = format!("{API_BASE}/tracks/{track_id}");
+        let path = format!("/v1/tracks/{track_id}");
+        self.request_with_retry(&path, 3, || {
+            ureq::get(&url).query("countryCode", &self.country_code)
+        })
         .map_err(|e| format!("Track request failed: {}", e.ipc_message()))?
         .into_json()
         .map_err(|e| format!("Failed to parse track: {e}"))
@@ -489,13 +520,12 @@ impl TidalApiClient {
     pub fn get_playlists(&self, user_id: u64) -> Result<Vec<Playlist>, String> {
         let url = format!("{API_BASE}/users/{user_id}/playlists");
         let body = self
-            .request(
+            .request_with_retry("/v1/users/{user_id}/playlists", 3, || {
                 ureq::get(&url)
                     .query("countryCode", &self.country_code)
                     .query("limit", "50")
-                    .query("offset", "0"),
-                "/v1/users/{user_id}/playlists",
-            )
+                    .query("offset", "0")
+            })
             .map_err(|e| format!("Playlists request failed: {}", e.ipc_message()))?
             .into_string()
             .map_err(|e| format!("Failed to read playlists: {e}"))?;
@@ -525,14 +555,14 @@ impl TidalApiClient {
 
     pub fn get_playlist_tracks(&self, uuid: &str) -> Result<Vec<TrackItem>, String> {
         let url = format!("{API_BASE}/playlists/{}/tracks", encode_query(uuid));
+        let path = format!("/v1/playlists/{uuid}/tracks");
         let body = self
-            .request(
+            .request_with_retry(&path, 3, || {
                 ureq::get(&url)
                     .query("countryCode", &self.country_code)
                     .query("limit", "100")
-                    .query("offset", "0"),
-                "/v1/playlists/{uuid}/tracks",
-            )
+                    .query("offset", "0")
+            })
             .map_err(|e| format!("Playlist tracks request failed: {}", e.ipc_message()))?
             .into_string()
             .map_err(|e| format!("Failed to read playlist tracks: {e}"))?;
@@ -565,14 +595,15 @@ impl TidalApiClient {
     }
 
     pub fn get_album_tracks(&self, album_id: u64) -> Result<Vec<TrackItem>, String> {
+        let url = album_tracks_url(album_id);
+        let path = format!("/v1/albums/{album_id}/tracks");
         let response = self
-            .request(
-                ureq::get(&album_tracks_url(album_id))
+            .request_with_retry(&path, 3, || {
+                ureq::get(&url)
                     .query("countryCode", &self.country_code)
                     .query("limit", "100")
-                    .query("offset", "0"),
-                &format!("/v1/albums/{album_id}/tracks"),
-            )
+                    .query("offset", "0")
+            })
             .map_err(|e| format!("Album tracks request failed: {}", e.ipc_message()))?;
         let json = response
             .into_string()
@@ -581,13 +612,14 @@ impl TidalApiClient {
     }
 
     pub fn get_artist_tracks(&self, artist_id: u64) -> Result<Vec<TrackItem>, String> {
+        let url = artist_top_tracks_url(artist_id);
+        let path = format!("/v1/artists/{artist_id}/toptracks");
         let response = self
-            .request(
-                ureq::get(&artist_top_tracks_url(artist_id))
+            .request_with_retry(&path, 3, || {
+                ureq::get(&url)
                     .query("countryCode", &self.country_code)
-                    .query("limit", "100"),
-                &format!("/v1/artists/{artist_id}/toptracks"),
-            )
+                    .query("limit", "100")
+            })
             .map_err(|e| format!("Artist tracks request failed: {}", e.ipc_message()))?;
         let json = response
             .into_string()
@@ -596,14 +628,15 @@ impl TidalApiClient {
     }
 
     pub fn get_track_radio(&self, track_id: u64) -> Result<Vec<TrackItem>, String> {
+        let url = format!("{API_BASE}/tracks/{track_id}/radio");
+        let path = format!("/v1/tracks/{track_id}/radio");
         let response = self
-            .request(
-                ureq::get(&format!("{API_BASE}/tracks/{track_id}/radio"))
+            .request_with_retry(&path, 3, || {
+                ureq::get(&url)
                     .query("countryCode", &self.country_code)
                     .query("limit", "100")
-                    .query("offset", "0"),
-                &format!("/v1/tracks/{track_id}/radio"),
-            )
+                    .query("offset", "0")
+            })
             .map_err(|e| format!("Track radio request failed: {}", e.ipc_message()))?;
         let body = response
             .into_string()
@@ -619,16 +652,16 @@ impl TidalApiClient {
     ) -> Result<PlaybackInfoResponse, String> {
         playback_with_fallback(quality, |legacy, requested| {
             let url = playback_url(track_id, legacy);
-            let response = self.request(
+            let path = url.trim_start_matches("https://api.tidal.com");
+            let response = self.request_with_retry(path, 3, || {
                 ureq::get(&url)
                     .query("audioquality", requested)
                     .query("playbackmode", "STREAM")
                     .query("assetpresentation", "FULL")
                     .query("immersiveaudio", "false")
                     .query("immersiveAudio", "false")
-                    .query("countryCode", &self.country_code),
-                url.trim_start_matches("https://api.tidal.com"),
-            )?;
+                    .query("countryCode", &self.country_code)
+            })?;
             response.into_json().map_err(|e| ApiFailure {
                 status: None,
                 quality_related: false,
@@ -645,7 +678,7 @@ impl TidalApiClient {
             encode_query(&self.country_code)
         );
         let resp = self
-            .request(ureq::get(&url), "/v1/search")
+            .request_with_retry("/v1/search", 3, || ureq::get(&url))
             .map_err(|e| format!("Search request failed: {}", e.ipc_message()))?;
         let json = resp
             .into_string()
@@ -1079,6 +1112,94 @@ mod tests {
             "/test: HTTP 404; subStatus=2001; userMessage=Not found"
         );
         assert!(!failure.message.contains("private"));
+    }
+
+    #[test]
+    fn test_request_with_retry_recovers_from_transient_failure() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let request_count = Arc::new(AtomicUsize::new(0));
+        let count_clone = Arc::clone(&request_count);
+
+        let server = std::thread::spawn(move || {
+            // First attempt: return 503 Service Unavailable (retryable)
+            if let Ok((mut stream, _)) = listener.accept() {
+                count_clone.fetch_add(1, Ordering::SeqCst);
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                while reader.read_line(&mut line).unwrap_or(0) > 0 && line != "\r\n" {
+                    line.clear();
+                }
+                let body = r#"{"status":503,"userMessage":"Service Unavailable"}"#;
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 503 Service Unavailable\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            }
+            // Second attempt: return 200 OK
+            if let Ok((mut stream, _)) = listener.accept() {
+                count_clone.fetch_add(1, Ordering::SeqCst);
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                while reader.read_line(&mut line).unwrap_or(0) > 0 && line != "\r\n" {
+                    line.clear();
+                }
+                let body = r#"{"status":"ok"}"#;
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            }
+        });
+
+        let client = TidalApiClient::new("test-token".into(), "DK".into());
+        let url = format!("http://{addr}/test");
+        let resp = client.request_with_retry("/test", 3, || ureq::get(&url));
+        assert!(resp.is_ok());
+        assert_eq!(request_count.load(Ordering::SeqCst), 2);
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn test_request_with_retry_does_not_retry_non_transient_failure() {
+        use std::io::{BufRead, BufReader, Write};
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Arc;
+
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let request_count = Arc::new(AtomicUsize::new(0));
+        let count_clone = Arc::clone(&request_count);
+
+        let server = std::thread::spawn(move || {
+            if let Ok((mut stream, _)) = listener.accept() {
+                count_clone.fetch_add(1, Ordering::SeqCst);
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                while reader.read_line(&mut line).unwrap_or(0) > 0 && line != "\r\n" {
+                    line.clear();
+                }
+                let body = r#"{"status":400,"userMessage":"Bad Request"}"#;
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 400 Bad Request\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            }
+        });
+
+        let client = TidalApiClient::new("test-token".into(), "DK".into());
+        let url = format!("http://{addr}/bad");
+        let resp = client.request_with_retry("/bad", 3, || ureq::get(&url));
+        assert!(resp.is_err());
+        assert_eq!(request_count.load(Ordering::SeqCst), 1);
+        server.join().unwrap();
     }
 
     #[test]
