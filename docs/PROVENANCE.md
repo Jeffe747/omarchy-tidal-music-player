@@ -1,12 +1,12 @@
 # Release binary provenance
 
-## v1.0.62 release artifacts
+## v1.0.63 release artifacts
 
 The checked-in executable `bin/tidal-daemon` is the official x86_64 artifact
-published by the v1.0.62 GitHub Actions release workflow. The release was
-created by [workflow run 38960048424](https://github.com/Jeffe747/omarchy-tidal-music-player/actions/runs/38960048424)
-and published at [v1.0.62](https://github.com/Jeffe747/omarchy-tidal-music-player/releases/tag/v1.0.62).
-The x86_64 release artifact is 1,796,936 bytes and its digest matches
+published by the v1.0.63 GitHub Actions release workflow. The release was
+created by [workflow run 39046041450](https://github.com/Jeffe747/omarchy-tidal-music-player/actions/runs/39046041450)
+and published at [v1.0.63](https://github.com/Jeffe747/omarchy-tidal-music-player/releases/tag/v1.0.63).
+The x86_64 release artifact is 1,811,992 bytes and its digest matches
 `SHA256SUMS` and the runtime pin in `Service.qml`.
 
 The workflow builds from the Rust source in `backend/` with Cargo for
@@ -23,15 +23,15 @@ true`, `codegen-units = 1`, `panic = "abort"`, and `strip = true`.
 
 | Artifact | Size | SHA-256 |
 | --- | ---: | --- |
-| `bin/tidal-daemon` / `tidal-daemon-x86_64` | 1,796,936 bytes | `73d79845a170fd7395ccf8309963b0bfe9e0509f57543f261e5103d3f990598e` |
-| `tidal-daemon-aarch64` | Published by release workflow | `c9a10114e1f4bbcdbe61856cf4d5c29cae2fcbd88973f7bf8f8064f4049b8d84` |
+| `bin/tidal-daemon` / `tidal-daemon-x86_64` | 1,811,992 bytes | `df3611f60de58156db32899042c7a4e749f7eb32a8c555d803d1ebbe2632c81c` |
+| `tidal-daemon-aarch64` | Published by release workflow | `9ebf30e2e8bdea09720c2621f0a28ae2188045bfae61830ca8c8e6a3057ee023` |
 
 The local Cargo build may differ byte-for-byte from the official Ubuntu-built
 release artifact. `scripts/verify-size.sh` therefore accepts the bundled x86_64
 artifact when its digest matches the canonical `SHA256SUMS` entry. `Service.qml`
 checks the bundled executable's SHA-256 against the architecture-specific pin
 before selecting it for execution. The stable bootstrap verifies downloads
-against the same pins and uses release tag `v1.0.62`.
+against the same pins and uses release tag `v1.0.63`.
 
 ## Release workflow
 

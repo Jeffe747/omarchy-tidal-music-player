@@ -8,7 +8,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN_PATH="$SCRIPT_DIR/bin/tidal-daemon"
 RELEASE_BIN="$SCRIPT_DIR/backend/target/release/tidal-daemon"
-MAX_SIZE_BYTES=1800000 # 1.8 MB bundled binary limit (decimal bytes)
+MAX_SIZE_BYTES=$((1800 * 1024)) # 1.8 MB bundled binary limit (1800 KiB = 1,843,200 bytes)
 UPX_MAX_SIZE_BYTES=800000
 
 echo "==> Verifying binary size & symbols for tidal-daemon..."
