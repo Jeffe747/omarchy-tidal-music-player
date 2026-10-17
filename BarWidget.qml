@@ -331,6 +331,7 @@ Panel {
             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.playlistSubmenuOpen = false }
           }
           ListView {
+            id: contextPlaylistList
             objectName: "tidalContextPlaylistList"
             visible: root.playlistSubmenuOpen && !!tidalService && tidalService.playlists.length > 0
             width: parent.width
@@ -341,12 +342,15 @@ Panel {
               Accessible.role: Accessible.MenuItem
               Accessible.name: modelData.title || "Untitled playlist"
               required property var modelData
-              width: ListView.view.width
+              width: contextPlaylistList.contentHeight > contextPlaylistList.height ? ListView.view.width - Style.space(10) : ListView.view.width
               height: Style.spacing.popupRowHeight
               color: itemMouse.containsMouse ? Style.hoverFill : Style.normalFill
               Text { anchors.fill: parent; anchors.margins: Style.spacing.md; verticalAlignment: Text.AlignVCenter; textFormat: Text.PlainText; text: modelData.title || "Untitled playlist"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; elide: Text.ElideRight }
               MouseArea { id: itemMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { if (tidalService && root.contextMenuTrack) tidalService.addTrackToPlaylist(modelData.uuid, root.contextMenuTrack.id); root.closeContextMenu() } }
             }
+          }
+          ScrollDot {
+            targetList: contextPlaylistList
           }
           Text {
             visible: root.playlistSubmenuOpen && (!tidalService || !tidalService.playlists.length)

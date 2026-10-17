@@ -300,17 +300,19 @@ Column {
     spacing: Style.spacing.sm
     currentIndex: root.keyboardIndex
     model: root.activeItems
-    ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded; width: Style.spacing.md; contentItem: Rectangle { radius: Style.cornerRadius; color: Color.muted } }
     delegate: Loader {
       required property var modelData
       required property int index
-      width: list.width
+      width: list.contentHeight > list.height ? list.width - Style.space(10) : list.width
       height: Style.spacing.popupRowHeight + Style.spacing.xxl
       sourceComponent: root.view === "playlists" ? playlistRow : trackRow
       onLoaded: {
         if (item) { item.rowData = modelData; item.rowIndex = index }
       }
     }
+  }
+  ScrollDot {
+    targetList: list
   }
   Rectangle {
     id: favoritesProgressBanner
@@ -336,7 +338,7 @@ Column {
     TrackRow {
       property var rowData: ({})
       property int rowIndex: -1
-      width: list.width
+      width: list.contentHeight > list.height ? list.width - Style.space(10) : list.width
       track: rowData
       showArt: root.view === "search"
       durationText: root.formatTime(rowData.duration)
@@ -358,7 +360,7 @@ Column {
       Accessible.name: rowData.title || "Untitled playlist"
       property var rowData: ({})
       property int rowIndex: -1
-      width: list.width
+      width: list.contentHeight > list.height ? list.width - Style.space(10) : list.width
       height: Style.spacing.popupRowHeight + Style.spacing.xxl
       radius: Style.cornerRadius
       color: root.keyboardIndex === rowIndex ? Style.hoverFill : Style.normalFill
