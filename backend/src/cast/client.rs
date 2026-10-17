@@ -3,7 +3,7 @@ use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, Server
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, Error, SignatureScheme};
 use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::net::{SocketAddr, TcpStream};
 use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
@@ -65,17 +65,16 @@ impl ServerCertVerifier for NoCertVerifier {
     }
 }
 
-pub fn make_tls_config() -> Arc<rustls::ClientConfig> {
-    let mut config = rustls::ClientConfig::builder_with_provider(Arc::new(
+pub fn make_tls_config() -> Result<Arc<rustls::ClientConfig>, String> {
+    let config = rustls::ClientConfig::builder_with_provider(Arc::new(
         rustls::crypto::ring::default_provider(),
     ))
     .with_safe_default_protocol_versions()
-    .expect("safe protocol versions")
+    .map_err(|e| format!("TLS safe protocol configuration error: {e}"))?
     .dangerous()
     .with_custom_certificate_verifier(Arc::new(NoCertVerifier))
     .with_no_client_auth();
-    config.key_log = Arc::new(rustls::KeyLogFile::new());
-    Arc::new(config)
+    Ok(Arc::new(config))
 }
 
 pub enum CastAction {
@@ -284,7 +283,16 @@ fn run_session_worker(
     let target = format!("{}:{}", device.ip, device.port);
     crate::log::write(&format!("Connecting to Cast device at {target}"));
 
-    let tcp_stream = match TcpStream::connect(&target) {
+    let addr = match target.parse::<SocketAddr>() {
+        Ok(a) => a,
+        Err(e) => {
+            crate::log::write(&format!("Invalid Cast device target address {target}: {e}"));
+            is_active.store(false, Ordering::Relaxed);
+            return;
+        }
+    };
+
+    let tcp_stream = match TcpStream::connect_timeout(&addr, Duration::from_secs(3)) {
         Ok(s) => s,
         Err(e) => {
             crate::log::write(&format!("TCP connect error to {target}: {e}"));
@@ -296,7 +304,14 @@ fn run_session_worker(
     let _ = tcp_stream.set_nodelay(true);
     let _ = tcp_stream.set_read_timeout(Some(Duration::from_millis(100)));
 
-    let tls_config = make_tls_config();
+    let tls_config = match make_tls_config() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            crate::log::write(&format!("TLS config error: {e}"));
+            is_active.store(false, Ordering::Relaxed);
+            return;
+        }
+    };
     let server_name = match ServerName::try_from("chromecast".to_string()) {
         Ok(s) => s,
         Err(_) => {
@@ -695,7 +710,7 @@ mod tests {
 
     #[test]
     fn test_make_tls_config_creates_valid_verifier() {
-        let config = make_tls_config();
+        let config = make_tls_config().expect("valid tls config");
         assert!(config.alpn_protocols.is_empty());
     }
 

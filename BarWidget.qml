@@ -646,8 +646,9 @@ Panel {
                 MouseArea {
                   id: deviceMouse
                   anchors.fill: parent
-                  hoverEnabled: true
-                  cursorShape: Qt.PointingHandCursor
+                  enabled: actionBtn.enabled
+                  hoverEnabled: enabled
+                  cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
                   onClicked: if (tidalService) tidalService.connectCast(modelData.id)
                 }
               }

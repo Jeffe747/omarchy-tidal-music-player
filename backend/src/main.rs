@@ -44,16 +44,23 @@ pub(crate) struct Player {
     cast_device_name: Option<String>,
     cast_state: crate::cast::CastState,
     cast_session: Option<crate::cast::client::CastSession>,
-    stream_proxy: Arc<crate::cast::proxy::StreamProxy>,
+    stream_proxy: Option<Arc<crate::cast::proxy::StreamProxy>>,
     cast_discovery: Arc<crate::cast::discovery::CastDiscovery>,
 }
 
 impl Player {
     fn new() -> Self {
-        let stream_proxy = Arc::new(crate::cast::proxy::StreamProxy::new().unwrap_or_else(|e| {
-            panic!("StreamProxy::new failed: {e}");
-        }));
-        Arc::clone(&stream_proxy).start();
+        let stream_proxy = match crate::cast::proxy::StreamProxy::new() {
+            Ok(proxy) => {
+                let arc = Arc::new(proxy);
+                Arc::clone(&arc).start();
+                Some(arc)
+            }
+            Err(e) => {
+                log::write(&format!("Failed to start Cast audio relay proxy: {e}"));
+                None
+            }
+        };
         let cast_discovery = Arc::new(crate::cast::discovery::CastDiscovery::new());
 
         Self {
@@ -586,7 +593,7 @@ fn play_track(
 ) -> Result<(), String> {
     let id = track_id.ok_or("play_track requires track_id")?;
     let req_id = PLAY_REQUEST_ID.fetch_add(1, Ordering::SeqCst) + 1;
-    let (cached_track, preferred_quality) = {
+    let (cached_track, preferred_quality, is_casting) = {
         let p = player.lock().map_err(|e| e.to_string())?;
         let track = p
             .queue
@@ -594,7 +601,7 @@ fn play_track(
             .chain(p.favorites.iter())
             .find(|track| track.id == id)
             .cloned();
-        (track, p.preferred_quality.clone())
+        (track, p.preferred_quality.clone(), p.cast_active)
     };
     let track = match cached_track {
         Some(track) => track,
@@ -606,7 +613,12 @@ fn play_track(
         track.artist_name(),
         track.audio_quality
     ));
-    let info = api_call(auth, |api, _| api.get_playback_info(id, &preferred_quality))?;
+    let requested_quality = if is_casting && preferred_quality == "HI_RES_LOSSLESS" {
+        "LOSSLESS".to_string()
+    } else {
+        preferred_quality.clone()
+    };
+    let info = api_call(auth, |api, _| api.get_playback_info(id, &requested_quality))?;
     let mime = match info.manifest_mime_type.as_str() {
         "application/vnd.tidal.bts" | "application/dash+xml" => info.manifest_mime_type.as_str(),
         _ => "unsupported",
@@ -626,29 +638,27 @@ fn play_track(
             player.current_playlist_id = None;
         }
     }
-    let direct_url = PlaybackEngine::parse_stream_url(&info.manifest_mime_type, &info.manifest)?;
-    if player.cast_active && player.cast_session.is_some() {
-        let session = player.cast_session.clone().unwrap();
-        player
-            .stream_proxy
-            .register_track(id, direct_url, "audio/flac".to_string());
-        let proxy_url = player
-            .stream_proxy
-            .stream_url_for_target(id, &session.device.ip);
-        let _ = player.engine.set_pause(true);
-        if let Err(e) = session.load_track(
-            proxy_url,
-            "audio/flac".to_string(),
-            track.title.clone(),
-            track.artist_name().to_string(),
-            track.album_title().to_string(),
-            cover_url(track.cover()),
-            0.0,
-        ) {
-            log::write(&format!("Cast load_track failed: {e}"));
-            return Err(e);
+    let (direct_url, stream_mime) =
+        PlaybackEngine::parse_stream_url_and_mime(&info.manifest_mime_type, &info.manifest)?;
+    if let Some(session) = player.cast_session.clone().filter(|_| player.cast_active) {
+        if let Some(ref proxy) = player.stream_proxy {
+            proxy.register_track(id, direct_url, stream_mime.clone());
+            let proxy_url = proxy.stream_url_for_target(id, &session.device.ip);
+            let _ = player.engine.set_pause(true);
+            if let Err(e) = session.load_track(
+                proxy_url,
+                stream_mime,
+                track.title.clone(),
+                track.artist_name().to_string(),
+                track.album_title().to_string(),
+                cover_url(track.cover()),
+                0.0,
+            ) {
+                log::write(&format!("Cast load_track failed: {e}"));
+                return Err(e);
+            }
+            player.cast_state = crate::cast::CastState::Buffering;
         }
-        player.cast_state = crate::cast::CastState::Buffering;
     } else {
         let url = player
             .engine
@@ -834,21 +844,41 @@ fn connect_cast(
         }
 
         let device = dev.ok_or_else(|| format!("Cast device not found: {target_id}"))?;
-        let was_playing = p
-            .engine
-            .property("pause")
-            .ok()
-            .and_then(|v| v.as_bool())
-            .map(|paused| !paused)
-            .unwrap_or(false);
-        let pos = p.engine.position().ok().unwrap_or(0.0);
+        let (was_playing, pos) = if p.cast_active {
+            let pos = p.cast_session.as_ref().map(|s| s.position()).unwrap_or(0.0);
+            let was_playing = p.cast_state == crate::cast::CastState::Playing;
+            if let Some(prev) = p.cast_session.take() {
+                prev.disconnect();
+            }
+            (was_playing, pos)
+        } else {
+            let was_playing = p
+                .engine
+                .property("pause")
+                .ok()
+                .and_then(|v| v.as_bool())
+                .map(|paused| !paused)
+                .unwrap_or(false);
+            let pos = p.engine.position().ok().unwrap_or(0.0);
+            (was_playing, pos)
+        };
         let track = p.current.clone();
 
         // Pause local mpv audio
         let _ = p.engine.set_pause(true);
         p.cast_state = crate::cast::CastState::Connecting;
-        let proxy = Arc::clone(&p.stream_proxy);
-        let quality = p.preferred_quality.clone();
+        let proxy = match p.stream_proxy.as_ref() {
+            Some(prx) => Arc::clone(prx),
+            None => {
+                p.cast_state = crate::cast::CastState::Idle;
+                return Err("Cast stream proxy is unavailable on this system".to_string());
+            }
+        };
+        let quality = if p.preferred_quality == "HI_RES_LOSSLESS" {
+            "LOSSLESS".to_string()
+        } else {
+            p.preferred_quality.clone()
+        };
         (device, was_playing, pos, track, proxy, quality)
     };
 
@@ -881,12 +911,12 @@ fn connect_cast(
     // If currently playing a track, transfer playback smoothly to the Chromecast
     if let Some(track) = current_track {
         if let Ok(info) = api_call(auth, |api, _| api.get_playback_info(track.id, &preferred_quality)) {
-            if let Ok(direct_url) = PlaybackEngine::parse_stream_url(&info.manifest_mime_type, &info.manifest) {
-                proxy.register_track(track.id, direct_url, "audio/flac".to_string());
+            if let Ok((direct_url, stream_mime)) = PlaybackEngine::parse_stream_url_and_mime(&info.manifest_mime_type, &info.manifest) {
+                proxy.register_track(track.id, direct_url, stream_mime.clone());
                 let proxy_url = proxy.stream_url_for_target(track.id, &device.ip);
                 let _ = session.load_track(
                     proxy_url,
-                    "audio/flac".to_string(),
+                    stream_mime,
                     track.title.clone(),
                     track.artist_name().to_string(),
                     track.album_title().to_string(),
@@ -1721,6 +1751,12 @@ fn main() {
                                         let mut player =
                                             player_ref.lock().map_err(|e| e.to_string())?;
                                         player.engine.stop()?;
+                                        if let Some(session) = player.cast_session.take() {
+                                            session.disconnect();
+                                        }
+                                        player.cast_active = false;
+                                        player.cast_device_name = None;
+                                        player.cast_state = crate::cast::CastState::Idle;
                                         player.current = None;
                                         player.favorites.clear();
                                         Ok::<(), String>(())
@@ -1751,6 +1787,9 @@ fn main() {
         }
     }
     if let Ok(mut player) = player.lock() {
+        if let Some(session) = player.cast_session.take() {
+            session.disconnect();
+        }
         if let Err(error) = player.engine.stop() {
             log::write(&format!("Failed to stop playback: {error}"));
         }

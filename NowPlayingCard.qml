@@ -236,8 +236,11 @@ Column {
       value: root.sink && root.sink.audio ? root.sink.audio.volume : 0
       tickCount: 4
       onMoved: function(v) {
-        if (root.sink && root.sink.audio) root.sink.audio.volume = v
-        if (root.service && root.service.castActive) root.service.setCastVolume(Math.min(1.0, v))
+        if (root.service && root.service.castActive) {
+          root.service.setCastVolume(Math.min(1.0, v))
+        } else if (root.sink && root.sink.audio) {
+          root.sink.audio.volume = v
+        }
       }
       onRightClicked: if (root.sink && root.sink.audio) root.sink.audio.muted = !root.sink.audio.muted
       WheelHandler {
@@ -245,11 +248,15 @@ Column {
         onWheel: function(event) {
           root.wheelRemainder += event.angleDelta.y
           var steps = Math.trunc(root.wheelRemainder / 120)
-          if (steps && root.sink && root.sink.audio) {
+          if (steps) {
             root.wheelRemainder -= steps * 120
-            var newVol = Math.max(0, Math.min(1.5, root.sink.audio.volume + steps * 0.05))
-            root.sink.audio.volume = newVol
-            if (root.service && root.service.castActive) root.service.setCastVolume(Math.min(1.0, newVol))
+            if (root.service && root.service.castActive) {
+              var castVol = Math.max(0, Math.min(1.0, volume.value + steps * 0.05))
+              root.service.setCastVolume(castVol)
+            } else if (root.sink && root.sink.audio) {
+              var newVol = Math.max(0, Math.min(1.5, root.sink.audio.volume + steps * 0.05))
+              root.sink.audio.volume = newVol
+            }
           }
           event.accepted = true
         }

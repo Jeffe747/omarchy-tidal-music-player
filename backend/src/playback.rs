@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BtsManifest {
+    #[serde(rename = "mimeType")]
+    pub mime_type: Option<String>,
     #[serde(rename = "encryptionType")]
     pub encryption_type: Option<String>,
     pub urls: Vec<String>,
@@ -31,6 +33,13 @@ impl PlaybackEngine {
     }
 
     pub fn parse_stream_url(manifest_mime: &str, base64_data: &str) -> Result<String, String> {
+        Self::parse_stream_url_and_mime(manifest_mime, base64_data).map(|(url, _)| url)
+    }
+
+    pub fn parse_stream_url_and_mime(
+        manifest_mime: &str,
+        base64_data: &str,
+    ) -> Result<(String, String), String> {
         let decoded = BASE64_STANDARD
             .decode(base64_data.trim())
             .map_err(|e| format!("Base64 decode error: {e}"))?;
@@ -45,8 +54,11 @@ impl PlaybackEngine {
                         .to_string(),
                 );
             }
+            let mime = manifest
+                .mime_type
+                .unwrap_or_else(|| "audio/flac".to_string());
             if let Some(url) = manifest.urls.first() {
-                Ok(url.clone())
+                Ok((url.clone(), mime))
             } else {
                 Err("No stream URLs found in BTS manifest".to_string())
             }
@@ -58,7 +70,10 @@ impl PlaybackEngine {
             let mpd_path =
                 PathBuf::from(runtime_dir).join(format!("tidal-stream-{}.mpd", std::process::id()));
             std::fs::write(&mpd_path, decoded).map_err(|e| format!("Failed to write MPD: {e}"))?;
-            Ok(mpd_path.to_string_lossy().to_string())
+            Ok((
+                mpd_path.to_string_lossy().to_string(),
+                "application/dash+xml".to_string(),
+            ))
         } else {
             Err(format!("Unsupported manifest MIME type: {manifest_mime}"))
         }
@@ -320,7 +335,7 @@ mod tests {
             cast_device_name: None,
             cast_state: crate::cast::CastState::Idle,
             cast_session: None,
-            stream_proxy: std::sync::Arc::new(crate::cast::proxy::StreamProxy::new().unwrap()),
+            stream_proxy: crate::cast::proxy::StreamProxy::new().ok().map(std::sync::Arc::new),
             cast_discovery: std::sync::Arc::new(crate::cast::discovery::CastDiscovery::new()),
         };
         let auth = crate::auth::AuthManager::new(None);

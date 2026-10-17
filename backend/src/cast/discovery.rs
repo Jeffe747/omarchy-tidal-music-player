@@ -71,7 +71,12 @@ impl CastDiscovery {
                     let packet = &buf[..len];
                     if let Some(device) = parse_cast_mdns_packet(packet, src) {
                         if let Ok(mut cache) = self.cache.lock() {
-                            cache.insert(device.id.clone(), (device, Instant::now()));
+                            if cache.len() >= 64 {
+                                cache.retain(|_, (_, ts)| ts.elapsed() < Duration::from_secs(60));
+                            }
+                            if cache.len() < 64 {
+                                cache.insert(device.id.clone(), (device, Instant::now()));
+                            }
                         }
                     }
                 }
@@ -154,7 +159,7 @@ fn create_mdns_socket() -> std::io::Result<UdpSocket> {
 }
 
 pub fn parse_cast_mdns_packet(data: &[u8], src: SocketAddr) -> Option<CastDevice> {
-    if data.len() < 12 {
+    if data.len() < 12 || !data.windows(11).any(|w| w == b"_googlecast") {
         return None;
     }
 

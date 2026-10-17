@@ -46,6 +46,7 @@ impl StreamProxy {
 
     pub fn register_track(&self, track_id: u64, stream_url: String, mime_type: String) {
         if let Ok(mut tracks) = self.tracks.lock() {
+            tracks.clear();
             tracks.insert(track_id, TrackStreamInfo { stream_url, mime_type });
         }
     }
