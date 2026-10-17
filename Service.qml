@@ -97,6 +97,7 @@ Item {
       castDeviceName = ""
       castState = "idle"
       castDevices = []
+      castDiscoverTimeout.stop()
       castDiscovering = false
       castError = ""
     }
@@ -116,7 +117,7 @@ Item {
   Process {
     id: binaryCheckProc
     command: ["sh", "-c",
-      'sys_bin="$(command -v tidal-daemon 2>/dev/null || true)"; if [ "$4" = dev ]; then path="$3"; if test -f "$path" && test -x "$path"; then printf "%s\\n" "$path"; exit 0; fi; else for path in "$1" "$3" "$sys_bin" "/usr/bin/tidal-daemon" "$2"; do if test -n "$path" && test -f "$path" && test -x "$path"; then if [ -z "${TIDAL_TEST_MODE:-}" ] && [ "$path" = "$1" ]; then arch="$(uname -m)"; case "$arch" in x86_64|amd64) expected="df3611f60de58156db32899042c7a4e749f7eb32a8c555d803d1ebbe2632c81c" ;; aarch64|arm64) expected="9ebf30e2e8bdea09720c2621f0a28ae2188045bfae61830ca8c8e6a3057ee023" ;; *) expected="" ;; esac; actual="$(sha256sum "$path" 2>/dev/null || shasum -a 256 "$path" 2>/dev/null || true)"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then continue; fi; fi; printf "%s\\n" "$path"; exit 0; fi; done; fi; exit 1',
+      'sys_bin="$(command -v tidal-daemon 2>/dev/null || true)"; if [ "$4" = dev ]; then path="$3"; if test -f "$path" && test -x "$path"; then printf "%s\\n" "$path"; exit 0; fi; else for path in "$1" "$3" "$sys_bin" "/usr/bin/tidal-daemon" "$2"; do if test -n "$path" && test -f "$path" && test -x "$path"; then if [ -z "${TIDAL_TEST_MODE:-}" ] && [ "$path" = "$1" ]; then arch="$(uname -m)"; case "$arch" in x86_64|amd64) expected="dd6410e85d78b8acaeb1b454dac06413762f7ad18b5c39de4b64509b343c1723" ;; aarch64|arm64) expected="9ebf30e2e8bdea09720c2621f0a28ae2188045bfae61830ca8c8e6a3057ee023" ;; *) expected="" ;; esac; actual="$(sha256sum "$path" 2>/dev/null || shasum -a 256 "$path" 2>/dev/null || true)"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then continue; fi; fi; printf "%s\\n" "$path"; exit 0; fi; done; fi; exit 1',
       "tidal-binary-check", root.bundledBinaryPath, root.developmentBinaryPath, root.stateBinaryPath, root.channel]
     stdout: StdioCollector { id: binaryCheckOutput }
     running: false
@@ -162,7 +163,7 @@ Item {
 
   Process {
     id: bootstrapProc
-    command: ["sh", "-c", 'set -eu; arch="$(uname -m)"; case "$arch" in x86_64|amd64) asset=tidal-daemon-x86_64; expected=df3611f60de58156db32899042c7a4e749f7eb32a8c555d803d1ebbe2632c81c ;; aarch64|arm64) asset=tidal-daemon-aarch64; expected=9ebf30e2e8bdea09720c2621f0a28ae2188045bfae61830ca8c8e6a3057ee023 ;; *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; esac; channel="${2:-stable}"; tag="v1.0.63"; check_mode="hardcoded"; if [ "$channel" = "dev" ]; then tag="dev"; check_mode="remote"; fi; base_url="https://github.com/Jeffe747/omarchy-tidal-music-player/releases/download/${tag}"; if [ "$check_mode" = "remote" ]; then if command -v curl >/dev/null 2>&1; then expected="$(curl -fsSL "${base_url}/SHA256SUMS" | grep -F " ${asset}" | cut -d" " -f1)"; elif command -v wget >/dev/null 2>&1; then expected="$(wget -qO- "${base_url}/SHA256SUMS" | grep -F " ${asset}" | cut -d" " -f1)"; fi; fi; dest="$1"; mkdir -p "$(dirname "$dest")"; tmp="${dest}.tmp.$$"; if command -v curl >/dev/null 2>&1; then curl -fL --retry 2 "${base_url}/${asset}" -o "$tmp" || { rm -f "$tmp"; exit 1; }; elif command -v wget >/dev/null 2>&1; then wget -O "$tmp" "${base_url}/${asset}" || { rm -f "$tmp"; exit 1; }; else echo "curl or wget is required" >&2; exit 1; fi; actual="$(sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp")"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then echo "Checksum verification failed: expected $expected, got $actual" >&2; rm -f "$tmp"; exit 2; fi; chmod +x "$tmp"; mv -f "$tmp" "$dest"', "tidal-bootstrap", root.stateBinaryPath, root.channel]
+    command: ["sh", "-c", 'set -eu; arch="$(uname -m)"; case "$arch" in x86_64|amd64) asset=tidal-daemon-x86_64; expected=dd6410e85d78b8acaeb1b454dac06413762f7ad18b5c39de4b64509b343c1723 ;; aarch64|arm64) asset=tidal-daemon-aarch64; expected=9ebf30e2e8bdea09720c2621f0a28ae2188045bfae61830ca8c8e6a3057ee023 ;; *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; esac; channel="${2:-stable}"; tag="v1.0.63"; check_mode="hardcoded"; if [ "$channel" = "dev" ]; then tag="dev"; check_mode="remote"; fi; base_url="https://github.com/Jeffe747/omarchy-tidal-music-player/releases/download/${tag}"; if [ "$check_mode" = "remote" ]; then if command -v curl >/dev/null 2>&1; then expected="$(curl -fsSL "${base_url}/SHA256SUMS" | grep -F " ${asset}" | cut -d" " -f1)"; elif command -v wget >/dev/null 2>&1; then expected="$(wget -qO- "${base_url}/SHA256SUMS" | grep -F " ${asset}" | cut -d" " -f1)"; fi; fi; dest="$1"; mkdir -p "$(dirname "$dest")"; tmp="${dest}.tmp.$$"; if command -v curl >/dev/null 2>&1; then curl -fL --retry 2 "${base_url}/${asset}" -o "$tmp" || { rm -f "$tmp"; exit 1; }; elif command -v wget >/dev/null 2>&1; then wget -O "$tmp" "${base_url}/${asset}" || { rm -f "$tmp"; exit 1; }; else echo "curl or wget is required" >&2; exit 1; fi; actual="$(sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp")"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then echo "Checksum verification failed: expected $expected, got $actual" >&2; rm -f "$tmp"; exit 2; fi; chmod +x "$tmp"; mv -f "$tmp" "$dest"', "tidal-bootstrap", root.stateBinaryPath, root.channel]
     running: false
     onExited: function(exitCode) {
       root.bootstrapping = false
@@ -298,6 +299,16 @@ Item {
         if (!socketLoader.active) socketLoader.active = true
         else if (root.daemonSocket) root.daemonSocket.connected = true
       }
+    }
+  }
+
+  Timer {
+    id: castDiscoverTimeout
+    interval: 6000
+    repeat: false
+    running: false
+    onTriggered: {
+      root.castDiscovering = false
     }
   }
 
@@ -518,9 +529,11 @@ Item {
       root.trackLoading = false
       root.playbackError = msg.error || "Unable to play track"
     } else if (msg.type === "cast_devices_discovered") {
+      castDiscoverTimeout.stop()
       root.castDiscovering = false
       root.castDevices = msg.devices || []
     } else if (msg.type === "cast_error") {
+      castDiscoverTimeout.stop()
       root.castDiscovering = false
       root.castError = msg.error || "Chromecast error"
     }
@@ -714,12 +727,14 @@ Item {
   function discoverCastDevices() {
     root.castDiscovering = true
     root.castError = ""
+    castDiscoverTimeout.restart()
     sendCommand({ "command": "discover_cast_devices" })
   }
 
   function refreshCastDevices() {
     root.castDiscovering = true
     root.castError = ""
+    castDiscoverTimeout.restart()
     sendCommand({ "command": "refresh_cast_devices" })
   }
 
