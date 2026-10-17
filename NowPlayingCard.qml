@@ -86,10 +86,11 @@ Column {
         Ui.PanelActionButton {
           id: chromecast
           objectName: "tidalChromecastButton"
-          visible: false
+          visible: true
           size: Style.spacing.controlHeight
           iconText: "󰄘"
-          tooltipText: "Chromecast"
+          tooltipText: root.service && root.service.castActive ? ("Casting to " + (root.service.castDeviceName || "Chromecast")) : "Cast Audio"
+          foreground: root.service && root.service.castActive ? Color.accent : Color.foreground
           Accessible.role: Accessible.Button
           Accessible.name: tooltipText
           onClicked: root.chromecastRequested()
@@ -234,7 +235,10 @@ Column {
       maximum: 1.5
       value: root.sink && root.sink.audio ? root.sink.audio.volume : 0
       tickCount: 4
-      onMoved: function(v) { if (root.sink && root.sink.audio) root.sink.audio.volume = v }
+      onMoved: function(v) {
+        if (root.sink && root.sink.audio) root.sink.audio.volume = v
+        if (root.service && root.service.castActive) root.service.setCastVolume(Math.min(1.0, v))
+      }
       onRightClicked: if (root.sink && root.sink.audio) root.sink.audio.muted = !root.sink.audio.muted
       WheelHandler {
         acceptedDevices: PointerDevice.Mouse
@@ -243,7 +247,9 @@ Column {
           var steps = Math.trunc(root.wheelRemainder / 120)
           if (steps && root.sink && root.sink.audio) {
             root.wheelRemainder -= steps * 120
-            root.sink.audio.volume = Math.max(0, Math.min(1.5, root.sink.audio.volume + steps * 0.05))
+            var newVol = Math.max(0, Math.min(1.5, root.sink.audio.volume + steps * 0.05))
+            root.sink.audio.volume = newVol
+            if (root.service && root.service.castActive) root.service.setCastVolume(Math.min(1.0, newVol))
           }
           event.accepted = true
         }

@@ -16,9 +16,6 @@ import qs.Ui as Ui
 Ui.TextField {
   id: root
 
-  signal textEdited()
-  signal accepted()
-
   readOnly: true
   Component.onCompleted: if (root.contentItem) root.contentItem.textFormat = Text.PlainText
   maximumLength: 1024

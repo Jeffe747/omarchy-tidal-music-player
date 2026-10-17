@@ -316,6 +316,12 @@ mod tests {
             track_has_started: false,
             shuffle: false,
             repeat_mode: "off".to_string(),
+            cast_active: false,
+            cast_device_name: None,
+            cast_state: crate::cast::CastState::Idle,
+            cast_session: None,
+            stream_proxy: std::sync::Arc::new(crate::cast::proxy::StreamProxy::new().unwrap()),
+            cast_discovery: std::sync::Arc::new(crate::cast::discovery::CastDiscovery::new()),
         };
         let auth = crate::auth::AuthManager::new(None);
         let status = crate::build_status_message(&auth, &player);

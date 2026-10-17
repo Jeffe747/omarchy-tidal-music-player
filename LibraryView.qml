@@ -214,10 +214,10 @@ Column {
   }
   Text {
     objectName: "tidalFavoritesState"
-    visible: root.view === "favorites" && !!root.service && !root.service.favoritesLoading && (root.service.favoritesError || root.service.favorites.length === 0)
+    visible: root.view === "favorites" && !!root.service && (root.service.favoritesLoading || root.service.favoritesError || root.service.favorites.length === 0)
     width: parent.width
     textFormat: Text.PlainText
-    text: !root.service ? "" : (root.service.favoritesError || "No favorite tracks yet. Add favorites in Tidal.")
+    text: !root.service ? "" : (root.service.favoritesLoading ? "Loading favorites..." : (root.service.favoritesError || "No favorite tracks yet. Add favorites in Tidal."))
     color: root.service && root.service.favoritesError ? Color.urgent : Color.muted
     font.family: Style.font.family
     font.pixelSize: Style.font.caption

@@ -405,6 +405,8 @@ dependencies = [
  "base64",
  "dbus",
  "libc",
+ "rustls",
+ "rustls-pki-types",
  "serde",
  "serde_json",
  "ureq",

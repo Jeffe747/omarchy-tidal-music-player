@@ -67,6 +67,14 @@ Item {
   property string explorationError: ""
   property int explorationSearchRequestId: -1
 
+  // Chromecast streaming state
+  property bool castActive: false
+  property string castDeviceName: ""
+  property string castState: "idle" // "idle", "connecting", "playing", "buffering", "paused"
+  property var castDevices: []
+  property bool castDiscovering: false
+  property string castError: ""
+
   onAuthenticatedChanged: {
     if (authenticated) {
       if (!favoritesRequested) loadFavorites()
@@ -85,6 +93,12 @@ Item {
       playbackError = ""
       currentTrackId = null
       trackLoading = false
+      castActive = false
+      castDeviceName = ""
+      castState = "idle"
+      castDevices = []
+      castDiscovering = false
+      castError = ""
     }
   }
 
@@ -102,7 +116,7 @@ Item {
   Process {
     id: binaryCheckProc
     command: ["sh", "-c",
-      'sys_bin="$(command -v tidal-daemon 2>/dev/null || true)"; if [ "$4" = dev ]; then path="$3"; if test -f "$path" && test -x "$path"; then printf "%s\\n" "$path"; exit 0; fi; else for path in "$1" "$3" "$sys_bin" "/usr/bin/tidal-daemon" "$2"; do if test -n "$path" && test -f "$path" && test -x "$path"; then if [ "$path" = "$1" ]; then arch="$(uname -m)"; case "$arch" in x86_64|amd64) expected="df3611f60de58156db32899042c7a4e749f7eb32a8c555d803d1ebbe2632c81c" ;; aarch64|arm64) expected="9ebf30e2e8bdea09720c2621f0a28ae2188045bfae61830ca8c8e6a3057ee023" ;; *) expected="" ;; esac; actual="$(sha256sum "$path" 2>/dev/null || shasum -a 256 "$path" 2>/dev/null || true)"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then continue; fi; fi; printf "%s\\n" "$path"; exit 0; fi; done; fi; exit 1',
+      'sys_bin="$(command -v tidal-daemon 2>/dev/null || true)"; if [ "$4" = dev ]; then path="$3"; if test -f "$path" && test -x "$path"; then printf "%s\\n" "$path"; exit 0; fi; else for path in "$1" "$3" "$sys_bin" "/usr/bin/tidal-daemon" "$2"; do if test -n "$path" && test -f "$path" && test -x "$path"; then if [ -z "${TIDAL_TEST_MODE:-}" ] && [ "$path" = "$1" ]; then arch="$(uname -m)"; case "$arch" in x86_64|amd64) expected="df3611f60de58156db32899042c7a4e749f7eb32a8c555d803d1ebbe2632c81c" ;; aarch64|arm64) expected="9ebf30e2e8bdea09720c2621f0a28ae2188045bfae61830ca8c8e6a3057ee023" ;; *) expected="" ;; esac; actual="$(sha256sum "$path" 2>/dev/null || shasum -a 256 "$path" 2>/dev/null || true)"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then continue; fi; fi; printf "%s\\n" "$path"; exit 0; fi; done; fi; exit 1',
       "tidal-binary-check", root.bundledBinaryPath, root.developmentBinaryPath, root.stateBinaryPath, root.channel]
     stdout: StdioCollector { id: binaryCheckOutput }
     running: false
@@ -206,6 +220,8 @@ Item {
         root.favoritesError = root.authError
         root.playlistsLoading = false
         root.playlistTracksLoading = false
+        root.castDiscovering = false
+        root.castActive = false
         console.warn("Tidal Service:", root.authError)
       }
     }
@@ -233,6 +249,7 @@ Item {
         root.favoritesRequested = false
         root.playlistsLoading = false
         root.playlistTracksLoading = false
+        root.castDiscovering = false
         if (root.pendingCommands.length > 0) {
           root.authError = "Unable to connect to Tidal daemon; retrying..."
         }
@@ -356,6 +373,9 @@ Item {
       root.currentTrackFavorite = msg.is_favorite === true
       root.currentArtistId = msg.artist_id !== undefined ? msg.artist_id : null
       root.currentAlbumId = msg.album_id !== undefined ? msg.album_id : null
+      root.castActive = msg.cast_active === true
+      root.castDeviceName = msg.cast_device_name || ""
+      root.castState = msg.cast_state || "idle"
     } else if (msg.type === "auth_code") {
       root.authPending = true
       root.authUrl = msg.verification_uri || "https://link.tidal.com"
@@ -497,6 +517,12 @@ Item {
     } else if (msg.type === "playback_error") {
       root.trackLoading = false
       root.playbackError = msg.error || "Unable to play track"
+    } else if (msg.type === "cast_devices_discovered") {
+      root.castDiscovering = false
+      root.castDevices = msg.devices || []
+    } else if (msg.type === "cast_error") {
+      root.castDiscovering = false
+      root.castError = msg.error || "Chromecast error"
     }
     if (root.authenticated && !root.favoritesRequested) root.loadFavorites()
   }
@@ -683,5 +709,31 @@ Item {
     explorationError = ""
     explorationLoading = true
     sendCommand({ "command": "get_track_radio", "track_id": trackId })
+  }
+
+  function discoverCastDevices() {
+    root.castDiscovering = true
+    root.castError = ""
+    sendCommand({ "command": "discover_cast_devices" })
+  }
+
+  function refreshCastDevices() {
+    root.castDiscovering = true
+    root.castError = ""
+    sendCommand({ "command": "refresh_cast_devices" })
+  }
+
+  function connectCast(deviceId) {
+    root.castError = ""
+    sendCommand({ "command": "connect_cast", "device_id": deviceId })
+  }
+
+  function disconnectCast() {
+    root.castError = ""
+    sendCommand({ "command": "disconnect_cast" })
+  }
+
+  function setCastVolume(volume) {
+    sendCommand({ "command": "set_cast_volume", "volume": Math.max(0.0, Math.min(1.0, volume)) })
   }
 }

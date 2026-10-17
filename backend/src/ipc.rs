@@ -1,4 +1,5 @@
 use crate::api::{cover_url, Playlist, TrackItem};
+use crate::cast::CastDevice;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::Write;
@@ -106,6 +107,12 @@ pub enum PlayerMessage<'a> {
     PlaybackError {
         error: &'a str,
     },
+    CastDevicesDiscovered {
+        devices: Vec<CastDevice>,
+    },
+    CastError {
+        error: &'a str,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,6 +140,14 @@ pub struct IpcCommand {
     pub album_id: Option<u64>,
     #[serde(default)]
     pub artist_id: Option<u64>,
+    #[serde(default)]
+    pub device_id: Option<String>,
+    #[serde(default)]
+    pub volume: Option<f64>,
+}
+
+fn default_cast_state() -> String {
+    "idle".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -171,6 +186,12 @@ pub struct IpcStateMessage {
     pub artist_id: Option<u64>,
     #[serde(default)]
     pub album_id: Option<u64>,
+    #[serde(default)]
+    pub cast_active: bool,
+    #[serde(default)]
+    pub cast_device_name: Option<String>,
+    #[serde(default = "default_cast_state")]
+    pub cast_state: String,
 }
 
 #[derive(Clone)]
@@ -327,14 +348,66 @@ mod tests {
             is_favorite: true,
             artist_id: Some(11),
             album_id: Some(22),
+            cast_active: false,
+            cast_device_name: None,
+            cast_state: "idle".to_string(),
         };
 
         let serialized = serde_json::to_string(&msg).unwrap();
         assert!(serialized.contains(r#""type":"status""#));
         assert!(serialized.contains(r#""authenticated":true"#));
+        assert!(serialized.contains(r#""cast_active":false"#));
+        assert!(serialized.contains(r#""cast_state":"idle""#));
 
         let deserialized: IpcStateMessage = serde_json::from_str(&serialized).unwrap();
         assert_eq!(deserialized, msg);
+    }
+
+    #[test]
+    fn test_cast_commands_and_messages_serialization() {
+        let discover: IpcCommand =
+            serde_json::from_str(r#"{"command":"discover_cast_devices"}"#).unwrap();
+        assert_eq!(discover.command, "discover_cast_devices");
+
+        let refresh: IpcCommand =
+            serde_json::from_str(r#"{"command":"refresh_cast_devices"}"#).unwrap();
+        assert_eq!(refresh.command, "refresh_cast_devices");
+
+        let connect: IpcCommand =
+            serde_json::from_str(r#"{"command":"connect_cast","device_id":"cast-123"}"#).unwrap();
+        assert_eq!(connect.command, "connect_cast");
+        assert_eq!(connect.device_id.as_deref(), Some("cast-123"));
+
+        let disconnect: IpcCommand =
+            serde_json::from_str(r#"{"command":"disconnect_cast"}"#).unwrap();
+        assert_eq!(disconnect.command, "disconnect_cast");
+
+        let vol: IpcCommand =
+            serde_json::from_str(r#"{"command":"set_cast_volume","volume":0.75}"#).unwrap();
+        assert_eq!(vol.command, "set_cast_volume");
+        assert_eq!(vol.volume, Some(0.75));
+
+        let device = CastDevice {
+            id: "device-1".to_string(),
+            name: "Living Room Speaker".to_string(),
+            model: "Chromecast Audio".to_string(),
+            ip: "192.168.1.50".to_string(),
+            port: 8009,
+        };
+        let msg = PlayerMessage::CastDevicesDiscovered {
+            devices: vec![device.clone()],
+        };
+        let val = serde_json::to_value(&msg).unwrap();
+        assert_eq!(val["type"], "cast_devices_discovered");
+        assert_eq!(val["devices"][0]["name"], "Living Room Speaker");
+        assert_eq!(val["devices"][0]["model"], "Chromecast Audio");
+
+        let err_msg = PlayerMessage::CastError {
+            error: "Device connection timed out",
+        };
+        let err_val = serde_json::to_value(&err_msg).unwrap();
+        assert_eq!(err_val["type"], "cast_error");
+        assert_eq!(err_val["error"], "Device connection timed out");
     }
 
     #[test]
