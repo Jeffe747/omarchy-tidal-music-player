@@ -202,7 +202,6 @@ impl AuthManager {
         Ok(())
     }
 
-    #[cfg(test)]
     pub fn is_authenticated(&self) -> bool {
         self.load_session()
             .map(|s| !s.access_token.is_empty())

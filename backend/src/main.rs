@@ -13,12 +13,13 @@ use auth::AuthManager;
 use ipc::{FavoriteTrack, IpcCommand, IpcServer, IpcStateMessage, PlayerMessage};
 use playback::PlaybackEngine;
 use std::io::{BufRead, BufReader};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 
 pub(crate) static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 pub(crate) static FAVORITES_LOADING: AtomicBool = AtomicBool::new(false);
+pub(crate) static PLAY_REQUEST_ID: AtomicU64 = AtomicU64::new(0);
 
 extern "C" fn request_shutdown(_: libc::c_int) {
     SHUTDOWN.store(true, Ordering::Relaxed);
@@ -281,11 +282,11 @@ fn load_favorites_async(
     }
     thread::spawn(move || {
         let result = (|| -> Result<(), String> {
-            let (api, user_id) = api_client(&auth)?;
-            let user_id = user_id.ok_or("Session has no user ID; please sign in again")?;
-
             // 1. Fetch first batch (offset 0, limit 100) immediately
-            let (first_tracks, count, total) = api.get_favorites_page(user_id, 0, 100)?;
+            let (first_tracks, count, total) = api_call(&auth, |api, user_id| {
+                let uid = user_id.ok_or("Session has no user ID; please sign in again")?;
+                api.get_favorites_page(uid, 0, 100)
+            })?;
             let has_more = total.map(|t| (count as u64) < t).unwrap_or(count == 100);
 
             {
@@ -314,8 +315,14 @@ fn load_favorites_async(
             let mut total_loaded = count;
 
             while !SHUTDOWN.load(Ordering::Relaxed) {
-                let (page_tracks, page_count, _) = api.get_favorites_page(user_id, offset, limit)?;
-                if page_count == 0 {
+                if !auth.is_authenticated() {
+                    return Ok(());
+                }
+                let (page_tracks, page_count, _) = api_call(&auth, |api, user_id| {
+                    let uid = user_id.ok_or("Session has no user ID; please sign in again")?;
+                    api.get_favorites_page(uid, offset, limit)
+                })?;
+                if !auth.is_authenticated() || page_count == 0 {
                     break;
                 }
                 total_loaded += page_count;
@@ -342,9 +349,11 @@ fn load_favorites_async(
                 }
             }
 
-            ipc.broadcast(&PlayerMessage::FavoritesComplete {
-                total: total_loaded,
-            });
+            if auth.is_authenticated() {
+                ipc.broadcast(&PlayerMessage::FavoritesComplete {
+                    total: total_loaded,
+                });
+            }
             Ok(())
         })();
 
@@ -473,6 +482,7 @@ fn toggle_favorite(
     ipc.broadcast(&PlayerMessage::FavoriteUpdated {
         track_id,
         is_favorite: is_fav,
+        track: is_fav.then(|| FavoriteTrack::from(&track)),
     });
     let state = player.lock().map_err(|e| e.to_string())?;
     ipc.broadcast(&build_status_message(auth, &state));
@@ -546,6 +556,7 @@ fn play_track(
     track_id: Option<u64>,
 ) -> Result<(), String> {
     let id = track_id.ok_or("play_track requires track_id")?;
+    let req_id = PLAY_REQUEST_ID.fetch_add(1, Ordering::SeqCst) + 1;
     let (cached_track, preferred_quality) = {
         let p = player.lock().map_err(|e| e.to_string())?;
         let track = p
@@ -574,6 +585,9 @@ fn play_track(
     log::write(&format!("Playback manifest MIME: {mime}"));
 
     let mut player = player.lock().map_err(|e| e.to_string())?;
+    if req_id != PLAY_REQUEST_ID.load(Ordering::SeqCst) {
+        return Ok(());
+    }
     if !player.queue.iter().any(|item| item.id == id) {
         if player.favorites.iter().any(|item| item.id == id) {
             player.queue = player.favorites.clone();

@@ -339,7 +339,7 @@ Column {
       }
       Text {
         textFormat: Text.PlainText
-        text: "Loading more tracks (" + root.service.favorites.length + (root.service.favoritesTotal ? " / " + root.service.favoritesTotal : "") + ")…"
+        text: root.service ? "Loading more tracks (" + root.service.favorites.length + (root.service.favoritesTotal ? " / " + root.service.favoritesTotal : "") + ")…" : ""
         color: Color.muted
         font.family: Style.font.family
         font.pixelSize: Style.font.caption

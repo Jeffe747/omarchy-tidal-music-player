@@ -64,6 +64,8 @@ pub enum PlayerMessage<'a> {
     FavoriteUpdated {
         track_id: u64,
         is_favorite: bool,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        track: Option<FavoriteTrack<'a>>,
     },
     FavoritesError {
         error: &'a str,
@@ -414,10 +416,13 @@ mod tests {
         let fav_upd = PlayerMessage::FavoriteUpdated {
             track_id: 42,
             is_favorite: true,
+            track: Some(FavoriteTrack::from(&track)),
         };
         let fav_upd_val = serde_json::to_value(fav_upd).unwrap();
         assert_eq!(fav_upd_val["type"], "favorite_updated");
         assert_eq!(fav_upd_val["track_id"], 42);
         assert_eq!(fav_upd_val["is_favorite"], true);
+        assert_eq!(fav_upd_val["track"]["id"], 42);
+        assert_eq!(fav_upd_val["track"]["title"], "Song");
     }
 }

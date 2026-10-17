@@ -67,7 +67,7 @@ fn new_ui_ipc_commands_and_status_fields_deserialize() {
 #[test]
 fn test_favorites_loading_atomic_guard() {
     use std::sync::atomic::Ordering;
-    use crate::FAVORITES_LOADING;
+    use crate::{FAVORITES_LOADING, PLAY_REQUEST_ID};
 
     // Verify atomic guard prevents concurrent loading loops
     assert!(!FAVORITES_LOADING.load(Ordering::SeqCst));
@@ -79,4 +79,11 @@ fn test_favorites_loading_atomic_guard() {
         .is_err());
     FAVORITES_LOADING.store(false, Ordering::SeqCst);
     assert!(!FAVORITES_LOADING.load(Ordering::SeqCst));
+
+    // Verify monotonic PLAY_REQUEST_ID invalidates older in-flight requests
+    let req1 = PLAY_REQUEST_ID.fetch_add(1, Ordering::SeqCst) + 1;
+    let req2 = PLAY_REQUEST_ID.fetch_add(1, Ordering::SeqCst) + 1;
+    assert!(req2 > req1);
+    assert_ne!(req1, PLAY_REQUEST_ID.load(Ordering::SeqCst));
+    assert_eq!(req2, PLAY_REQUEST_ID.load(Ordering::SeqCst));
 }

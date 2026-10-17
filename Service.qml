@@ -102,7 +102,7 @@ Item {
   Process {
     id: binaryCheckProc
     command: ["sh", "-c",
-      'sys_bin="$(command -v tidal-daemon 2>/dev/null || true)"; if [ "$4" = dev ]; then path="$3"; if test -f "$path" && test -x "$path"; then printf "%s\\n" "$path"; exit 0; fi; else for path in "$1" "$3" "$sys_bin" "/usr/bin/tidal-daemon" "$2"; do if test -n "$path" && test -f "$path" && test -x "$path"; then if [ "$path" = "$1" ]; then arch="$(uname -m)"; case "$arch" in x86_64|amd64) expected="7a33871a3c899049a249bc34c66b4e3629daaa6a3aa29f8557c1243f7fe68eb3" ;; aarch64|arm64) expected="c9a10114e1f4bbcdbe61856cf4d5c29cae2fcbd88973f7bf8f8064f4049b8d84" ;; *) expected="" ;; esac; actual="$(sha256sum "$path" 2>/dev/null || shasum -a 256 "$path" 2>/dev/null || true)"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then continue; fi; fi; printf "%s\\n" "$path"; exit 0; fi; done; fi; exit 1',
+      'sys_bin="$(command -v tidal-daemon 2>/dev/null || true)"; if [ "$4" = dev ]; then path="$3"; if test -f "$path" && test -x "$path"; then printf "%s\\n" "$path"; exit 0; fi; else for path in "$1" "$3" "$sys_bin" "/usr/bin/tidal-daemon" "$2"; do if test -n "$path" && test -f "$path" && test -x "$path"; then if [ "$path" = "$1" ]; then arch="$(uname -m)"; case "$arch" in x86_64|amd64) expected="102e714ba617f9e3ceaa786f26036a2687a95da8ded2eb683a1ccbfd9b9ab43e" ;; aarch64|arm64) expected="c9a10114e1f4bbcdbe61856cf4d5c29cae2fcbd88973f7bf8f8064f4049b8d84" ;; *) expected="" ;; esac; actual="$(sha256sum "$path" 2>/dev/null || shasum -a 256 "$path" 2>/dev/null || true)"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then continue; fi; fi; printf "%s\\n" "$path"; exit 0; fi; done; fi; exit 1',
       "tidal-binary-check", root.bundledBinaryPath, root.developmentBinaryPath, root.stateBinaryPath, root.channel]
     stdout: StdioCollector { id: binaryCheckOutput }
     running: false
@@ -148,7 +148,7 @@ Item {
 
   Process {
     id: bootstrapProc
-    command: ["sh", "-c", 'set -eu; arch="$(uname -m)"; case "$arch" in x86_64|amd64) asset=tidal-daemon-x86_64; expected=7a33871a3c899049a249bc34c66b4e3629daaa6a3aa29f8557c1243f7fe68eb3 ;; aarch64|arm64) asset=tidal-daemon-aarch64; expected=c9a10114e1f4bbcdbe61856cf4d5c29cae2fcbd88973f7bf8f8064f4049b8d84 ;; *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; esac; channel="${2:-stable}"; tag="v1.0.62"; check_mode="hardcoded"; if [ "$channel" = "dev" ]; then tag="dev"; check_mode="remote"; fi; base_url="https://github.com/Jeffe747/omarchy-tidal-music-player/releases/download/${tag}"; if [ "$check_mode" = "remote" ]; then if command -v curl >/dev/null 2>&1; then expected="$(curl -fsSL "${base_url}/SHA256SUMS" | grep -F " ${asset}" | cut -d" " -f1)"; elif command -v wget >/dev/null 2>&1; then expected="$(wget -qO- "${base_url}/SHA256SUMS" | grep -F " ${asset}" | cut -d" " -f1)"; fi; fi; dest="$1"; mkdir -p "$(dirname "$dest")"; tmp="${dest}.tmp.$$"; if command -v curl >/dev/null 2>&1; then curl -fL --retry 2 "${base_url}/${asset}" -o "$tmp" || { rm -f "$tmp"; exit 1; }; elif command -v wget >/dev/null 2>&1; then wget -O "$tmp" "${base_url}/${asset}" || { rm -f "$tmp"; exit 1; }; else echo "curl or wget is required" >&2; exit 1; fi; actual="$(sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp")"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then echo "Checksum verification failed: expected $expected, got $actual" >&2; rm -f "$tmp"; exit 2; fi; chmod +x "$tmp"; mv -f "$tmp" "$dest"', "tidal-bootstrap", root.stateBinaryPath, root.channel]
+    command: ["sh", "-c", 'set -eu; arch="$(uname -m)"; case "$arch" in x86_64|amd64) asset=tidal-daemon-x86_64; expected=102e714ba617f9e3ceaa786f26036a2687a95da8ded2eb683a1ccbfd9b9ab43e ;; aarch64|arm64) asset=tidal-daemon-aarch64; expected=c9a10114e1f4bbcdbe61856cf4d5c29cae2fcbd88973f7bf8f8064f4049b8d84 ;; *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; esac; channel="${2:-stable}"; tag="v1.0.62"; check_mode="hardcoded"; if [ "$channel" = "dev" ]; then tag="dev"; check_mode="remote"; fi; base_url="https://github.com/Jeffe747/omarchy-tidal-music-player/releases/download/${tag}"; if [ "$check_mode" = "remote" ]; then if command -v curl >/dev/null 2>&1; then expected="$(curl -fsSL "${base_url}/SHA256SUMS" | grep -F " ${asset}" | cut -d" " -f1)"; elif command -v wget >/dev/null 2>&1; then expected="$(wget -qO- "${base_url}/SHA256SUMS" | grep -F " ${asset}" | cut -d" " -f1)"; fi; fi; dest="$1"; mkdir -p "$(dirname "$dest")"; tmp="${dest}.tmp.$$"; if command -v curl >/dev/null 2>&1; then curl -fL --retry 2 "${base_url}/${asset}" -o "$tmp" || { rm -f "$tmp"; exit 1; }; elif command -v wget >/dev/null 2>&1; then wget -O "$tmp" "${base_url}/${asset}" || { rm -f "$tmp"; exit 1; }; else echo "curl or wget is required" >&2; exit 1; fi; actual="$(sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp")"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then echo "Checksum verification failed: expected $expected, got $actual" >&2; rm -f "$tmp"; exit 2; fi; chmod +x "$tmp"; mv -f "$tmp" "$dest"', "tidal-bootstrap", root.stateBinaryPath, root.channel]
     running: false
     onExited: function(exitCode) {
       root.bootstrapping = false
@@ -335,6 +335,7 @@ Item {
         root.authError = ""
       }
       root.isPlaying = msg.is_playing === true
+      root.trackLoading = false
       root.currentTrackId = msg.track_id !== undefined ? msg.track_id : null
       root.trackTitle = msg.track_title || ""
       root.trackArtist = msg.track_artist || ""
@@ -403,6 +404,7 @@ Item {
       }
       root.favoritesMap = initialMap
     } else if (msg.type === "favorites_progress") {
+      if (!root.authenticated) return;
       var moreTracks = msg.tracks || []
       if (moreTracks.length > 0) {
         root.favorites = root.favorites.concat(moreTracks)
@@ -415,6 +417,7 @@ Item {
       if (msg.total !== undefined && msg.total !== null) root.favoritesTotal = Number(msg.total)
       root.favoritesInProgress = true
     } else if (msg.type === "favorites_complete") {
+      if (!root.authenticated) return;
       root.favoritesInProgress = false
       if (msg.total !== undefined && msg.total !== null) root.favoritesTotal = Number(msg.total)
     } else if (msg.type === "favorite_updated") {
@@ -423,12 +426,27 @@ Item {
       if (root.currentTrackId === favTrackId) root.currentTrackFavorite = isFav
       var mapCopy = Object.assign({}, root.favoritesMap)
       if (isFav) {
+        var alreadyInList = false
+        for (var k = 0; k < root.favorites.length; k++) {
+          if (root.favorites[k].id === favTrackId) {
+            alreadyInList = true
+            break
+          }
+        }
+        if (!alreadyInList) {
+          if (msg.track) {
+            root.favorites = root.favorites.concat([msg.track])
+          }
+          root.favoritesTotal++
+        }
         mapCopy[favTrackId] = true
-        root.favoritesTotal++
       } else {
-        delete mapCopy[favTrackId]
-        root.favoritesTotal = Math.max(0, root.favoritesTotal - 1)
+        var prevLen = root.favorites.length
         root.favorites = root.favorites.filter(function(t) { return t.id !== favTrackId })
+        if (mapCopy[favTrackId] || root.favorites.length < prevLen) {
+          root.favoritesTotal = Math.max(0, root.favoritesTotal - 1)
+        }
+        delete mapCopy[favTrackId]
       }
       root.favoritesMap = mapCopy
     } else if (msg.type === "favorites_error") {
@@ -471,7 +489,7 @@ Item {
     } else if (msg.type === "position_changed") {
       root.trackPosition = Math.max(0, Number(msg.position) || 0)
       if (msg.duration !== undefined) root.trackDuration = Math.max(0, Number(msg.duration) || 0)
-      if (root.trackPosition > 0 && root.trackLoading) root.trackLoading = false
+      root.trackLoading = false
     } else if (msg.type === "playback_error") {
       root.trackLoading = false
       root.playbackError = msg.error || "Unable to play track"
