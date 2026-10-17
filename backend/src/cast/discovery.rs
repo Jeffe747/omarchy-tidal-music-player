@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 const MDNS_MULTICAST_IPV4: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 251);
 const MDNS_PORT: u16 = 5353;
-const DEVICE_TTL: Duration = Duration::from_secs(60);
+const DEVICE_TTL: Duration = Duration::from_secs(180);
 
 // Query for PTR _googlecast._tcp.local
 // Header: ID=0, Flags=0x0000, QDCOUNT=1, ANCOUNT=0, NSCOUNT=0, ARCOUNT=0
@@ -72,7 +72,7 @@ impl CastDiscovery {
                     if let Some(device) = parse_cast_mdns_packet(packet, src) {
                         if let Ok(mut cache) = self.cache.lock() {
                             if cache.len() >= 64 {
-                                cache.retain(|_, (_, ts)| ts.elapsed() < Duration::from_secs(60));
+                                cache.retain(|_, (_, ts)| ts.elapsed() < DEVICE_TTL);
                             }
                             if cache.len() < 64 {
                                 cache.insert(device.id.clone(), (device, Instant::now()));
@@ -94,19 +94,6 @@ impl CastDiscovery {
         }
 
         self.get_devices()
-    }
-
-    pub fn start_passive_listener(self: Arc<Self>) {
-        std::thread::spawn(move || {
-            loop {
-                // Passive discovery refresh every 45 seconds
-                self.discover(Duration::from_millis(800));
-                std::thread::sleep(Duration::from_secs(45));
-                if crate::SHUTDOWN.load(std::sync::atomic::Ordering::Relaxed) {
-                    break;
-                }
-            }
-        });
     }
 }
 

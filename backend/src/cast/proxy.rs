@@ -134,6 +134,7 @@ fn handle_http_client(
             Access-Control-Allow-Origin: *\r\n\
             Access-Control-Allow-Methods: GET, HEAD, OPTIONS\r\n\
             Access-Control-Allow-Headers: Range, Content-Type, Origin, Accept\r\n\
+            Access-Control-Expose-Headers: Content-Length, Content-Range, Accept-Ranges\r\n\
             Access-Control-Max-Age: 86400\r\n\
             Content-Length: 0\r\n\r\n";
         let _ = stream.write_all(response.as_bytes());
@@ -223,8 +224,12 @@ fn handle_http_client(
         "HTTP/1.1 {status_code} {status_text}\r\n\
         Content-Type: {content_type}\r\n\
         Accept-Ranges: bytes\r\n\
+        Cache-Control: no-cache, no-store, must-revalidate\r\n\
         Access-Control-Allow-Origin: *\r\n\
-        Access-Control-Allow-Headers: Range, Content-Type, Origin\r\n"
+        Access-Control-Allow-Methods: GET, HEAD, OPTIONS\r\n\
+        Access-Control-Allow-Headers: Range, Content-Type, Origin\r\n\
+        Access-Control-Expose-Headers: Content-Length, Content-Range, Accept-Ranges\r\n\
+        Connection: keep-alive\r\n"
     );
 
     if let Some(len) = content_length {
@@ -285,6 +290,7 @@ mod tests {
         assert!(resp_str.contains("HTTP/1.1 200 OK"));
         assert!(resp_str.contains("Access-Control-Allow-Origin: *"));
         assert!(resp_str.contains("Access-Control-Allow-Methods: GET, HEAD, OPTIONS"));
+        assert!(resp_str.contains("Access-Control-Expose-Headers: Content-Length, Content-Range, Accept-Ranges"));
 
         proxy.stop();
     }

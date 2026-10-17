@@ -1200,9 +1200,6 @@ fn main() {
         Arc::clone(&player),
         ipc_server.clone(),
     );
-    if let Ok(p) = player.lock() {
-        p.cast_discovery.clone().start_passive_listener();
-    }
 
     // Check existing session
     match auth_manager.get_valid_session() {
@@ -1591,7 +1588,17 @@ fn main() {
                                         }
                                     };
                                     let ipc = ipc_ref.clone();
+                                    let is_refresh = cmd.command == "refresh_cast_devices";
                                     thread::spawn(move || {
+                                        if !is_refresh {
+                                            let cached = discovery.get_devices();
+                                            if !cached.is_empty() {
+                                                ipc.broadcast(&PlayerMessage::CastDevicesDiscovered {
+                                                    devices: cached,
+                                                });
+                                                return;
+                                            }
+                                        }
                                         let devices =
                                             discovery.discover(Duration::from_millis(1500));
                                         ipc.broadcast(&PlayerMessage::CastDevicesDiscovered {
