@@ -512,7 +512,7 @@ Panel {
                 border.width: Style.normalBorderWidth
                 anchors.verticalCenter: parent.verticalCenter
                 Accessible.role: Accessible.HelpBalloon
-                Accessible.name: "Firewall warning: Chromecast streaming ports 36420:36425 are closed"
+                Accessible.name: "Inbound port 36420/tcp is blocked by firewall. Casting requires this port open."
 
                 Text {
                   anchors.centerIn: parent
@@ -534,7 +534,7 @@ Panel {
                 Ui.PanelToolTip {
                   visible: castFirewallHover.containsMouse
                   delay: 200
-                  text: "Inbound ports 36420:36425/tcp closed by firewall. Casting requires these ports open (e.g. 'sudo ufw allow 36420:36425/tcp')."
+                  text: "Inbound port 36420/tcp is blocked by firewall. Casting requires this port open."
                 }
               }
             }
