@@ -210,7 +210,11 @@ fn handle_http_client(
     }
 
     // Request from Tidal CDN without Origin header to bypass CDN blocking
-    let mut req = ureq::get(&track_info.stream_url);
+    let agent = ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(5))
+        .timeout_read(Duration::from_secs(30))
+        .build();
+    let mut req = agent.get(&track_info.stream_url);
     if let Some(ref range) = range_header {
         req = req.set("Range", range);
     }
@@ -246,7 +250,7 @@ fn handle_http_client(
         Access-Control-Allow-Headers: *\r\n\
         Access-Control-Allow-Private-Network: true\r\n\
         Access-Control-Expose-Headers: Content-Length, Content-Range, Accept-Ranges\r\n\
-        Connection: keep-alive\r\n"
+        Connection: close\r\n"
     );
 
     if let Some(len) = content_length {

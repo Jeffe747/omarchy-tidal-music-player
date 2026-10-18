@@ -71,6 +71,8 @@ Item {
   property bool castActive: false
   property string castDeviceName: ""
   property string castState: "idle" // "idle", "connecting", "playing", "buffering", "paused"
+  property real castVolume: 1.0
+  property real lastVolumeSetTime: 0
   property var castDevices: []
   property bool castDiscovering: false
   property string castError: ""
@@ -96,6 +98,8 @@ Item {
       castActive = false
       castDeviceName = ""
       castState = "idle"
+      castVolume = 1.0
+      lastVolumeSetTime = 0
       castDevices = []
       castDiscoverTimeout.stop()
       castDiscovering = false
@@ -117,7 +121,7 @@ Item {
   Process {
     id: binaryCheckProc
     command: ["sh", "-c",
-      'sys_bin="$(command -v tidal-daemon 2>/dev/null || true)"; if [ "$4" = dev ]; then path="$3"; if test -f "$path" && test -x "$path"; then printf "%s\\n" "$path"; exit 0; fi; else for path in "$1" "$3" "$sys_bin" "/usr/bin/tidal-daemon" "$2"; do if test -n "$path" && test -f "$path" && test -x "$path"; then if [ -z "${TIDAL_TEST_MODE:-}" ] && [ "$path" = "$1" ]; then arch="$(uname -m)"; case "$arch" in x86_64|amd64) expected="2c400918432a9bfc281e89bdff541420dc028acbe706b989fdf9d1b977e0290a" ;; aarch64|arm64) expected="9ebf30e2e8bdea09720c2621f0a28ae2188045bfae61830ca8c8e6a3057ee023" ;; *) expected="" ;; esac; actual="$(sha256sum "$path" 2>/dev/null || shasum -a 256 "$path" 2>/dev/null || true)"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then continue; fi; fi; printf "%s\\n" "$path"; exit 0; fi; done; fi; exit 1',
+      'sys_bin="$(command -v tidal-daemon 2>/dev/null || true)"; if [ "$4" = dev ]; then path="$3"; if test -f "$path" && test -x "$path"; then printf "%s\\n" "$path"; exit 0; fi; else for path in "$1" "$3" "$sys_bin" "/usr/bin/tidal-daemon" "$2"; do if test -n "$path" && test -f "$path" && test -x "$path"; then if [ -z "${TIDAL_TEST_MODE:-}" ] && [ "$path" = "$1" ]; then arch="$(uname -m)"; case "$arch" in x86_64|amd64) expected="28825dbcd496cfb130c160488dd46cb14a77c532947eb9db87111a73dfe2f5ea" ;; aarch64|arm64) expected="9ebf30e2e8bdea09720c2621f0a28ae2188045bfae61830ca8c8e6a3057ee023" ;; *) expected="" ;; esac; actual="$(sha256sum "$path" 2>/dev/null || shasum -a 256 "$path" 2>/dev/null || true)"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then continue; fi; fi; printf "%s\\n" "$path"; exit 0; fi; done; fi; exit 1',
       "tidal-binary-check", root.bundledBinaryPath, root.developmentBinaryPath, root.stateBinaryPath, root.channel]
     stdout: StdioCollector { id: binaryCheckOutput }
     running: false
@@ -163,7 +167,7 @@ Item {
 
   Process {
     id: bootstrapProc
-    command: ["sh", "-c", 'set -eu; arch="$(uname -m)"; case "$arch" in x86_64|amd64) asset=tidal-daemon-x86_64; expected=2c400918432a9bfc281e89bdff541420dc028acbe706b989fdf9d1b977e0290a ;; aarch64|arm64) asset=tidal-daemon-aarch64; expected=9ebf30e2e8bdea09720c2621f0a28ae2188045bfae61830ca8c8e6a3057ee023 ;; *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; esac; channel="${2:-stable}"; tag="v1.0.63"; check_mode="hardcoded"; if [ "$channel" = "dev" ]; then tag="dev"; check_mode="remote"; fi; base_url="https://github.com/Jeffe747/omarchy-tidal-music-player/releases/download/${tag}"; if [ "$check_mode" = "remote" ]; then if command -v curl >/dev/null 2>&1; then expected="$(curl -fsSL "${base_url}/SHA256SUMS" | grep -F " ${asset}" | cut -d" " -f1)"; elif command -v wget >/dev/null 2>&1; then expected="$(wget -qO- "${base_url}/SHA256SUMS" | grep -F " ${asset}" | cut -d" " -f1)"; fi; fi; dest="$1"; mkdir -p "$(dirname "$dest")"; tmp="${dest}.tmp.$$"; if command -v curl >/dev/null 2>&1; then curl -fL --retry 2 "${base_url}/${asset}" -o "$tmp" || { rm -f "$tmp"; exit 1; }; elif command -v wget >/dev/null 2>&1; then wget -O "$tmp" "${base_url}/${asset}" || { rm -f "$tmp"; exit 1; }; else echo "curl or wget is required" >&2; exit 1; fi; actual="$(sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp")"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then echo "Checksum verification failed: expected $expected, got $actual" >&2; rm -f "$tmp"; exit 2; fi; chmod +x "$tmp"; mv -f "$tmp" "$dest"', "tidal-bootstrap", root.stateBinaryPath, root.channel]
+    command: ["sh", "-c", 'set -eu; arch="$(uname -m)"; case "$arch" in x86_64|amd64) asset=tidal-daemon-x86_64; expected=28825dbcd496cfb130c160488dd46cb14a77c532947eb9db87111a73dfe2f5ea ;; aarch64|arm64) asset=tidal-daemon-aarch64; expected=9ebf30e2e8bdea09720c2621f0a28ae2188045bfae61830ca8c8e6a3057ee023 ;; *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; esac; channel="${2:-stable}"; tag="v1.0.63"; check_mode="hardcoded"; if [ "$channel" = "dev" ]; then tag="dev"; check_mode="remote"; fi; base_url="https://github.com/Jeffe747/omarchy-tidal-music-player/releases/download/${tag}"; if [ "$check_mode" = "remote" ]; then if command -v curl >/dev/null 2>&1; then expected="$(curl -fsSL "${base_url}/SHA256SUMS" | grep -F " ${asset}" | cut -d" " -f1)"; elif command -v wget >/dev/null 2>&1; then expected="$(wget -qO- "${base_url}/SHA256SUMS" | grep -F " ${asset}" | cut -d" " -f1)"; fi; fi; dest="$1"; mkdir -p "$(dirname "$dest")"; tmp="${dest}.tmp.$$"; if command -v curl >/dev/null 2>&1; then curl -fL --retry 2 "${base_url}/${asset}" -o "$tmp" || { rm -f "$tmp"; exit 1; }; elif command -v wget >/dev/null 2>&1; then wget -O "$tmp" "${base_url}/${asset}" || { rm -f "$tmp"; exit 1; }; else echo "curl or wget is required" >&2; exit 1; fi; actual="$(sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp")"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then echo "Checksum verification failed: expected $expected, got $actual" >&2; rm -f "$tmp"; exit 2; fi; chmod +x "$tmp"; mv -f "$tmp" "$dest"', "tidal-bootstrap", root.stateBinaryPath, root.channel]
     running: false
     onExited: function(exitCode) {
       root.bootstrapping = false
@@ -407,6 +411,10 @@ Item {
       root.castActive = msg.cast_active === true
       root.castDeviceName = msg.cast_device_name || ""
       root.castState = msg.cast_state || "idle"
+      if (msg.cast_volume !== undefined && msg.cast_volume !== null && (Date.now() - root.lastVolumeSetTime > 1200)) {
+        var cv = Number(msg.cast_volume)
+        if (!isNaN(cv)) root.castVolume = Math.max(0.0, Math.min(1.0, cv))
+      }
     } else if (msg.type === "auth_code") {
       root.authPending = true
       root.authUrl = msg.verification_uri || "https://link.tidal.com"
@@ -771,6 +779,9 @@ Item {
   }
 
   function setCastVolume(volume) {
-    sendCommand({ "command": "set_cast_volume", "volume": Math.max(0.0, Math.min(1.0, volume)) })
+    var clamped = Math.max(0.0, Math.min(1.0, Number(volume) || 0.0))
+    root.lastVolumeSetTime = Date.now()
+    root.castVolume = clamped
+    sendCommand({ "command": "set_cast_volume", "volume": clamped })
   }
 }

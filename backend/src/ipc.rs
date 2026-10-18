@@ -150,6 +150,10 @@ fn default_cast_state() -> String {
     "idle".to_string()
 }
 
+fn default_cast_volume() -> f64 {
+    1.0
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct IpcStateMessage {
     #[serde(rename = "type")]
@@ -192,6 +196,8 @@ pub struct IpcStateMessage {
     pub cast_device_name: Option<String>,
     #[serde(default = "default_cast_state")]
     pub cast_state: String,
+    #[serde(default = "default_cast_volume")]
+    pub cast_volume: f64,
 }
 
 #[derive(Clone)]
@@ -351,6 +357,7 @@ mod tests {
             cast_active: false,
             cast_device_name: None,
             cast_state: "idle".to_string(),
+            cast_volume: 1.0,
         };
 
         let serialized = serde_json::to_string(&msg).unwrap();
@@ -358,6 +365,7 @@ mod tests {
         assert!(serialized.contains(r#""authenticated":true"#));
         assert!(serialized.contains(r#""cast_active":false"#));
         assert!(serialized.contains(r#""cast_state":"idle""#));
+        assert!(serialized.contains(r#""cast_volume":1.0"#));
 
         let deserialized: IpcStateMessage = serde_json::from_str(&serialized).unwrap();
         assert_eq!(deserialized, msg);

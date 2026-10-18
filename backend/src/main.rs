@@ -43,6 +43,7 @@ pub(crate) struct Player {
     cast_active: bool,
     cast_device_name: Option<String>,
     cast_state: crate::cast::CastState,
+    cast_volume: f64,
     cast_session: Option<crate::cast::client::CastSession>,
     stream_proxy: Option<Arc<crate::cast::proxy::StreamProxy>>,
     cast_discovery: Arc<crate::cast::discovery::CastDiscovery>,
@@ -79,6 +80,7 @@ impl Player {
             cast_active: false,
             cast_device_name: None,
             cast_state: crate::cast::CastState::Idle,
+            cast_volume: 1.0,
             cast_session: None,
             stream_proxy,
             cast_discovery,
@@ -228,10 +230,15 @@ fn build_status_message(auth_manager: &AuthManager, player: &Player) -> IpcState
         cast_active: player.cast_active,
         cast_device_name: player.cast_device_name.clone(),
         cast_state: player.cast_state.as_str().to_string(),
+        cast_volume: player
+            .cast_session
+            .as_ref()
+            .map(|s| s.volume())
+            .unwrap_or(player.cast_volume),
     }
 }
 
-fn broadcast_status(auth: &AuthManager, player: &Mutex<Player>, ipc: &IpcServer) {
+pub(crate) fn broadcast_status(auth: &AuthManager, player: &Mutex<Player>, ipc: &IpcServer) {
     match player.lock() {
         Ok(player) => ipc.broadcast(&build_status_message(auth, &player)),
         Err(error) => log::write(&format!("Failed to lock player: {error}")),
@@ -832,27 +839,33 @@ fn connect_cast(
 ) -> Result<(), String> {
     let target_id = device_id.ok_or_else(|| "device_id is required".to_string())?;
 
-    let (device, was_playing, current_pos, current_track, proxy, preferred_quality) = {
-        let mut p = player.lock().map_err(|e| e.to_string())?;
-        let mut dev = p
+    let (cached_dev, discovery) = {
+        let p = player.lock().map_err(|e| e.to_string())?;
+        let dev = p
             .cast_discovery
             .get_devices()
             .into_iter()
             .find(|d| d.id == target_id);
+        (dev, Arc::clone(&p.cast_discovery))
+    };
 
-        if dev.is_none() {
-            let scanned = p.cast_discovery.discover(Duration::from_millis(800));
-            dev = scanned.into_iter().find(|d| d.id == target_id);
+    let device = match cached_dev {
+        Some(d) => d,
+        None => {
+            let scanned = discovery.discover(Duration::from_millis(800));
+            scanned
+                .into_iter()
+                .find(|d| d.id == target_id)
+                .ok_or_else(|| format!("Cast device not found: {target_id}"))?
         }
+    };
 
-        let device = dev.ok_or_else(|| format!("Cast device not found: {target_id}"))?;
-        let (was_playing, pos) = if p.cast_active {
+    let (prev_session, was_playing, current_pos, current_track, proxy, preferred_quality) = {
+        let mut p = player.lock().map_err(|e| e.to_string())?;
+        let (prev, was_playing, pos) = if p.cast_active {
             let pos = p.cast_session.as_ref().map(|s| s.position()).unwrap_or(0.0);
             let was_playing = p.cast_state == crate::cast::CastState::Playing;
-            if let Some(prev) = p.cast_session.take() {
-                prev.disconnect();
-            }
-            (was_playing, pos)
+            (p.cast_session.take(), was_playing, pos)
         } else {
             let was_playing = p
                 .engine
@@ -862,7 +875,7 @@ fn connect_cast(
                 .map(|paused| !paused)
                 .unwrap_or(false);
             let pos = p.engine.position().ok().unwrap_or(0.0);
-            (was_playing, pos)
+            (None, was_playing, pos)
         };
         let track = p.current.clone();
 
@@ -881,8 +894,12 @@ fn connect_cast(
         } else {
             p.preferred_quality.clone()
         };
-        (device, was_playing, pos, track, proxy, quality)
+        (prev, was_playing, pos, track, proxy, quality)
     };
+
+    if let Some(prev) = prev_session {
+        prev.disconnect();
+    }
 
     broadcast_status(auth, player, ipc);
 
@@ -890,9 +907,14 @@ fn connect_cast(
     let player_cb = Arc::clone(player);
     let ipc_cb = ipc.clone();
     let on_track_finished = Arc::new(move || {
-        if let Err(e) = navigate(&auth_cb, &player_cb, &ipc_cb, true) {
-            log::write(&format!("Cast auto-advance error: {e}"));
-        }
+        let auth_t = Arc::clone(&auth_cb);
+        let player_t = Arc::clone(&player_cb);
+        let ipc_t = ipc_cb.clone();
+        thread::spawn(move || {
+            if let Err(e) = navigate(&auth_t, &player_t, &ipc_t, true) {
+                log::write(&format!("Cast auto-advance error: {e}"));
+            }
+        });
     });
 
     let session = match crate::cast::client::CastSession::connect(device.clone(), on_track_finished) {
@@ -933,6 +955,7 @@ fn connect_cast(
         p.cast_active = true;
         p.cast_device_name = Some(device.name.clone());
         p.cast_state = session.state();
+        p.cast_volume = session.volume();
         p.cast_session = Some(session);
     }
 
@@ -945,32 +968,17 @@ fn disconnect_cast(
     player: &Mutex<Player>,
     ipc: &IpcServer,
 ) -> Result<(), String> {
-    let (current_track, current_pos, was_playing) = {
+    let session = {
         let mut p = player.lock().map_err(|e| e.to_string())?;
-        if let Some(session) = p.cast_session.take() {
-            let pos = session.position();
-            let was_playing = p.cast_state == crate::cast::CastState::Playing
-                || p.cast_state == crate::cast::CastState::Buffering;
-            session.disconnect();
-            p.cast_active = false;
-            p.cast_device_name = None;
-            p.cast_state = crate::cast::CastState::Idle;
-            (p.current.clone(), pos, was_playing)
-        } else {
-            p.cast_active = false;
-            p.cast_device_name = None;
-            p.cast_state = crate::cast::CastState::Idle;
-            return Ok(());
-        }
+        let _ = p.engine.set_pause(true);
+        p.cast_active = false;
+        p.cast_device_name = None;
+        p.cast_state = crate::cast::CastState::Idle;
+        p.cast_session.take()
     };
 
-    if let Some(_) = current_track {
-        if let Ok(p) = player.lock() {
-            let _ = p.engine.seek(current_pos);
-            if was_playing {
-                let _ = p.engine.set_pause(false);
-            }
-        }
+    if let Some(session) = session {
+        session.disconnect();
     }
 
     broadcast_status(auth, player, ipc);
@@ -998,6 +1006,11 @@ fn start_position_ticker(auth: Arc<AuthManager>, player: Arc<Mutex<Player>>, ipc
                                 let session_state = session.state();
                                 if session_state != state.cast_state {
                                     state.cast_state = session_state;
+                                    status_changed = true;
+                                }
+                                let session_vol = session.volume();
+                                if (session_vol - state.cast_volume).abs() > 0.005 {
+                                    state.cast_volume = session_vol;
                                     status_changed = true;
                                 }
                                 let pos = session.position();
@@ -1633,11 +1646,14 @@ fn main() {
                                 }
                                 "set_cast_volume" => {
                                     if let Some(vol) = cmd.volume {
-                                        if let Ok(p) = player_ref.lock() {
+                                        let clamped = vol.clamp(0.0, 1.0);
+                                        if let Ok(mut p) = player_ref.lock() {
+                                            p.cast_volume = clamped;
                                             if let Some(ref s) = p.cast_session {
-                                                let _ = s.set_volume(vol);
+                                                let _ = s.set_volume(clamped);
                                             }
                                         }
+                                        broadcast_status(&auth_ref, &player_ref, &ipc_ref);
                                     }
                                 }
                                 "start_auth" => {

@@ -249,7 +249,7 @@ Column {
   Row {
     width: parent.width
     spacing: Style.spacing.md
-    visible: !!root.sink && !!root.sink.audio
+    visible: (!!root.sink && !!root.sink.audio) || (!!root.service && root.service.castActive)
     Ui.PanelActionButton { Accessible.role: Accessible.Button; Accessible.name: "Mute audio"; iconText: root.sink && root.sink.audio && root.sink.audio.muted ? "󰖁" : "󰕾"; tooltipText: "Mute audio"; onClicked: if (root.sink && root.sink.audio) root.sink.audio.muted = !root.sink.audio.muted }
     Ui.PanelSlider {
       id: volume
@@ -257,10 +257,17 @@ Column {
       Accessible.name: "Volume"
       bar: root.bar
       width: Math.max(0, parent.width - parent.children[0].implicitWidth - volumeLabel.implicitWidth - Style.spacing.md * 2)
-      maximum: 1.5
-      value: root.sink && root.sink.audio ? root.sink.audio.volume : 0
+      maximum: root.service && root.service.castActive ? 1.0 : 1.5
+      value: root.service && root.service.castActive ? root.service.castVolume : (root.sink && root.sink.audio ? root.sink.audio.volume : 0)
       tickCount: 4
       onMoved: function(v) {
+        if (root.service && root.service.castActive) {
+          root.service.setCastVolume(Math.min(1.0, v))
+        } else if (root.sink && root.sink.audio) {
+          root.sink.audio.volume = v
+        }
+      }
+      onReleased: function(v) {
         if (root.service && root.service.castActive) {
           root.service.setCastVolume(Math.min(1.0, v))
         } else if (root.sink && root.sink.audio) {
@@ -276,7 +283,7 @@ Column {
           if (steps) {
             root.wheelRemainder -= steps * 120
             if (root.service && root.service.castActive) {
-              var castVol = Math.max(0, Math.min(1.0, volume.value + steps * 0.05))
+              var castVol = Math.max(0, Math.min(1.0, root.service.castVolume + steps * 0.05))
               root.service.setCastVolume(castVol)
             } else if (root.sink && root.sink.audio) {
               var newVol = Math.max(0, Math.min(1.5, root.sink.audio.volume + steps * 0.05))

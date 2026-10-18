@@ -271,13 +271,16 @@ mod tests {
 
     impl TestDir {
         fn new() -> Self {
+            static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+            let seq = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let path = std::env::temp_dir().join(format!(
-                "tidal-mpv-test-{}-{}",
+                "tidal-mpv-test-{}-{}-{}",
                 std::process::id(),
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
                     .unwrap()
-                    .as_nanos()
+                    .as_nanos(),
+                seq
             ));
             std::fs::create_dir(&path).unwrap();
             Self(path)
@@ -334,6 +337,7 @@ mod tests {
             cast_active: false,
             cast_device_name: None,
             cast_state: crate::cast::CastState::Idle,
+            cast_volume: 1.0,
             cast_session: None,
             stream_proxy: crate::cast::proxy::StreamProxy::new().ok().map(std::sync::Arc::new),
             cast_discovery: std::sync::Arc::new(crate::cast::discovery::CastDiscovery::new()),

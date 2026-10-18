@@ -101,6 +101,8 @@ pub struct CastSession {
     command_tx: Sender<CastAction>,
     state: Arc<Mutex<CastState>>,
     position: Arc<Mutex<f64>>,
+    volume: Arc<Mutex<f64>>,
+    last_volume_set: Arc<Mutex<Instant>>,
     last_position_update: Arc<Mutex<Instant>>,
     is_active: Arc<AtomicBool>,
 }
@@ -113,11 +115,15 @@ impl CastSession {
         let (tx, rx) = channel();
         let state = Arc::new(Mutex::new(CastState::Connecting));
         let position = Arc::new(Mutex::new(0.0));
+        let volume = Arc::new(Mutex::new(1.0));
+        let last_volume_set = Arc::new(Mutex::new(Instant::now()));
         let last_position_update = Arc::new(Mutex::new(Instant::now()));
         let is_active = Arc::new(AtomicBool::new(true));
 
         let state_clone = Arc::clone(&state);
         let pos_clone = Arc::clone(&position);
+        let vol_clone = Arc::clone(&volume);
+        let vol_set_clone = Arc::clone(&last_volume_set);
         let pos_update_clone = Arc::clone(&last_position_update);
         let active_clone = Arc::clone(&is_active);
         let dev_clone = device.clone();
@@ -128,24 +134,30 @@ impl CastSession {
                 rx,
                 state_clone,
                 pos_clone,
+                vol_clone,
+                vol_set_clone,
                 pos_update_clone,
                 active_clone,
                 on_track_finished,
             );
         });
 
-        // Wait briefly for connection establishment (up to 3 seconds)
+        // Wait for connection and receiver launch (up to 10 seconds)
         let start = Instant::now();
-        while start.elapsed() < Duration::from_secs(3) {
+        while start.elapsed() < Duration::from_secs(10) {
+            if !is_active.load(Ordering::Relaxed) {
+                return Err(format!("Failed to connect to Cast device {}", device.name));
+            }
             if let Ok(st) = state.lock() {
                 if *st != CastState::Connecting {
                     break;
                 }
             }
-            if !is_active.load(Ordering::Relaxed) {
-                return Err(format!("Failed to connect to Cast device {}", device.name));
-            }
             thread::sleep(Duration::from_millis(50));
+        }
+
+        if !is_active.load(Ordering::Relaxed) {
+            return Err(format!("Failed to connect to Cast device {}", device.name));
         }
 
         Ok(Self {
@@ -153,6 +165,8 @@ impl CastSession {
             command_tx: tx,
             state,
             position,
+            volume,
+            last_volume_set,
             last_position_update,
             is_active,
         })
@@ -160,6 +174,10 @@ impl CastSession {
 
     pub fn state(&self) -> CastState {
         self.state.lock().map(|s| *s).unwrap_or(CastState::Idle)
+    }
+
+    pub fn volume(&self) -> f64 {
+        self.volume.lock().map(|v| *v).unwrap_or(1.0)
     }
 
     pub fn position(&self) -> f64 {
@@ -229,16 +247,119 @@ impl CastSession {
     }
 
     pub fn set_volume(&self, volume: f64) -> Result<(), String> {
+        let clamped = volume.clamp(0.0, 1.0);
+        if let Ok(mut v) = self.volume.lock() {
+            *v = clamped;
+        }
+        if let Ok(mut t) = self.last_volume_set.lock() {
+            *t = Instant::now();
+        }
         self.command_tx
-            .send(CastAction::SetVolume(volume))
+            .send(CastAction::SetVolume(clamped))
             .map_err(|e| format!("Failed to send set_volume command: {e}"))
     }
 
     pub fn disconnect(&self) {
-        let _ = self.command_tx.send(CastAction::Disconnect);
-        self.is_active.store(false, Ordering::Relaxed);
         if let Ok(mut st) = self.state.lock() {
             *st = CastState::Idle;
+        }
+        if self.command_tx.send(CastAction::Disconnect).is_ok() {
+            let start = Instant::now();
+            while self.is_active.load(Ordering::Relaxed)
+                && start.elapsed() < Duration::from_millis(2500)
+            {
+                thread::sleep(Duration::from_millis(10));
+            }
+        }
+        self.is_active.store(false, Ordering::Relaxed);
+    }
+}
+
+fn send_receiver_disconnect<S: Read + Write>(
+    stream: &mut S,
+    req_id: &mut u64,
+    session_id: &str,
+    transport_id: &str,
+    media_session_id: i64,
+) {
+    if media_session_id >= 0 && !transport_id.is_empty() {
+        *req_id += 1;
+        let media_stop = serde_json::json!({
+            "type": "STOP",
+            "requestId": *req_id,
+            "mediaSessionId": media_session_id,
+        });
+        let msg = CastMessage::new_string(
+            "sender-0",
+            transport_id,
+            NS_MEDIA,
+            media_stop.to_string(),
+        );
+        let _ = write_cast_message(stream, &msg);
+    }
+
+    *req_id += 1;
+    let stop_payload = if session_id.is_empty() {
+        serde_json::json!({
+            "type": "STOP",
+            "requestId": *req_id,
+        })
+    } else {
+        serde_json::json!({
+            "type": "STOP",
+            "requestId": *req_id,
+            "sessionId": session_id,
+        })
+    };
+    let stop_msg = CastMessage::new_string(
+        "sender-0",
+        "receiver-0",
+        NS_RECEIVER,
+        stop_payload.to_string(),
+    );
+    let _ = write_cast_message(stream, &stop_msg);
+    let _ = stream.flush();
+
+    let start = Instant::now();
+    while start.elapsed() < Duration::from_millis(2000) {
+        match read_cast_message(stream) {
+            Ok(msg) => {
+                if msg.namespace == NS_HEARTBEAT {
+                    if let Some(ref text) = msg.payload_utf8 {
+                        if text.contains("PING") {
+                            let pong = CastMessage::new_string(
+                                "sender-0",
+                                &msg.source_id,
+                                NS_HEARTBEAT,
+                                r#"{"type":"PONG"}"#,
+                            );
+                            let _ = write_cast_message(stream, &pong);
+                        }
+                    }
+                } else if msg.namespace == NS_RECEIVER {
+                    if let Some(ref text) = msg.payload_utf8 {
+                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(text) {
+                            if val.get("status").is_some() {
+                                let app_still_running = val["status"]["applications"]
+                                    .as_array()
+                                    .is_some_and(|apps| {
+                                        apps.iter().any(|app| {
+                                            app["appId"] == DEFAULT_MEDIA_RECEIVER_APP_ID
+                                        })
+                                    });
+                                if !app_still_running {
+                                    crate::log::write("Chromecast confirmed receiver app stopped");
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            Err(ref e)
+                if e.kind() == std::io::ErrorKind::WouldBlock
+                    || e.kind() == std::io::ErrorKind::TimedOut => {}
+            Err(_) => break,
         }
     }
 }
@@ -276,6 +397,8 @@ fn run_session_worker(
     rx: Receiver<CastAction>,
     state: Arc<Mutex<CastState>>,
     position: Arc<Mutex<f64>>,
+    volume: Arc<Mutex<f64>>,
+    last_volume_set: Arc<Mutex<Instant>>,
     last_position_update: Arc<Mutex<Instant>>,
     is_active: Arc<AtomicBool>,
     on_track_finished: Arc<dyn Fn() + Send + Sync + 'static>,
@@ -388,6 +511,11 @@ fn run_session_worker(
                 } else if msg.namespace == NS_RECEIVER {
                     if let Some(ref text) = msg.payload_utf8 {
                         if let Ok(val) = serde_json::from_str::<serde_json::Value>(text) {
+                            if let Some(level) = val["status"]["volume"]["level"].as_f64() {
+                                if let Ok(mut v) = volume.lock() {
+                                    *v = level.clamp(0.0, 1.0);
+                                }
+                            }
                             if let Some(apps) = val["status"]["applications"].as_array() {
                                 for app in apps {
                                     if app["appId"] == DEFAULT_MEDIA_RECEIVER_APP_ID {
@@ -595,36 +723,18 @@ fn run_session_worker(
                     let _ = write_cast_message(&mut tls_stream, &msg);
                 }
                 CastAction::Disconnect => {
-                    if !session_id.is_empty() {
-                        let stop_payload = serde_json::json!({
-                            "type": "STOP",
-                            "requestId": req_id,
-                            "sessionId": session_id,
-                        });
-                        let stop_msg = CastMessage::new_string(
-                            "sender-0",
-                            "receiver-0",
-                            NS_RECEIVER,
-                            stop_payload.to_string(),
-                        );
-                        let _ = write_cast_message(&mut tls_stream, &stop_msg);
-                    }
-                    let close_transport = CastMessage::new_string(
-                        "sender-0",
+                    send_receiver_disconnect(
+                        &mut tls_stream,
+                        &mut req_id,
+                        &session_id,
                         &transport_id,
-                        NS_CONNECTION,
-                        r#"{"type":"CLOSE"}"#,
+                        media_session_id.load(Ordering::Relaxed),
                     );
-                    let _ = write_cast_message(&mut tls_stream, &close_transport);
-                    let close_receiver = CastMessage::new_string(
-                        "sender-0",
-                        "receiver-0",
-                        NS_CONNECTION,
-                        r#"{"type":"CLOSE"}"#,
-                    );
-                    let _ = write_cast_message(&mut tls_stream, &close_receiver);
-                    thread::sleep(Duration::from_millis(50));
                     is_active.store(false, Ordering::Relaxed);
+                    if let Ok(mut st) = state.lock() {
+                        *st = CastState::Idle;
+                    }
+                    crate::log::write("Cast session worker disconnected cleanly");
                     return;
                 }
             }
@@ -658,6 +768,39 @@ fn run_session_worker(
                                 r#"{"type":"PONG"}"#,
                             );
                             let _ = write_cast_message(&mut tls_stream, &pong);
+                        }
+                    }
+                } else if msg.namespace == NS_RECEIVER {
+                    if let Some(ref text) = msg.payload_utf8 {
+                        if let Ok(val) = serde_json::from_str::<serde_json::Value>(text) {
+                            if let Some(level) = val["status"]["volume"]["level"].as_f64() {
+                                if last_volume_set
+                                    .lock()
+                                    .map(|t| t.elapsed() > Duration::from_millis(1500))
+                                    .unwrap_or(true)
+                                {
+                                    if let Ok(mut v) = volume.lock() {
+                                        *v = level.clamp(0.0, 1.0);
+                                    }
+                                }
+                            }
+                            if let Some(apps) = val["status"]["applications"].as_array() {
+                                for app in apps {
+                                    if app["appId"] == DEFAULT_MEDIA_RECEIVER_APP_ID {
+                                        if let Some(tid) = app["transportId"].as_str() {
+                                            if !tid.is_empty() {
+                                                transport_id = tid.to_string();
+                                            }
+                                        }
+                                        if let Some(sid) = app["sessionId"].as_str() {
+                                            if !sid.is_empty() {
+                                                session_id = sid.to_string();
+                                            }
+                                        }
+                                        break;
+                                    }
+                                }
+                            }
                         }
                     }
                 } else if msg.namespace == NS_MEDIA {
@@ -721,6 +864,18 @@ fn run_session_worker(
         }
     }
 
+    if crate::SHUTDOWN.load(Ordering::Relaxed)
+        || rx.try_iter().any(|a| matches!(a, CastAction::Disconnect))
+    {
+        send_receiver_disconnect(
+            &mut tls_stream,
+            &mut req_id,
+            &session_id,
+            &transport_id,
+            media_session_id.load(Ordering::Relaxed),
+        );
+    }
+
     is_active.store(false, Ordering::Relaxed);
     if let Ok(mut st) = state.lock() {
         *st = CastState::Idle;
@@ -755,5 +910,56 @@ mod tests {
         assert_eq!(read.source_id, "sender-0");
         assert_eq!(read.destination_id, "receiver-0");
         assert_eq!(read.namespace, NS_CONNECTION);
+    }
+
+    #[test]
+    fn test_send_receiver_disconnect_stops_app_without_close_and_waits_for_status() {
+        struct MockStream {
+            rx_buf: std::io::Cursor<Vec<u8>>,
+            tx_buf: Vec<u8>,
+        }
+        impl Read for MockStream {
+            fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+                self.rx_buf.read(buf)
+            }
+        }
+        impl Write for MockStream {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.tx_buf.extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let mut incoming = Vec::new();
+        let status_msg = CastMessage::new_string(
+            "receiver-0",
+            "sender-0",
+            NS_RECEIVER,
+            r#"{"type":"RECEIVER_STATUS","status":{"applications":[]}}"#,
+        );
+        write_cast_message(&mut incoming, &status_msg).expect("write incoming");
+
+        let mut mock = MockStream {
+            rx_buf: std::io::Cursor::new(incoming),
+            tx_buf: Vec::new(),
+        };
+        let mut req_id = 10;
+        send_receiver_disconnect(&mut mock, &mut req_id, "sess-123", "web-1", 7);
+
+        let mut out_slice = &mock.tx_buf[..];
+        let msg1 = read_cast_message(&mut out_slice).expect("media stop msg");
+        assert_eq!(msg1.namespace, NS_MEDIA);
+        assert_eq!(msg1.destination_id, "web-1");
+        assert!(msg1.payload_utf8.as_deref().unwrap_or("").contains(r#""type":"STOP""#));
+
+        let msg2 = read_cast_message(&mut out_slice).expect("receiver stop msg");
+        assert_eq!(msg2.namespace, NS_RECEIVER);
+        assert_eq!(msg2.destination_id, "receiver-0");
+        assert!(msg2.payload_utf8.as_deref().unwrap_or("").contains(r#""sessionId":"sess-123""#));
+
+        assert!(out_slice.is_empty(), "must not send CLOSE on NS_CONNECTION");
     }
 }

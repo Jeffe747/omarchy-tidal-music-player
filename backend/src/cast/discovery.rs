@@ -74,7 +74,7 @@ impl CastDiscovery {
                             if cache.len() >= 64 {
                                 cache.retain(|_, (_, ts)| ts.elapsed() < DEVICE_TTL);
                             }
-                            if cache.len() < 64 {
+                            if cache.len() < 64 || cache.contains_key(&device.id) {
                                 cache.insert(device.id.clone(), (device, Instant::now()));
                             }
                         }
@@ -99,7 +99,7 @@ impl CastDiscovery {
 
 fn create_mdns_socket() -> std::io::Result<UdpSocket> {
     unsafe {
-        let fd = libc::socket(libc::AF_INET, libc::SOCK_DGRAM, 0);
+        let fd = libc::socket(libc::AF_INET, libc::SOCK_DGRAM | libc::SOCK_CLOEXEC, 0);
         if fd < 0 {
             return Err(std::io::Error::last_os_error());
         }
@@ -199,7 +199,7 @@ pub fn parse_cast_mdns_packet(data: &[u8], src: SocketAddr) -> Option<CastDevice
         match rtype {
             1 => {
                 // A Record (IPv4)
-                if rdata.len() == 4 {
+                if rdata.len() == 4 && ip_addr.is_none() {
                     ip_addr = Some(format!("{}.{}.{}.{}", rdata[0], rdata[1], rdata[2], rdata[3]));
                 }
             }
@@ -224,8 +224,16 @@ pub fn parse_cast_mdns_packet(data: &[u8], src: SocketAddr) -> Option<CastDevice
                                     device_id = Some(val.to_string());
                                 }
                             }
-                            "fn" => friendly_name = Some(val.to_string()),
-                            "md" => model_name = Some(val.to_string()),
+                            "fn" => {
+                                if friendly_name.is_none() {
+                                    friendly_name = Some(val.to_string());
+                                }
+                            }
+                            "md" => {
+                                if model_name.is_none() {
+                                    model_name = Some(val.to_string());
+                                }
+                            }
                             _ => {}
                         }
                     }
@@ -233,7 +241,7 @@ pub fn parse_cast_mdns_packet(data: &[u8], src: SocketAddr) -> Option<CastDevice
             }
             33 => {
                 // SRV Record: Priority (2), Weight (2), Port (2), Target (...)
-                if rdata.len() >= 6 {
+                if rdata.len() >= 6 && port.is_none() {
                     let p = u16::from_be_bytes([rdata[4], rdata[5]]);
                     port = Some(p);
                 }
