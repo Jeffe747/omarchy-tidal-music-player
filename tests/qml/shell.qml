@@ -199,11 +199,17 @@ ShellRoot {
       var play = findObject(root.widget, "tidalPlayButton")
       var next = findObject(root.widget, "tidalNextButton")
       var repeat = findObject(root.widget, "tidalRepeatButton")
-      var chromecast = findObject(root.widget, "tidalChromecastButton")
       root.check(shuffle !== null && prev !== null && play !== null && next !== null && repeat !== null,
                  "All playback controls must be present")
-      root.check(chromecast !== null && !chromecast.visible,
-                 "Chromecast action must be hidden until cast protocol support is available")
+      var chromecast = findObject(root.widget, "tidalChromecastButton")
+      root.check(chromecast !== null && chromecast.visible,
+                 "Chromecast action must be visible now that cast protocol support is available")
+      if (chromecast) chromecast.clicked()
+      root.check(root.widget.chromecastOpen, "Clicking Chromecast button must open Chromecast overlay")
+      var chromecastClose = findObject(root.widget, "tidalChromecastCloseButton")
+      root.check(chromecastClose !== null && chromecastClose.visible, "Chromecast overlay must have a close button")
+      if (chromecastClose) chromecastClose.clicked()
+      root.check(!root.widget.chromecastOpen, "Chromecast close button must dismiss overlay")
       root.widget.settingsOpen = true
       var settingsBackdrop = findObject(root.widget, "tidalSettingsBackdropMouseArea")
       var settingsClose = findObject(root.widget, "tidalSettingsCloseButton")

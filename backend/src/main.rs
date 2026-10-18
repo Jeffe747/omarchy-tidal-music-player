@@ -4,6 +4,7 @@ mod ipc;
 mod log;
 mod mpris;
 mod playback;
+pub mod cast;
 #[cfg(test)]
 #[path = "tests/ui_endpoints.rs"]
 mod ui_endpoint_tests;
@@ -16,6 +17,7 @@ use std::io::{BufRead, BufReader};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::Duration;
 
 pub(crate) static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 pub(crate) static FAVORITES_LOADING: AtomicBool = AtomicBool::new(false);
@@ -38,10 +40,30 @@ pub(crate) struct Player {
     track_has_started: bool,
     shuffle: bool,
     repeat_mode: String,
+    cast_active: bool,
+    cast_device_name: Option<String>,
+    cast_state: crate::cast::CastState,
+    cast_volume: f64,
+    cast_session: Option<crate::cast::client::CastSession>,
+    stream_proxy: Option<Arc<crate::cast::proxy::StreamProxy>>,
+    cast_discovery: Arc<crate::cast::discovery::CastDiscovery>,
 }
 
 impl Player {
     fn new() -> Self {
+        let stream_proxy = match crate::cast::proxy::StreamProxy::new() {
+            Ok(proxy) => {
+                let arc = Arc::new(proxy);
+                Arc::clone(&arc).start();
+                Some(arc)
+            }
+            Err(e) => {
+                log::write(&format!("Failed to start Cast audio relay proxy: {e}"));
+                None
+            }
+        };
+        let cast_discovery = Arc::new(crate::cast::discovery::CastDiscovery::new());
+
         Self {
             engine: PlaybackEngine::new(),
             favorites: Vec::new(),
@@ -55,6 +77,13 @@ impl Player {
             track_has_started: false,
             shuffle: false,
             repeat_mode: "off".into(),
+            cast_active: false,
+            cast_device_name: None,
+            cast_state: crate::cast::CastState::Idle,
+            cast_volume: 1.0,
+            cast_session: None,
+            stream_proxy,
+            cast_discovery,
         }
     }
 }
@@ -144,7 +173,16 @@ fn build_status_message(auth_manager: &AuthManager, player: &Player) -> IpcState
     };
 
     let mut playing = false;
-    if player.current.is_some() {
+    let mut position = Some(0.0);
+    if player.cast_active {
+        playing = player.cast_state == crate::cast::CastState::Playing
+            || player.cast_state == crate::cast::CastState::Buffering;
+        position = player
+            .cast_session
+            .as_ref()
+            .map(|s| s.position())
+            .or(Some(0.0));
+    } else if player.current.is_some() {
         let state = (|| {
             let idle = player
                 .engine
@@ -162,6 +200,7 @@ fn build_status_message(auth_manager: &AuthManager, player: &Player) -> IpcState
             Ok(active) => playing = active,
             Err(error) => log::write(&format!("Failed to read playback status: {error}")),
         }
+        position = player.engine.position().ok().or(Some(0.0));
     }
     let track = player.current.as_ref();
     IpcStateMessage {
@@ -175,11 +214,7 @@ fn build_status_message(auth_manager: &AuthManager, player: &Player) -> IpcState
         track_album: track.map(|t| t.album_title().to_string()),
         track_art_url: track.map(|t| cover_url(t.cover())),
         duration: Some(track.map(|t| t.duration as f64).unwrap_or(0.0)),
-        position: if player.current.is_some() {
-            player.engine.position().ok().or(Some(0.0))
-        } else {
-            Some(0.0)
-        },
+        position,
         audio_quality: Some(player.quality.clone()),
         preferred_audio_quality: Some(player.preferred_quality.clone()),
         shuffle: player.shuffle,
@@ -192,10 +227,18 @@ fn build_status_message(auth_manager: &AuthManager, player: &Player) -> IpcState
                 .or_else(|| t.artists.first().map(|a| a.id))
         }),
         album_id: track.and_then(|t| t.album.as_ref().map(|a| a.id)),
+        cast_active: player.cast_active,
+        cast_device_name: player.cast_device_name.clone(),
+        cast_state: player.cast_state.as_str().to_string(),
+        cast_volume: player
+            .cast_session
+            .as_ref()
+            .map(|s| s.volume())
+            .unwrap_or(player.cast_volume),
     }
 }
 
-fn broadcast_status(auth: &AuthManager, player: &Mutex<Player>, ipc: &IpcServer) {
+pub(crate) fn broadcast_status(auth: &AuthManager, player: &Mutex<Player>, ipc: &IpcServer) {
     match player.lock() {
         Ok(player) => ipc.broadcast(&build_status_message(auth, &player)),
         Err(error) => log::write(&format!("Failed to lock player: {error}")),
@@ -557,7 +600,7 @@ fn play_track(
 ) -> Result<(), String> {
     let id = track_id.ok_or("play_track requires track_id")?;
     let req_id = PLAY_REQUEST_ID.fetch_add(1, Ordering::SeqCst) + 1;
-    let (cached_track, preferred_quality) = {
+    let (cached_track, preferred_quality, is_casting) = {
         let p = player.lock().map_err(|e| e.to_string())?;
         let track = p
             .queue
@@ -565,7 +608,7 @@ fn play_track(
             .chain(p.favorites.iter())
             .find(|track| track.id == id)
             .cloned();
-        (track, p.preferred_quality.clone())
+        (track, p.preferred_quality.clone(), p.cast_active)
     };
     let track = match cached_track {
         Some(track) => track,
@@ -577,7 +620,12 @@ fn play_track(
         track.artist_name(),
         track.audio_quality
     ));
-    let info = api_call(auth, |api, _| api.get_playback_info(id, &preferred_quality))?;
+    let requested_quality = if is_casting && preferred_quality == "HI_RES_LOSSLESS" {
+        "LOSSLESS".to_string()
+    } else {
+        preferred_quality.clone()
+    };
+    let info = api_call(auth, |api, _| api.get_playback_info(id, &requested_quality))?;
     let mime = match info.manifest_mime_type.as_str() {
         "application/vnd.tidal.bts" | "application/dash+xml" => info.manifest_mime_type.as_str(),
         _ => "unsupported",
@@ -597,14 +645,39 @@ fn play_track(
             player.current_playlist_id = None;
         }
     }
-    let url = player
-        .engine
-        .resolve_stream_url(&info.manifest_mime_type, &info.manifest)?;
-    match player.engine.load_url(&url) {
-        Ok(()) => log::write("mpv load result: success"),
-        Err(error) => {
-            log::write(&format!("mpv load result: failed: {error}"));
-            return Err(error);
+    let (direct_url, stream_mime) =
+        PlaybackEngine::parse_stream_url_and_mime(&info.manifest_mime_type, &info.manifest)?;
+    if let Some(session) = player.cast_session.clone().filter(|_| player.cast_active) {
+        let stream_url = if let Some(ref proxy) = player.stream_proxy {
+            proxy.register_track(id, direct_url.clone(), stream_mime.clone());
+            proxy.stream_url_for_target(id, &session.device.ip)
+        } else {
+            direct_url
+        };
+        let _ = player.engine.set_pause(true);
+        if let Err(e) = session.load_track(
+            stream_url,
+            stream_mime,
+            track.title.clone(),
+            track.artist_name().to_string(),
+            track.album_title().to_string(),
+            cover_url(track.cover()),
+            0.0,
+        ) {
+            log::write(&format!("Cast load_track failed: {e}"));
+            return Err(e);
+        }
+        player.cast_state = crate::cast::CastState::Buffering;
+    } else {
+        let url = player
+            .engine
+            .resolve_stream_url(&info.manifest_mime_type, &info.manifest)?;
+        match player.engine.load_url(&url) {
+            Ok(()) => log::write("mpv load result: success"),
+            Err(error) => {
+                log::write(&format!("mpv load result: failed: {error}"));
+                return Err(error);
+            }
         }
     }
     player.current = Some(track);
@@ -677,6 +750,20 @@ pub(crate) fn play_or_resume(
         return Err("No favorite tracks are available".to_string());
     }
     let state = player.lock().map_err(|e| e.to_string())?;
+    if state.cast_active {
+        if let Some(ref session) = state.cast_session {
+            if toggle {
+                if state.cast_state == crate::cast::CastState::Playing {
+                    let _ = session.pause();
+                } else {
+                    let _ = session.play();
+                }
+            } else {
+                let _ = session.play();
+            }
+        }
+        return Ok(());
+    }
     if toggle {
         state.engine.toggle_pause()
     } else {
@@ -693,8 +780,19 @@ pub(crate) fn navigate(
     let target = {
         let state = player.lock().map_err(|e| e.to_string())?;
         let current = state.current.as_ref().ok_or("No current track")?;
-        if !forward && state.engine.position().unwrap_or(0.0) > 3.0 {
-            state.engine.seek(0.0)?;
+        let pos = if state.cast_active {
+            state.cast_session.as_ref().map(|s| s.position()).unwrap_or(0.0)
+        } else {
+            state.engine.position().unwrap_or(0.0)
+        };
+        if !forward && pos > 3.0 {
+            if state.cast_active {
+                if let Some(ref s) = state.cast_session {
+                    let _ = s.seek(0.0);
+                }
+            } else {
+                state.engine.seek(0.0)?;
+            }
             drop(state);
             broadcast_status(auth, player, ipc);
             return Ok(());
@@ -733,54 +831,247 @@ pub(crate) fn navigate(
     play_track(auth, player, ipc, Some(id))
 }
 
+fn connect_cast(
+    auth: &Arc<AuthManager>,
+    player: &Arc<Mutex<Player>>,
+    ipc: &IpcServer,
+    device_id: Option<String>,
+) -> Result<(), String> {
+    let target_id = device_id.ok_or_else(|| "device_id is required".to_string())?;
+
+    let (cached_dev, discovery) = {
+        let p = player.lock().map_err(|e| e.to_string())?;
+        let dev = p
+            .cast_discovery
+            .get_devices()
+            .into_iter()
+            .find(|d| d.id == target_id);
+        (dev, Arc::clone(&p.cast_discovery))
+    };
+
+    let device = match cached_dev {
+        Some(d) => d,
+        None => {
+            let scanned = discovery.discover(Duration::from_millis(800));
+            scanned
+                .into_iter()
+                .find(|d| d.id == target_id)
+                .ok_or_else(|| format!("Cast device not found: {target_id}"))?
+        }
+    };
+
+    let (prev_session, was_playing, current_pos, current_track, proxy, preferred_quality) = {
+        let mut p = player.lock().map_err(|e| e.to_string())?;
+        let (prev, was_playing, pos) = if p.cast_active {
+            let pos = p.cast_session.as_ref().map(|s| s.position()).unwrap_or(0.0);
+            let was_playing = p.cast_state == crate::cast::CastState::Playing;
+            (p.cast_session.take(), was_playing, pos)
+        } else {
+            let was_playing = p
+                .engine
+                .property("pause")
+                .ok()
+                .and_then(|v| v.as_bool())
+                .map(|paused| !paused)
+                .unwrap_or(false);
+            let pos = p.engine.position().ok().unwrap_or(0.0);
+            (None, was_playing, pos)
+        };
+        let track = p.current.clone();
+
+        // Pause local mpv audio
+        let _ = p.engine.set_pause(true);
+        p.cast_state = crate::cast::CastState::Connecting;
+        let proxy = match p.stream_proxy.as_ref() {
+            Some(prx) => Arc::clone(prx),
+            None => {
+                p.cast_state = crate::cast::CastState::Idle;
+                return Err("Cast stream proxy is unavailable on this system".to_string());
+            }
+        };
+        let quality = if p.preferred_quality == "HI_RES_LOSSLESS" {
+            "LOSSLESS".to_string()
+        } else {
+            p.preferred_quality.clone()
+        };
+        (prev, was_playing, pos, track, proxy, quality)
+    };
+
+    if let Some(prev) = prev_session {
+        prev.disconnect();
+    }
+
+    broadcast_status(auth, player, ipc);
+
+    let auth_cb = Arc::clone(auth);
+    let player_cb = Arc::clone(player);
+    let ipc_cb = ipc.clone();
+    let on_track_finished = Arc::new(move || {
+        let auth_t = Arc::clone(&auth_cb);
+        let player_t = Arc::clone(&player_cb);
+        let ipc_t = ipc_cb.clone();
+        thread::spawn(move || {
+            if let Err(e) = navigate(&auth_t, &player_t, &ipc_t, true) {
+                log::write(&format!("Cast auto-advance error: {e}"));
+            }
+        });
+    });
+
+    let session = match crate::cast::client::CastSession::connect(device.clone(), on_track_finished) {
+        Ok(s) => s,
+        Err(e) => {
+            log::write(&format!("Cast connect error: {e}"));
+            if let Ok(mut p) = player.lock() {
+                p.cast_state = crate::cast::CastState::Idle;
+                if was_playing {
+                    let _ = p.engine.set_pause(false);
+                }
+            }
+            broadcast_status(auth, player, ipc);
+            return Err(e);
+        }
+    };
+
+    // If currently playing a track, transfer playback smoothly to the Chromecast
+    if let Some(track) = current_track {
+        if let Ok(info) = api_call(auth, |api, _| api.get_playback_info(track.id, &preferred_quality)) {
+            if let Ok((direct_url, stream_mime)) = PlaybackEngine::parse_stream_url_and_mime(&info.manifest_mime_type, &info.manifest) {
+                proxy.register_track(track.id, direct_url.clone(), stream_mime.clone());
+                let proxy_url = proxy.stream_url_for_target(track.id, &device.ip);
+                let _ = session.load_track(
+                    proxy_url,
+                    stream_mime,
+                    track.title.clone(),
+                    track.artist_name().to_string(),
+                    track.album_title().to_string(),
+                    cover_url(track.cover()),
+                    if was_playing { current_pos } else { 0.0 },
+                );
+            }
+        }
+    }
+
+    if let Ok(mut p) = player.lock() {
+        p.cast_active = true;
+        p.cast_device_name = Some(device.name.clone());
+        p.cast_state = session.state();
+        p.cast_volume = session.volume();
+        p.cast_session = Some(session);
+    }
+
+    broadcast_status(auth, player, ipc);
+    Ok(())
+}
+
+fn disconnect_cast(
+    auth: &AuthManager,
+    player: &Mutex<Player>,
+    ipc: &IpcServer,
+) -> Result<(), String> {
+    let session = {
+        let mut p = player.lock().map_err(|e| e.to_string())?;
+        let _ = p.engine.set_pause(true);
+        p.cast_active = false;
+        p.cast_device_name = None;
+        p.cast_state = crate::cast::CastState::Idle;
+        p.cast_session.take()
+    };
+
+    if let Some(session) = session {
+        session.disconnect();
+    }
+
+    broadcast_status(auth, player, ipc);
+    Ok(())
+}
+
 fn start_position_ticker(auth: Arc<AuthManager>, player: Arc<Mutex<Player>>, ipc: IpcServer) {
     thread::spawn(move || {
         while !SHUTDOWN.load(Ordering::Relaxed) {
             thread::sleep(std::time::Duration::from_millis(250));
-            let (position, duration, is_playing, eof_track) = match player.lock() {
+            let (position, duration, is_playing, eof_track, status_changed) = match player.lock() {
                 Ok(mut state) => {
-                    let track_id = state.current.as_ref().map(|t| t.id);
-                    if let Some(id) = track_id {
-                        let idle_active = state
-                            .engine
-                            .property("idle-active")
-                            .ok()
-                            .and_then(|value| value.as_bool())
-                            .unwrap_or(true);
-                        let eof_reached = state.engine.eof_reached().unwrap_or(false);
-
-                        if !idle_active {
-                            state.track_has_started = true;
-                        }
-
-                        if state.track_has_started
-                            && (eof_reached || idle_active)
-                            && state.eof_handled_track != Some(id)
-                        {
-                            state.eof_handled_track = Some(id);
-                            state.track_has_started = false;
-                            (None, None, false, Some(id))
+                    if state.cast_active {
+                        let mut status_changed = false;
+                        let session_opt = state.cast_session.clone();
+                        if let Some(session) = session_opt {
+                            if !session.is_active() {
+                                state.cast_active = false;
+                                state.cast_device_name = None;
+                                state.cast_state = crate::cast::CastState::Idle;
+                                state.cast_session = None;
+                                status_changed = true;
+                                (None, None, false, None, status_changed)
+                            } else {
+                                let session_state = session.state();
+                                if session_state != state.cast_state {
+                                    state.cast_state = session_state;
+                                    status_changed = true;
+                                }
+                                let session_vol = session.volume();
+                                if (session_vol - state.cast_volume).abs() > 0.005 {
+                                    state.cast_volume = session_vol;
+                                    status_changed = true;
+                                }
+                                let pos = session.position();
+                                let dur = state.current.as_ref().map(|t| t.duration as f64);
+                                let playing = state.cast_state == crate::cast::CastState::Playing
+                                    || state.cast_state == crate::cast::CastState::Buffering;
+                                (Some(pos), dur, playing, None, status_changed)
+                            }
                         } else {
-                            let playing = !idle_active
-                                && !state
-                                    .engine
-                                    .property("pause")
-                                    .ok()
-                                    .and_then(|value| value.as_bool())
-                                    .unwrap_or(true);
-                            (
-                                state.engine.position().ok(),
-                                state.engine.duration().ok(),
-                                playing,
-                                None,
-                            )
+                            state.cast_active = false;
+                            state.cast_state = crate::cast::CastState::Idle;
+                            (None, None, false, None, true)
                         }
                     } else {
-                        (None, None, false, None)
+                        let track_id = state.current.as_ref().map(|t| t.id);
+                        if let Some(id) = track_id {
+                            let idle_active = state
+                                .engine
+                                .property("idle-active")
+                                .ok()
+                                .and_then(|value| value.as_bool())
+                                .unwrap_or(true);
+                            let eof_reached = state.engine.eof_reached().unwrap_or(false);
+
+                            if !idle_active {
+                                state.track_has_started = true;
+                            }
+
+                            if state.track_has_started
+                                && (eof_reached || idle_active)
+                                && state.eof_handled_track != Some(id)
+                            {
+                                state.eof_handled_track = Some(id);
+                                state.track_has_started = false;
+                                (None, None, false, Some(id), false)
+                            } else {
+                                let playing = !idle_active
+                                    && !state
+                                        .engine
+                                        .property("pause")
+                                        .ok()
+                                        .and_then(|value| value.as_bool())
+                                        .unwrap_or(true);
+                                (
+                                    state.engine.position().ok(),
+                                    state.engine.duration().ok(),
+                                    playing,
+                                    None,
+                                    false,
+                                )
+                            }
+                        } else {
+                            (None, None, false, None, false)
+                        }
                     }
                 }
                 Err(_) => continue,
             };
+            if status_changed {
+                broadcast_status(&auth, &player, &ipc);
+            }
             if let Some(id) = eof_track {
                 let result = navigate(&auth, &player, &ipc, true);
                 if let Err(error) = result {
@@ -873,6 +1164,24 @@ fn main() {
         std::process::exit(0);
     }
 
+    if args.iter().any(|a| a == "--discover-cast") {
+        println!("Scanning LAN for Google Cast devices via mDNS...");
+        let discovery = cast::discovery::CastDiscovery::new();
+        let devices = discovery.discover(std::time::Duration::from_millis(1500));
+        if devices.is_empty() {
+            println!("No Google Cast devices found.");
+        } else {
+            println!("Found {} Cast device(s):", devices.len());
+            for d in &devices {
+                println!(
+                    "  - [{}] {} ({}) at {}:{}",
+                    d.id, d.name, d.model, d.ip, d.port
+                );
+            }
+        }
+        std::process::exit(0);
+    }
+
     if args.iter().any(|a| a == "--help" || a == "-h") {
         println!("Omarchy Tidal Music Player Daemon (tidal-daemon)");
         println!("Usage: tidal-daemon [OPTIONS]");
@@ -881,6 +1190,7 @@ fn main() {
         println!("  --test-auth, --login  Run OAuth 2.0 Device Flow authorization CLI runner");
         println!("  --status              Print current session and authentication status");
         println!("  --logout              Clear stored session credentials");
+        println!("  --discover-cast       Scan LAN for Google Cast devices via mDNS");
         println!(
             "  --probe <track_id> [QUALITY]  Resolve a track's stream (optional quality override)"
         );
@@ -1010,6 +1320,11 @@ fn main() {
                                 | "get_album_tracks"
                                 | "get_artist_tracks"
                                 | "get_track_radio"
+                                | "discover_cast_devices"
+                                | "refresh_cast_devices"
+                                | "connect_cast"
+                                | "disconnect_cast"
+                                | "set_cast_volume"
                                 | "start_auth"
                                 | "logout" => cmd.command.as_str(),
                                 _ => "unknown",
@@ -1240,6 +1555,17 @@ fn main() {
                                         }
                                         let player =
                                             player_ref.lock().map_err(|e| e.to_string())?;
+                                        if player.cast_active {
+                                            if let Some(ref s) = player.cast_session {
+                                                match cmd.command.as_str() {
+                                                    "pause" => s.pause()?,
+                                                    _ => s.seek(
+                                                        cmd.position.ok_or("seek requires position")?,
+                                                    )?,
+                                                }
+                                            }
+                                            return Ok(());
+                                        }
                                         match cmd.command.as_str() {
                                             "pause" => player.engine.set_pause(true),
                                             _ => player.engine.seek(
@@ -1266,6 +1592,68 @@ fn main() {
                                         ipc_ref.broadcast(&PlayerMessage::PlaybackError {
                                             error: &error,
                                         });
+                                    }
+                                }
+                                "discover_cast_devices" | "refresh_cast_devices" => {
+                                    let discovery = match player_ref.lock() {
+                                        Ok(p) => Arc::clone(&p.cast_discovery),
+                                        Err(e) => {
+                                            log::write(&format!("Failed to lock player: {e}"));
+                                            continue;
+                                        }
+                                    };
+                                    let ipc = ipc_ref.clone();
+                                    let is_refresh = cmd.command == "refresh_cast_devices";
+                                    thread::spawn(move || {
+                                        if !is_refresh {
+                                            let cached = discovery.get_devices();
+                                            if !cached.is_empty() {
+                                                ipc.broadcast(&PlayerMessage::CastDevicesDiscovered {
+                                                    devices: cached,
+                                                });
+                                                return;
+                                            }
+                                        }
+                                        let devices =
+                                            discovery.discover(Duration::from_millis(1500));
+                                        ipc.broadcast(&PlayerMessage::CastDevicesDiscovered {
+                                            devices,
+                                        });
+                                    });
+                                }
+                                "connect_cast" => {
+                                    let auth = Arc::clone(&auth_ref);
+                                    let player = Arc::clone(&player_ref);
+                                    let ipc = ipc_ref.clone();
+                                    let device_id = cmd.device_id.clone();
+                                    thread::spawn(move || {
+                                        if let Err(e) = connect_cast(&auth, &player, &ipc, device_id) {
+                                            log::write(&format!("connect_cast error: {e}"));
+                                            ipc.broadcast(&PlayerMessage::CastError { error: &e });
+                                        }
+                                    });
+                                }
+                                "disconnect_cast" => {
+                                    let auth = Arc::clone(&auth_ref);
+                                    let player = Arc::clone(&player_ref);
+                                    let ipc = ipc_ref.clone();
+                                    thread::spawn(move || {
+                                        if let Err(e) = disconnect_cast(&auth, &player, &ipc) {
+                                            log::write(&format!("disconnect_cast error: {e}"));
+                                            ipc.broadcast(&PlayerMessage::CastError { error: &e });
+                                        }
+                                    });
+                                }
+                                "set_cast_volume" => {
+                                    if let Some(vol) = cmd.volume {
+                                        let clamped = vol.clamp(0.0, 1.0);
+                                        if let Ok(mut p) = player_ref.lock() {
+                                            p.cast_volume = clamped;
+                                            if let Some(ref s) = p.cast_session {
+                                                let _ = s.set_volume(clamped);
+                                            }
+                                        }
+                                        broadcast_status(&auth_ref, &player_ref, &ipc_ref);
                                     }
                                 }
                                 "start_auth" => {
@@ -1388,6 +1776,12 @@ fn main() {
                                         let mut player =
                                             player_ref.lock().map_err(|e| e.to_string())?;
                                         player.engine.stop()?;
+                                        if let Some(session) = player.cast_session.take() {
+                                            session.disconnect();
+                                        }
+                                        player.cast_active = false;
+                                        player.cast_device_name = None;
+                                        player.cast_state = crate::cast::CastState::Idle;
                                         player.current = None;
                                         player.favorites.clear();
                                         Ok::<(), String>(())
@@ -1418,6 +1812,9 @@ fn main() {
         }
     }
     if let Ok(mut player) = player.lock() {
+        if let Some(session) = player.cast_session.take() {
+            session.disconnect();
+        }
         if let Err(error) = player.engine.stop() {
             log::write(&format!("Failed to stop playback: {error}"));
         }

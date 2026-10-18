@@ -74,6 +74,21 @@ By implementing the standard `org.mpris.MediaPlayer2.Tidal` interface on D-Bus:
 
 ---
 
+### 1.5 Wireless Streaming & Casting
+- **Google Cast (Implemented - Primary Target):**
+  - Wire protocol: Zero-dependency Cast V2 channel framing, protobuf serialization, TLS on port 8009 with self-signed certificate verifier, heartbeat keepalive, and Default Media Receiver app (`CC1AD845`).
+  - Discovery: Non-blocking UDP mDNS (`_googlecast._tcp.local`, port 5353).
+  - Stream Delivery: Direct FLAC stream through a local non-blocking HTTP CORS proxy server in `tidal-daemon`.
+- **DLNA / UPnP AV (Roadmap / Backlog):**
+  - SSDP discovery on `239.255.255.250:1900` (`urn:schemas-upnp-org:device:MediaRenderer:1`).
+  - Simple HTTP/SOAP `SetAVTransportURI` and `Play` actions without cryptographic overhead.
+  - Targets: Smart TVs, Hi-Fi receivers (Yamaha, Denon), Sonos.
+- **Apple AirPlay / RAOP (Roadmap / Backlog):**
+  - Discovery: mDNS (`_raop._tcp.local` / `_airplay._tcp.local`).
+  - To prevent cryptographic and codec bloat (SRP-6a, FairPlay/MFi, ALAC encoder) in the stripped binary, prioritize PipeWire's native RAOP sink bridge (`libpipewire-module-raop-sink`) or lightweight RTSP/RTP bridge.
+
+---
+
 ## 2. Language Selection & Architecture
 
 | Language | Binary Size | Startup & Memory | Audio & Network Ecosystem | Recommendation |

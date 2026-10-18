@@ -16,6 +16,7 @@ Panel {
   readonly property bool isSystemMuted: !!defaultAudioSink && !!defaultAudioSink.audio && defaultAudioSink.audio.muted
   property string libraryTab: "favorites"
   property bool settingsOpen: false
+  property bool chromecastOpen: false
   property bool confirmLogout: false
   property int keyboardIndex: -1
   property bool enterPending: false
@@ -53,6 +54,7 @@ Panel {
     if (contextMenuOpen) { closeContextMenu(); return }
     if (libraryView && libraryView.creatingPlaylist) { libraryView.cancelCreatingPlaylist(); return }
     if (confirmLogout) { confirmLogout = false; return }
+    if (chromecastOpen) { chromecastOpen = false; return }
     if (tidalService && tidalService.explorationView) {
       var restoreSearch = !!searchField.text.trim() && (tidalService.explorationSearchRequestId >= 0 || tidalService.searching)
       tidalService.closeExploration()
@@ -66,17 +68,20 @@ Panel {
     close()
   }
   function moveCursor(dy) {
+    if (settingsOpen || chromecastOpen) return
     var count = libraryView.activeItems.length
     keyboardIndex = count ? Math.max(0, Math.min(count - 1, keyboardIndex + dy)) : -1
   }
   function activateCursor() {
     if (confirmLogout) { if (confirmDialog.selectedIndex === 1) { tidalService.logout(); settingsOpen = false }; confirmLogout = false; return }
-    if (enterPending) { enterPending = false; if (!settingsOpen) libraryView.activate(keyboardIndex) }
-    else if (!settingsOpen && tidalService) tidalService.togglePlay()
+    if (settingsOpen || chromecastOpen) return
+    if (enterPending) { enterPending = false; libraryView.activate(keyboardIndex) }
+    else if (tidalService) tidalService.togglePlay()
   }
   function handleTextKey(key) {
+    if (settingsOpen || chromecastOpen) return
     if (key === "/") { searchField.forceActiveFocus(); return }
-    if (key.length === 1 && key !== " " && !settingsOpen && !searchField.activeFocus) {
+    if (key.length === 1 && key !== " " && !searchField.activeFocus) {
       searchField.text += key
       searchField.forceActiveFocus()
     }
@@ -109,7 +114,7 @@ Panel {
     open: root.opened
     focusTarget: keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(380))
-    contentHeight: panel.fittedContentHeight(root.settingsOpen ? (settingsColumn.implicitHeight + Style.spacing.popupPadding * 2) : mainColumn.implicitHeight)
+    contentHeight: panel.fittedContentHeight(root.settingsOpen ? (settingsColumn.implicitHeight + Style.spacing.popupPadding * 2) : (root.chromecastOpen ? (chromecastColumn.implicitHeight + Style.spacing.popupPadding * 2) : mainColumn.implicitHeight))
     onOpenChanged: {
       if (!open) root.closeContextMenu()
       if (open && tidalService) {
@@ -124,6 +129,7 @@ Panel {
       onCloseRequested: root.goBack()
       onMoveRequested: function(dx, dy) {
         if (root.confirmLogout) { if (dx) confirmDialog.selectedIndex = dx > 0 ? 1 : 0; return }
+        if (root.settingsOpen || root.chromecastOpen) return
         if (dy) root.moveCursor(dy)
         else if (dx && tidalService && !searchField.activeFocus && !libraryView.filterFocused) player.seekRelative(dx * 5)
       }
@@ -145,8 +151,17 @@ Panel {
           width: parent.width
           service: tidalService
           bar: root.bar
-          onSettingsRequested: root.settingsOpen = !root.settingsOpen
-          onChromecastRequested: if (tidalService && typeof tidalService.requestChromecast === "function") tidalService.requestChromecast()
+          onSettingsRequested: {
+            if (root.chromecastOpen) root.chromecastOpen = false
+            root.settingsOpen = !root.settingsOpen
+          }
+          onChromecastRequested: {
+            if (root.settingsOpen) root.settingsOpen = false
+            root.chromecastOpen = !root.chromecastOpen
+            if (root.chromecastOpen && tidalService) {
+              tidalService.discoverCastDevices()
+            }
+          }
           onExploreArtist: function(id, name) { searchDebounce.stop(); if (tidalService) tidalService.exploreArtist(id, name) }
           onExploreAlbum: function(id, name) { searchDebounce.stop(); if (tidalService) tidalService.exploreAlbum(id, name) }
         }
@@ -197,7 +212,7 @@ Panel {
         SafeTextField {
           id: searchField
           objectName: "tidalSearchField"
-          visible: root.isAuthenticated && !root.settingsOpen && root.view !== "explore"
+          visible: root.isAuthenticated && !root.settingsOpen && !root.chromecastOpen && root.view !== "explore"
           width: parent.width
           placeholderText: "Search Tidal tracks…"
           onTextChanged: {
@@ -217,14 +232,19 @@ Panel {
         LibraryView {
           id: libraryView
           objectName: "tidalLibraryView"
-          visible: root.isAuthenticated && !root.settingsOpen
+          visible: root.isAuthenticated && !root.settingsOpen && !root.chromecastOpen
           width: parent.width
           service: tidalService
           view: root.view
           keyboardIndex: root.keyboardIndex
           onSelectTab: function(tab) {
             root.libraryTab = tab
-            if (tab === "playlists" && tidalService && tidalService.playlists.length === 0) tidalService.loadPlaylists()
+            if (tab === "playlists") {
+              if (tidalService && tidalService.currentPlaylistId) tidalService.closePlaylist()
+              if (tidalService) tidalService.loadPlaylists()
+            } else if (tab === "favorites") {
+              if (tidalService && (!tidalService.favoritesRequested || tidalService.favorites.length === 0)) tidalService.loadFavorites()
+            }
           }
           onBack: root.goBack()
           onPlayTrack: function(id, track) { if (tidalService) tidalService.playTrack(id, track) }
@@ -315,22 +335,29 @@ Panel {
             Text { anchors.fill: parent; anchors.margins: Style.spacing.md; verticalAlignment: Text.AlignVCenter; textFormat: Text.PlainText; text: "‹  Select playlist"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body }
             MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.playlistSubmenuOpen = false }
           }
-          ListView {
-            objectName: "tidalContextPlaylistList"
+          Item {
             visible: root.playlistSubmenuOpen && !!tidalService && tidalService.playlists.length > 0
             width: parent.width
             height: Math.max(0, parent.height - Style.spacing.popupRowHeight)
-            model: tidalService ? tidalService.playlists : []
-            clip: true
-            delegate: Rectangle {
-              Accessible.role: Accessible.MenuItem
-              Accessible.name: modelData.title || "Untitled playlist"
-              required property var modelData
-              width: ListView.view.width
-              height: Style.spacing.popupRowHeight
-              color: itemMouse.containsMouse ? Style.hoverFill : Style.normalFill
-              Text { anchors.fill: parent; anchors.margins: Style.spacing.md; verticalAlignment: Text.AlignVCenter; textFormat: Text.PlainText; text: modelData.title || "Untitled playlist"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; elide: Text.ElideRight }
-              MouseArea { id: itemMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { if (tidalService && root.contextMenuTrack) tidalService.addTrackToPlaylist(modelData.uuid, root.contextMenuTrack.id); root.closeContextMenu() } }
+            ListView {
+              id: contextPlaylistList
+              objectName: "tidalContextPlaylistList"
+              anchors.fill: parent
+              model: tidalService ? tidalService.playlists : []
+              clip: true
+              delegate: Rectangle {
+                Accessible.role: Accessible.MenuItem
+                Accessible.name: modelData.title || "Untitled playlist"
+                required property var modelData
+                width: contextPlaylistList.contentHeight > contextPlaylistList.height ? ListView.view.width - Style.space(10) : ListView.view.width
+                height: Style.spacing.popupRowHeight
+                color: itemMouse.containsMouse ? Style.hoverFill : Style.normalFill
+                Text { anchors.fill: parent; anchors.margins: Style.spacing.md; verticalAlignment: Text.AlignVCenter; textFormat: Text.PlainText; text: modelData.title || "Untitled playlist"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; elide: Text.ElideRight }
+                MouseArea { id: itemMouse; anchors.fill: parent; hoverEnabled: true; cursorShape: Qt.PointingHandCursor; onClicked: { if (tidalService && root.contextMenuTrack) tidalService.addTrackToPlaylist(modelData.uuid, root.contextMenuTrack.id); root.closeContextMenu() } }
+              }
+            }
+            ScrollDot {
+              targetList: contextPlaylistList
             }
           }
           Text {
@@ -428,6 +455,241 @@ Panel {
             spacing: Style.spacing.md
             Ui.Button { text: "Logout"; onClicked: root.confirmLogout = true }
             Ui.Button { text: "Close"; onClicked: root.settingsOpen = false }
+          }
+        }
+      }
+      Rectangle {
+        id: chromecastOverlay
+        objectName: "tidalChromecastOverlay"
+        visible: root.chromecastOpen
+        anchors.fill: parent
+        z: 5
+        clip: true
+        color: Color.popups.background
+        radius: Style.cornerRadius
+        border.color: Color.muted
+        border.width: Style.normalBorderWidth
+        MouseArea {
+          objectName: "tidalChromecastBackdropMouseArea"
+          anchors.fill: parent
+          acceptedButtons: Qt.AllButtons
+        }
+        Column {
+          id: chromecastColumn
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.top: parent.top
+          anchors.margins: Style.spacing.popupPadding
+          spacing: Style.spacing.lg
+          Item {
+            width: parent.width
+            height: Math.max(Style.spacing.controlHeight, chromecastTitle.implicitHeight)
+            Text {
+              id: chromecastTitle
+              anchors.left: parent.left
+              anchors.verticalCenter: parent.verticalCenter
+              text: "Cast Audio"
+              textFormat: Text.PlainText
+              color: Color.foreground
+              font.family: Style.font.family
+              font.pixelSize: Style.font.title
+              font.bold: true
+            }
+            Ui.PanelActionButton {
+              id: chromecastCloseButton
+              objectName: "tidalChromecastCloseButton"
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              size: Style.spacing.controlHeight
+              iconText: "󰅖"
+              tooltipText: "Close"
+              Accessible.role: Accessible.Button
+              Accessible.name: tooltipText
+              onClicked: root.chromecastOpen = false
+            }
+          }
+          Rectangle {
+            visible: !!tidalService && tidalService.castActive
+            width: parent.width
+            height: activeRow.implicitHeight + Style.spacing.md * 2
+            radius: Style.cornerRadius
+            color: Style.hoverFill
+            border.color: Color.accent
+            border.width: Style.normalBorderWidth
+            Row {
+              id: activeRow
+              anchors.fill: parent
+              anchors.margins: Style.spacing.md
+              spacing: Style.spacing.md
+              Text {
+                anchors.verticalCenter: parent.verticalCenter
+                textFormat: Text.PlainText
+                text: "󰄘"
+                color: Color.accent
+                font.family: Style.font.family
+                font.pixelSize: Style.font.title
+              }
+              Column {
+                anchors.verticalCenter: parent.verticalCenter
+                width: Math.max(0, parent.width - Style.space(32) - disconnectBtn.implicitWidth - Style.spacing.md * 2)
+                spacing: Style.spacing.xs
+                Text {
+                  textFormat: Text.PlainText
+                  text: tidalService ? (tidalService.castDeviceName || "Connected Device") : ""
+                  color: Color.foreground
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.body
+                  font.bold: true
+                  elide: Text.ElideRight
+                  width: parent.width
+                }
+                Text {
+                  textFormat: Text.PlainText
+                  text: tidalService ? ("Status: " + tidalService.castState) : ""
+                  color: Color.muted
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.caption
+                }
+              }
+              Ui.Button {
+                id: disconnectBtn
+                anchors.verticalCenter: parent.verticalCenter
+                text: "Disconnect"
+                onClicked: if (tidalService) tidalService.disconnectCast()
+              }
+            }
+          }
+          Row {
+            width: parent.width
+            spacing: Style.spacing.sm
+            height: availableDevicesTitle.implicitHeight
+            Text {
+              id: availableDevicesTitle
+              text: "Available Devices"
+              textFormat: Text.PlainText
+              color: Color.foreground
+              font.family: Style.font.family
+              font.pixelSize: Style.font.body
+              font.bold: true
+              anchors.verticalCenter: parent.verticalCenter
+            }
+            Text {
+              visible: !!tidalService && tidalService.castDiscovering
+              textFormat: Text.PlainText
+              text: "· searching…"
+              color: Color.muted
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+              anchors.verticalCenter: parent.verticalCenter
+            }
+          }
+          Item {
+            visible: !!tidalService && (!tidalService.castDevices || tidalService.castDevices.length === 0)
+            width: parent.width
+            height: Math.max(emptyText.implicitHeight, Style.space(36))
+            Text {
+              id: emptyText
+              anchors.left: parent.left
+              anchors.right: parent.right
+              anchors.verticalCenter: parent.verticalCenter
+              textFormat: Text.PlainText
+              text: tidalService && tidalService.castDiscovering ? "Searching for Google Cast devices on LAN…" : "No Google Cast devices found. Ensure your speakers or TVs are powered on and connected to the same Wi-Fi/LAN."
+              color: Color.muted
+              font.family: Style.font.family
+              font.pixelSize: Style.font.caption
+              wrapMode: Text.WordWrap
+            }
+          }
+          Text {
+            visible: !!tidalService && !!tidalService.castError
+            textFormat: Text.PlainText
+            text: tidalService ? tidalService.castError : ""
+            color: Color.urgent
+            font.family: Style.font.family
+            font.pixelSize: Style.font.caption
+            wrapMode: Text.WordWrap
+            width: parent.width
+          }
+          Column {
+            width: parent.width
+            spacing: Style.spacing.sm
+            Repeater {
+              model: tidalService ? tidalService.castDevices : []
+              delegate: Rectangle {
+                required property var modelData
+                width: parent.width
+                height: Style.spacing.controlHeight + Style.spacing.md
+                radius: Style.cornerRadius
+                color: deviceMouse.containsMouse ? Style.hoverFill : Style.normalFill
+                border.color: (tidalService && tidalService.castActive && tidalService.castDeviceName === modelData.name) ? Color.accent : Color.muted
+                border.width: Style.normalBorderWidth
+                Row {
+                  anchors.fill: parent
+                  anchors.margins: Style.spacing.md
+                  spacing: Style.spacing.md
+                  Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    textFormat: Text.PlainText
+                    text: modelData.model && modelData.model.indexOf("TV") !== -1 ? "󰽐" : "󰓃"
+                    color: Color.accent
+                    font.family: Style.font.family
+                    font.pixelSize: Style.font.body
+                  }
+                  Column {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: Math.max(0, parent.width - Style.space(24) - actionBtn.implicitWidth - Style.spacing.md * 2)
+                    spacing: 2
+                    Text {
+                      textFormat: Text.PlainText
+                      text: modelData.name || "Unknown Speaker"
+                      color: Color.foreground
+                      font.family: Style.font.family
+                      font.pixelSize: Style.font.body
+                      font.bold: true
+                      elide: Text.ElideRight
+                      width: parent.width
+                    }
+                    Text {
+                      textFormat: Text.PlainText
+                      text: (modelData.model || "Google Cast") + " · " + modelData.ip
+                      color: Color.muted
+                      font.family: Style.font.family
+                      font.pixelSize: Style.font.caption
+                      elide: Text.ElideRight
+                      width: parent.width
+                    }
+                  }
+                  Ui.Button {
+                    id: actionBtn
+                    anchors.verticalCenter: parent.verticalCenter
+                    enabled: !(tidalService && tidalService.castActive && tidalService.castDeviceName === modelData.name)
+                    text: (tidalService && tidalService.castActive && tidalService.castDeviceName === modelData.name) ? "Connected" : "Cast"
+                    onClicked: if (tidalService) tidalService.connectCast(modelData.id)
+                  }
+                }
+                MouseArea {
+                  id: deviceMouse
+                  anchors.fill: parent
+                  enabled: actionBtn.enabled
+                  hoverEnabled: enabled
+                  cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                  onClicked: if (tidalService) tidalService.connectCast(modelData.id)
+                }
+              }
+            }
+          }
+          PanelSeparator { width: parent.width }
+          Row {
+            spacing: Style.spacing.md
+            Ui.Button {
+              text: tidalService && tidalService.castDiscovering ? "Searching…" : "Refresh Devices"
+              enabled: !tidalService || !tidalService.castDiscovering
+              onClicked: if (tidalService) tidalService.refreshCastDevices()
+            }
+            Ui.Button {
+              text: "Close"
+              onClicked: root.chromecastOpen = false
+            }
           }
         }
       }

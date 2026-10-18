@@ -77,26 +77,45 @@ fn properties(iface: &str, player: &Player) -> Vec<(&'static str, MessageItem)> 
             ),
         ];
     }
-    let idle = player
-        .engine
-        .property("idle-active")
-        .ok()
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
-    let paused = player
-        .engine
-        .property("pause")
-        .ok()
-        .and_then(|v| v.as_bool())
-        .unwrap_or(true);
-    let status = if idle || player.current.is_none() {
-        "Stopped"
-    } else if paused {
-        "Paused"
+    let (status, pos) = if player.cast_active {
+        let st = if player.current.is_none() {
+            "Stopped"
+        } else {
+            match player.cast_state {
+                crate::cast::CastState::Playing | crate::cast::CastState::Buffering => "Playing",
+                crate::cast::CastState::Paused => "Paused",
+                crate::cast::CastState::Idle | crate::cast::CastState::Connecting => "Stopped",
+            }
+        };
+        let p = player
+            .cast_session
+            .as_ref()
+            .map(|s| s.position())
+            .unwrap_or(0.0);
+        (st, p)
     } else {
-        "Playing"
+        let idle = player
+            .engine
+            .property("idle-active")
+            .ok()
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let paused = player
+            .engine
+            .property("pause")
+            .ok()
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true);
+        let st = if idle || player.current.is_none() {
+            "Stopped"
+        } else if paused {
+            "Paused"
+        } else {
+            "Playing"
+        };
+        let p = player.engine.position().unwrap_or(0.0);
+        (st, p)
     };
-    let pos = player.engine.position().unwrap_or(0.0);
     vec![
         ("PlaybackStatus", MessageItem::Str(status.into())),
         ("Metadata", track_metadata(player.current.as_ref())),
@@ -256,21 +275,37 @@ pub fn start(auth: Arc<AuthManager>, player: Arc<Mutex<Player>>, ipc: IpcServer)
                             &ipc_cb,
                             member == "PlayPause",
                         );
+                        crate::broadcast_status(&auth_cb, &player_cb, &ipc_cb);
                     }
                     (PLAYER, "Pause") | (PLAYER, "Stop") => {
                         result = player_cb
                             .lock()
                             .map_err(|e| e.to_string())
-                            .and_then(|mut p| match member.as_str() {
-                                "Pause" => p.engine.set_pause(true),
-                                "PlayPause" => p.engine.toggle_pause(),
-                                _ => p.engine.stop(),
+                            .and_then(|mut p| {
+                                if p.cast_active {
+                                    if let Some(ref s) = p.cast_session {
+                                        match member.as_str() {
+                                            "Pause" => s.pause()?,
+                                            _ => {
+                                                s.stop()?;
+                                                p.current = None;
+                                                p.cast_state = crate::cast::CastState::Idle;
+                                            }
+                                        }
+                                    }
+                                    return Ok(());
+                                }
+                                match member.as_str() {
+                                    "Pause" => p.engine.set_pause(true),
+                                    "PlayPause" => p.engine.toggle_pause(),
+                                    _ => {
+                                        p.engine.stop()?;
+                                        p.current = None;
+                                        Ok(())
+                                    }
+                                }
                             });
-                        if member == "Stop" {
-                            if let Ok(mut p) = player_cb.lock() {
-                                p.current = None;
-                            }
-                        }
+                        crate::broadcast_status(&auth_cb, &player_cb, &ipc_cb);
                     }
                     (PLAYER, "Next") | (PLAYER, "Previous") => {
                         result = crate::navigate(&auth_cb, &player_cb, &ipc_cb, member == "Next")
@@ -297,7 +332,13 @@ pub fn start(auth: Arc<AuthManager>, player: Arc<Mutex<Player>>, ipc: IpcServer)
                         let current = player_cb
                             .lock()
                             .ok()
-                            .and_then(|p| p.engine.position().ok())
+                            .and_then(|p| {
+                                if p.cast_active {
+                                    p.cast_session.as_ref().map(|s| s.position())
+                                } else {
+                                    p.engine.position().ok()
+                                }
+                            })
                             .unwrap_or(0.0);
                         let seconds = if member == "Seek" {
                             (current + micros as f64 / 1_000_000.0).max(0.0)
@@ -307,8 +348,17 @@ pub fn start(auth: Arc<AuthManager>, player: Arc<Mutex<Player>>, ipc: IpcServer)
                         result = player_cb
                             .lock()
                             .map_err(|e| e.to_string())
-                            .and_then(|p| p.engine.seek(seconds));
+                            .and_then(|p| {
+                                if p.cast_active {
+                                    if let Some(ref s) = p.cast_session {
+                                        return s.seek(seconds);
+                                    }
+                                    return Ok(());
+                                }
+                                p.engine.seek(seconds)
+                            });
                         if result.is_ok() {
+                            crate::broadcast_status(&auth_cb, &player_cb, &ipc_cb);
                             let sig = dbus::Message::signal(
                                 &Path::new(PATH).unwrap(),
                                 &Interface::new(PLAYER).unwrap(),
@@ -419,5 +469,24 @@ mod tests {
             MessageItem::Bool(false)
         );
         assert_eq!(dict(props).signature().to_string(), "a{sv}");
+    }
+    #[test]
+    fn player_properties_reflect_cast_playback_status() {
+        let t: TrackItem = serde_json::from_str(r#"{"id":42,"title":"Song","duration":180,"artists":[{"name":"Artist"}],"album":{"title":"Album","cover":"ab-cd"}}"#).unwrap();
+        let mut p = Player::new();
+        p.cast_active = true;
+        p.current = Some(t);
+        p.cast_state = crate::cast::CastState::Playing;
+        let props = properties(PLAYER, &p);
+        assert_eq!(
+            props.iter().find(|(n, _)| *n == "PlaybackStatus").unwrap().1,
+            MessageItem::Str("Playing".into())
+        );
+        p.cast_state = crate::cast::CastState::Paused;
+        let props = properties(PLAYER, &p);
+        assert_eq!(
+            props.iter().find(|(n, _)| *n == "PlaybackStatus").unwrap().1,
+            MessageItem::Str("Paused".into())
+        );
     }
 }

@@ -41,6 +41,24 @@ if [[ "${TIDAL_UPX:-0}" == "1" ]]; then
 fi
 
 install -Dm755 "$TARGET_BIN" "$BUNDLED_BIN"
+
+echo "==> Synchronizing release checksums and Service.qml pins..."
+NEW_HASH=$(sha256sum "$BUNDLED_BIN" | awk '{ print $1 }')
+SIZE_BYTES=$(stat -c%s "$BUNDLED_BIN")
+SIZE_FORMATTED=$(printf "%'d bytes" "$SIZE_BYTES" 2>/dev/null || echo "$SIZE_BYTES bytes")
+
+# 1. Update SHA256SUMS
+sed -i -E "s/^[a-f0-9]{64}(  tidal-daemon-x86_64)$/${NEW_HASH}\1/" "$SCRIPT_DIR/SHA256SUMS"
+
+# 2. Update Service.qml pins
+sed -i -E "s/(x86_64\|amd64\) expected=\")[a-f0-9]{64}(\")/\1${NEW_HASH}\2/" "$SCRIPT_DIR/Service.qml"
+sed -i -E "s/(asset=tidal-daemon-x86_64; expected=)[a-f0-9]{64}/\1${NEW_HASH}/" "$SCRIPT_DIR/Service.qml"
+
+# 3. Update docs/PROVENANCE.md
+if [[ -f "$SCRIPT_DIR/docs/PROVENANCE.md" ]]; then
+  sed -i -E "s/(\|[[:space:]]*\`bin\/tidal-daemon\`[[:space:]]*\/[[:space:]]*\`tidal-daemon-x86_64\`[[:space:]]*\|[[:space:]]*)[^|]+(\|[[:space:]]*\`)[a-f0-9]{64}(\`[[:space:]]*\|)/\1${SIZE_FORMATTED} \2${NEW_HASH}\3/" "$SCRIPT_DIR/docs/PROVENANCE.md"
+fi
+
 "$SCRIPT_DIR/scripts/verify-size.sh"
 
 SIZE=$(du -h "$BUNDLED_BIN" | cut -f1)

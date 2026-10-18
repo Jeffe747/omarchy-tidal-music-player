@@ -15,8 +15,8 @@ trap 'rm -rf "$TEST_DIR"' EXIT
 cp "$SCRIPT_DIR/tests/qml/shell.qml" "$TEST_DIR/shell.qml"
 ln -s "$SHELL_DIR/Ui" "$TEST_DIR/Ui"
 ln -s "$SHELL_DIR/Commons" "$TEST_DIR/Commons"
-mkdir -p "$TEST_DIR/plugin/bin" "$TEST_DIR/plugin/backend/target/release" "$TEST_DIR/runtime"
-chmod 700 "$TEST_DIR/runtime"
+mkdir -p "$TEST_DIR/plugin/bin" "$TEST_DIR/plugin/backend/target/release" "$TEST_DIR/runtime" "$TEST_DIR/home"
+chmod 700 "$TEST_DIR/runtime" "$TEST_DIR/home"
 # Quickshell may initialize PipeWire even in the isolated QML fixture. Expose
 # the user's real audio socket in the private runtime directory so that this
 # integration check does not generate unrelated PipeWire connection errors.
@@ -54,12 +54,13 @@ for mode in bundled fallback nonexecutable missing; do
       chmod -x "$TEST_DIR/plugin/bin/tidal-daemon"
       ;;
     missing)
-      rm "$TEST_DIR/plugin/backend/target/release/tidal-daemon"
+      rm -f "$TEST_DIR/plugin/backend/target/release/tidal-daemon" "$TEST_DIR/plugin/bin/tidal-daemon"
       expected_binary=""
+      export http_proxy="http://127.0.0.1:0" https_proxy="http://127.0.0.1:0"
       ;;
   esac
   rm -f "$TEST_DIR/runtime/tidal.sock"
-  if ! QT_QPA_PLATFORM=wayland WAYLAND_DISPLAY="$DISPLAY_PATH" \
+  if ! HOME="$TEST_DIR/home" QT_QPA_PLATFORM=wayland WAYLAND_DISPLAY="$DISPLAY_PATH" \
     XDG_RUNTIME_DIR="$TEST_DIR/runtime" TIDAL_PLUGIN_DIR="$SCRIPT_DIR" \
     TIDAL_TEST_SERVICE="$TEST_DIR/plugin/Service.qml" \
     TIDAL_TEST_EXPECTED_BINARY="$expected_binary" TIDAL_TEST_MODE="$mode" \

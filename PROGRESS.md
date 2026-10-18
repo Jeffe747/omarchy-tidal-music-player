@@ -134,8 +134,36 @@ passed; the M2 gate is complete.
 - [x] Build and verify executable UPX bundle strictly below 800,000 bytes and matching the release target.
 - [x] Run `WAYLAND_DISPLAY=wayland-1 ./scripts/verify.sh` and `omarchy plugin validate .`; all release checks pass (51 Rust tests, four QML runtime scenarios, bundled IPC smoke, compliance, and size audit).
 
+---
+
+### Milestone 11: Native Chromecast Audio Streaming 🟢 Complete
+- [x] Implement non-blocking UDP mDNS device discovery for `_googlecast._tcp.local` with 60s TTL cache and active/passive discovery.
+- [x] Implement zero-dependency Cast V2 channel framing, protobuf message encoding/decoding, TLS connection with self-signed certificate verifier, heartbeat keepalive, and Default Media Receiver app (`CC1AD845`) transport.
+- [x] Implement lightweight HTTP stream proxy in daemon to bypass Tidal CDN CORS/Origin restrictions for Chromecast Web Receiver playback.
+- [x] Expose `discover_cast_devices`, `refresh_cast_devices`, `connect_cast`, `disconnect_cast`, and `set_cast_volume` over Unix socket JSON-RPC IPC, with `cast_active`, `cast_device_name`, and `cast_state` status broadcasts.
+- [x] Re-enable `tidalChromecastButton` in `NowPlayingCard.qml` with dynamic theming (`Color.accent`), integrate popup device picker card in `BarWidget.qml` with active device management and LAN device list, and synchronize volume adjustments with Cast session.
+- [x] **Gate Verification:** `./scripts/build.sh`, `WAYLAND_DISPLAY=wayland-1 ./scripts/verify.sh` (64 Rust unit tests, four Wayland QML scenarios, daemon smoke), and `omarchy plugin validate .` passed. Bundle size is 1,820,656 bytes (under the 1,843,200 bytes budget).
+
+---
+
+### Future Roadmap / Backlog: Additional Casting Protocols
+> [!NOTE]
+> Google Cast (Chromecast Audio / Nest / Google TVs) is prioritized and complete. Other streaming protocols are tracked below for future consideration:
+
+- [ ] **DLNA / UPnP AV Streaming:**
+  - SSDP discovery over UDP multicast (`239.255.255.250:1900`, `urn:schemas-upnp-org:device:MediaRenderer:1`).
+  - Playback control via lightweight HTTP/SOAP XML (`SetAVTransportURI` / `Play` / `Pause` / `Stop`).
+  - Relay FLAC audio chunks directly through the existing `StreamProxy`.
+  - Target hardware: Smart TVs (Samsung, LG, Sony), Hi-Fi AV receivers (Denon, Yamaha, Marantz), Sonos, and Kodi endpoints.
+  - Very lightweight: estimated <300 lines of Rust, 0 KB cryptographic bloat, preserving the 1.8 MB binary ceiling.
+- [ ] **Apple AirPlay (RAOP / AirPlay 2):**
+  - Discovery via mDNS (`_raop._tcp.local` / `_airplay._tcp.local`).
+  - Evaluate leveraging PipeWire's native RAOP sink module (`libpipewire-module-raop-sink`) vs. an in-daemon RTSP/RTP implementation to avoid cryptographic bloat (SRP-6a, FairPlay/MFi, ALAC encoder) in the stripped binary.
+  - Target hardware: HomePod, Apple TV, AirPlay-enabled soundbars and network streamers.
+
 ## Activity Log
 
+| 2026-10-17 | This change | Implemented Native Chromecast Audio Streaming: mDNS discovery (`_googlecast._tcp.local`), zero-dependency Cast V2 client over TLS with heartbeat/media controls, local HTTP stream CORS proxy for Tidal CDN streams, JSON-RPC Cast commands and status events, and Quickshell QML flyout device picker card with volume sync. 64 Rust tests, four Wayland QML runtime scenarios, binary size (1,820,656 bytes), compliance audit, and plugin validation passed. | Antigravity |
 | 2026-10-15 | This change | Completed Marketplace review supply-chain hardening (Issue #11555): pinned SHA-256 verification in `Service.qml`, synchronized root `SHA256SUMS`, and added an automated checksum synchronization audit to the compliance verification suite. Cleaned the search input placeholder in `BarWidget.qml`. | Codex |
 
 | 2026-10-09 | This change | Implemented the compact hero controls, integrated PipeWire volume, omnibox keyboard access, segmented tabs, compact rows, and panel shortcuts. `TIDAL_UPX=1 ./scripts/build.sh`, `WAYLAND_DISPLAY=wayland-1 ./scripts/verify.sh`, compliance audit, and `omarchy plugin validate .` passed; 49 Rust tests and four QML runtime scenarios passed. Bundle is 777,736 bytes. | Codex |
