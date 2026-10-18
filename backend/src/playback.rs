@@ -341,6 +341,8 @@ mod tests {
             cast_session: None,
             stream_proxy: crate::cast::proxy::StreamProxy::new().ok().map(std::sync::Arc::new),
             cast_discovery: std::sync::Arc::new(crate::cast::discovery::CastDiscovery::new()),
+            cast_firewall_blocked: false,
+            last_firewall_check: std::time::Instant::now(),
         };
         let auth = crate::auth::AuthManager::new(None);
         let status = crate::build_status_message(&auth, &player);

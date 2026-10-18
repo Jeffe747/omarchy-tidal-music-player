@@ -47,6 +47,8 @@ pub(crate) struct Player {
     cast_session: Option<crate::cast::client::CastSession>,
     stream_proxy: Option<Arc<crate::cast::proxy::StreamProxy>>,
     cast_discovery: Arc<crate::cast::discovery::CastDiscovery>,
+    cast_firewall_blocked: bool,
+    last_firewall_check: std::time::Instant,
 }
 
 impl Player {
@@ -63,6 +65,11 @@ impl Player {
             }
         };
         let cast_discovery = Arc::new(crate::cast::discovery::CastDiscovery::new());
+        let proxy_port = stream_proxy
+            .as_ref()
+            .map(|p| p.port())
+            .unwrap_or(crate::cast::proxy::StreamProxy::DEFAULT_PORT);
+        let cast_firewall_blocked = crate::cast::proxy::check_cast_ports_blocked(proxy_port);
 
         Self {
             engine: PlaybackEngine::new(),
@@ -84,7 +91,19 @@ impl Player {
             cast_session: None,
             stream_proxy,
             cast_discovery,
+            cast_firewall_blocked,
+            last_firewall_check: std::time::Instant::now(),
         }
+    }
+
+    fn update_firewall_check(&mut self) {
+        let proxy_port = self
+            .stream_proxy
+            .as_ref()
+            .map(|p| p.port())
+            .unwrap_or(crate::cast::proxy::StreamProxy::DEFAULT_PORT);
+        self.cast_firewall_blocked = crate::cast::proxy::check_cast_ports_blocked(proxy_port);
+        self.last_firewall_check = std::time::Instant::now();
     }
 }
 
@@ -235,12 +254,18 @@ fn build_status_message(auth_manager: &AuthManager, player: &Player) -> IpcState
             .as_ref()
             .map(|s| s.volume())
             .unwrap_or(player.cast_volume),
+        cast_firewall_blocked: player.cast_firewall_blocked,
     }
 }
 
 pub(crate) fn broadcast_status(auth: &AuthManager, player: &Mutex<Player>, ipc: &IpcServer) {
     match player.lock() {
-        Ok(player) => ipc.broadcast(&build_status_message(auth, &player)),
+        Ok(mut player) => {
+            if player.last_firewall_check.elapsed() > std::time::Duration::from_secs(10) {
+                player.update_firewall_check();
+            }
+            ipc.broadcast(&build_status_message(auth, &player))
+        }
         Err(error) => log::write(&format!("Failed to lock player: {error}")),
     }
 }
@@ -1596,12 +1621,16 @@ fn main() {
                                 }
                                 "discover_cast_devices" | "refresh_cast_devices" => {
                                     let discovery = match player_ref.lock() {
-                                        Ok(p) => Arc::clone(&p.cast_discovery),
+                                        Ok(mut p) => {
+                                            p.update_firewall_check();
+                                            Arc::clone(&p.cast_discovery)
+                                        }
                                         Err(e) => {
                                             log::write(&format!("Failed to lock player: {e}"));
                                             continue;
                                         }
                                     };
+                                    broadcast_status(&auth_ref, &player_ref, &ipc_ref);
                                     let ipc = ipc_ref.clone();
                                     let is_refresh = cmd.command == "refresh_cast_devices";
                                     thread::spawn(move || {

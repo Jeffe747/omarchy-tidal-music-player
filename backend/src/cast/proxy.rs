@@ -116,6 +116,84 @@ impl StreamProxy {
     }
 }
 
+pub fn check_cast_ports_blocked(proxy_port: u16) -> bool {
+    if let Ok(val) = std::env::var("TIDAL_CAST_FIREWALL_BLOCKED") {
+        if val == "1" || val.eq_ignore_ascii_case("true") {
+            return true;
+        }
+        if val == "0" || val.eq_ignore_ascii_case("false") {
+            return false;
+        }
+    }
+
+    // 1. Check UFW (the standard firewall on Omarchy / Arch)
+    let ufw_active = std::process::Command::new("systemctl")
+        .args(["is-active", "--quiet", "ufw"])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if ufw_active {
+        // If DEFAULT_INPUT_POLICY is ACCEPT, inbound traffic is permitted
+        if let Ok(default_ufw) = std::fs::read_to_string("/etc/default/ufw") {
+            let is_accept = default_ufw.lines().any(|line| {
+                let trimmed = line.trim();
+                trimmed.starts_with("DEFAULT_INPUT_POLICY=\"ACCEPT\"")
+                    || trimmed.starts_with("DEFAULT_INPUT_POLICY='ACCEPT'")
+                    || trimmed.starts_with("DEFAULT_INPUT_POLICY=ACCEPT")
+            });
+            if is_accept {
+                return false;
+            }
+        }
+
+        let port_str = proxy_port.to_string();
+
+        // Check if /etc/ufw/user.rules allows proxy_port or 36420
+        if let Ok(rules) = std::fs::read_to_string("/etc/ufw/user.rules") {
+            if rules.contains(&port_str) || rules.contains("36420") {
+                return false;
+            }
+        }
+
+        // Also check `sudo -n ufw status` if accessible without password
+        if let Ok(output) = std::process::Command::new("sudo")
+            .args(["-n", "ufw", "status"])
+            .output()
+        {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if stdout.contains(&port_str) || stdout.contains("36420") {
+                    return false;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    // 2. Check firewalld if active
+    let firewalld_active = std::process::Command::new("systemctl")
+        .args(["is-active", "--quiet", "firewalld"])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+
+    if firewalld_active {
+        let port_arg = format!("{proxy_port}/tcp");
+        let allowed = std::process::Command::new("firewall-cmd")
+            .args(["--query-port", &port_arg])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if !allowed {
+            return true;
+        }
+    }
+
+    false
+}
+
 fn handle_http_client(
     mut stream: TcpStream,
     tracks: Arc<Mutex<HashMap<u64, TrackStreamInfo>>>,
@@ -315,5 +393,14 @@ mod tests {
         assert!(resp_str.contains("Access-Control-Expose-Headers: Content-Length, Content-Range, Accept-Ranges"));
 
         proxy.stop();
+    }
+
+    #[test]
+    fn test_check_cast_ports_blocked_env_override() {
+        std::env::set_var("TIDAL_CAST_FIREWALL_BLOCKED", "1");
+        assert!(check_cast_ports_blocked(36420));
+        std::env::set_var("TIDAL_CAST_FIREWALL_BLOCKED", "0");
+        assert!(!check_cast_ports_blocked(36420));
+        std::env::remove_var("TIDAL_CAST_FIREWALL_BLOCKED");
     }
 }
