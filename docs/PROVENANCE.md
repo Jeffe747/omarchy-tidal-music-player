@@ -1,13 +1,10 @@
 # Release binary provenance
 
-## v1.0.63 release artifacts
+## v1.0.64 release artifacts
 
 The checked-in executable `bin/tidal-daemon` is the official x86_64 artifact
-published by the v1.0.63 GitHub Actions release workflow. The release was
-created by [workflow run 39046041450](https://github.com/Jeffe747/omarchy-tidal-music-player/actions/runs/39046041450)
-and published at [v1.0.63](https://github.com/Jeffe747/omarchy-tidal-music-player/releases/tag/v1.0.63).
-The x86_64 release artifact is 1,811,992 bytes and its digest matches
-`SHA256SUMS` and the runtime pin in `Service.qml`.
+published for the v1.0.64 release. The release is published at [v1.0.64](https://github.com/Jeffe747/omarchy-tidal-music-player/releases/tag/v1.0.64).
+The x86_64 release artifact digest matches `SHA256SUMS` and the runtime pin in `Service.qml`.
 
 The workflow builds from the Rust source in `backend/` with Cargo for
 `x86_64-unknown-linux-gnu` and `aarch64-unknown-linux-gnu`. The package uses
@@ -23,7 +20,7 @@ true`, `codegen-units = 1`, `panic = "abort"`, and `strip = true`.
 
 | Artifact | Size | SHA-256 |
 | --- | ---: | --- |
-| `bin/tidal-daemon` / `tidal-daemon-x86_64` | 1,824,616 bytes | `28825dbcd496cfb130c160488dd46cb14a77c532947eb9db87111a73dfe2f5ea` |
+| `bin/tidal-daemon` / `tidal-daemon-x86_64` | 1,824,616 bytes | `77770362361f36559766f16337733e4c88de09cf1c804282a1d2e3873d6203d2` |
 | `tidal-daemon-aarch64` | Published by release workflow | `9ebf30e2e8bdea09720c2621f0a28ae2188045bfae61830ca8c8e6a3057ee023` |
 
 The local Cargo build may differ byte-for-byte from the official Ubuntu-built
@@ -31,7 +28,7 @@ release artifact. `scripts/verify-size.sh` therefore accepts the bundled x86_64
 artifact when its digest matches the canonical `SHA256SUMS` entry. `Service.qml`
 checks the bundled executable's SHA-256 against the architecture-specific pin
 before selecting it for execution. The stable bootstrap verifies downloads
-against the same pins and uses release tag `v1.0.63`.
+against the same pins and uses release tag `v1.0.64`.
 
 ## Release workflow
 

@@ -2,12 +2,12 @@
   "schemaVersion": 1,
   "id": "jaj.tidal",
   "name": "Tidal Music",
-  "version": "1.0.63",
+  "version": "1.0.64",
   "homepage": "https://github.com/Jeffe747/omarchy-tidal-music-player",
   "repository": "https://github.com/Jeffe747/omarchy-tidal-music-player.git",
   "license": "MIT",
   "author": "jaj",
-  "description": "Native Tidal music player for Omarchy featuring Hi-Res Lossless FLAC playback via PipeWire, bar widget and now-playing flyout, full catalog search, favorites and playlists, and MPRIS2 desktop controls.",
+  "description": "Native Tidal music player for Omarchy featuring Hi-Res Lossless FLAC playback via PipeWire, bar widget and now-playing flyout, full catalog search, favorites and playlists, Google Cast audio streaming, and MPRIS2 desktop controls.",
   "kinds": [
     "service",
     "bar-widget"
