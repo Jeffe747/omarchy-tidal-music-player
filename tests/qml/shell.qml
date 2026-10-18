@@ -206,6 +206,13 @@ ShellRoot {
                  "Chromecast action must be visible now that cast protocol support is available")
       if (chromecast) chromecast.clicked()
       root.check(root.widget.chromecastOpen, "Clicking Chromecast button must open Chromecast overlay")
+      var firewallWarning = findObject(root.widget, "tidalCastFirewallWarning")
+      root.check(firewallWarning !== null, "Chromecast overlay must include firewall warning indicator")
+      root.check(!firewallWarning.visible, "Firewall warning indicator must be hidden when ports are not blocked")
+      root.service.castFirewallBlocked = true
+      root.check(firewallWarning.visible, "Firewall warning indicator must be visible when ports are blocked")
+      root.service.castFirewallBlocked = false
+      root.check(!firewallWarning.visible, "Firewall warning indicator must hide when castFirewallBlocked becomes false")
       var chromecastClose = findObject(root.widget, "tidalChromecastCloseButton")
       root.check(chromecastClose !== null && chromecastClose.visible, "Chromecast overlay must have a close button")
       if (chromecastClose) chromecastClose.clicked()

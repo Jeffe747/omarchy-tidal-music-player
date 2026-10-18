@@ -484,16 +484,59 @@ Panel {
           Item {
             width: parent.width
             height: Math.max(Style.spacing.controlHeight, chromecastTitle.implicitHeight)
-            Text {
-              id: chromecastTitle
+            Row {
               anchors.left: parent.left
               anchors.verticalCenter: parent.verticalCenter
-              text: "Cast Audio"
-              textFormat: Text.PlainText
-              color: Color.foreground
-              font.family: Style.font.family
-              font.pixelSize: Style.font.title
-              font.bold: true
+              spacing: Style.spacing.sm
+
+              Text {
+                id: chromecastTitle
+                anchors.verticalCenter: parent.verticalCenter
+                text: "Cast Audio"
+                textFormat: Text.PlainText
+                color: Color.foreground
+                font.family: Style.font.family
+                font.pixelSize: Style.font.title
+                font.bold: true
+              }
+
+              Rectangle {
+                id: castFirewallWarning
+                objectName: "tidalCastFirewallWarning"
+                visible: !!tidalService && tidalService.castFirewallBlocked
+                width: Style.space(18)
+                height: Style.space(18)
+                radius: width / 2
+                color: Style.hoverFillFor(Color.urgent, Color.urgent)
+                border.color: Color.urgent
+                border.width: Style.normalBorderWidth
+                anchors.verticalCenter: parent.verticalCenter
+                Accessible.role: Accessible.HelpBalloon
+                Accessible.name: "Inbound port 36420/tcp is blocked by firewall. Casting requires this port open."
+
+                Text {
+                  anchors.centerIn: parent
+                  text: "!"
+                  textFormat: Text.PlainText
+                  color: Color.urgent
+                  font.family: Style.font.family
+                  font.pixelSize: Style.font.caption
+                  font.bold: true
+                }
+
+                MouseArea {
+                  id: castFirewallHover
+                  anchors.fill: parent
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                }
+
+                Ui.PanelToolTip {
+                  visible: castFirewallHover.containsMouse
+                  delay: 200
+                  text: "Inbound port 36420/tcp is blocked by firewall. Casting requires this port open."
+                }
+              }
             }
             Ui.PanelActionButton {
               id: chromecastCloseButton

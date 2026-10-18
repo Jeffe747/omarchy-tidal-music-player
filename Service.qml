@@ -76,6 +76,7 @@ Item {
   property var castDevices: []
   property bool castDiscovering: false
   property string castError: ""
+  property bool castFirewallBlocked: false
 
   onAuthenticatedChanged: {
     if (authenticated) {
@@ -121,7 +122,7 @@ Item {
   Process {
     id: binaryCheckProc
     command: ["sh", "-c",
-      'sys_bin="$(command -v tidal-daemon 2>/dev/null || true)"; if [ "$4" = dev ]; then path="$3"; if test -f "$path" && test -x "$path"; then printf "%s\\n" "$path"; exit 0; fi; else for path in "$1" "$3" "$sys_bin" "/usr/bin/tidal-daemon" "$2"; do if test -n "$path" && test -f "$path" && test -x "$path"; then if [ -z "${TIDAL_TEST_MODE:-}" ] && [ "$path" = "$1" ]; then arch="$(uname -m)"; case "$arch" in x86_64|amd64) expected="77770362361f36559766f16337733e4c88de09cf1c804282a1d2e3873d6203d2" ;; aarch64|arm64) expected="9ebf30e2e8bdea09720c2621f0a28ae2188045bfae61830ca8c8e6a3057ee023" ;; *) expected="" ;; esac; actual="$(sha256sum "$path" 2>/dev/null || shasum -a 256 "$path" 2>/dev/null || true)"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then continue; fi; fi; printf "%s\\n" "$path"; exit 0; fi; done; fi; exit 1',
+      'sys_bin="$(command -v tidal-daemon 2>/dev/null || true)"; if [ "$4" = dev ]; then path="$3"; if test -f "$path" && test -x "$path"; then printf "%s\\n" "$path"; exit 0; fi; else for path in "$1" "$3" "$sys_bin" "/usr/bin/tidal-daemon" "$2"; do if test -n "$path" && test -f "$path" && test -x "$path"; then if [ -z "${TIDAL_TEST_MODE:-}" ] && [ "$path" = "$1" ]; then arch="$(uname -m)"; case "$arch" in x86_64|amd64) expected="f56ae31e733c15b8523ed65828f0bcabbc5f5f722e9fab2ec3f08ed0c1b7c2a7" ;; aarch64|arm64) expected="9ebf30e2e8bdea09720c2621f0a28ae2188045bfae61830ca8c8e6a3057ee023" ;; *) expected="" ;; esac; actual="$(sha256sum "$path" 2>/dev/null || shasum -a 256 "$path" 2>/dev/null || true)"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then continue; fi; fi; printf "%s\\n" "$path"; exit 0; fi; done; fi; exit 1',
       "tidal-binary-check", root.bundledBinaryPath, root.developmentBinaryPath, root.stateBinaryPath, root.channel]
     stdout: StdioCollector { id: binaryCheckOutput }
     running: false
@@ -167,7 +168,7 @@ Item {
 
   Process {
     id: bootstrapProc
-    command: ["sh", "-c", 'set -eu; arch="$(uname -m)"; case "$arch" in x86_64|amd64) asset=tidal-daemon-x86_64; expected=77770362361f36559766f16337733e4c88de09cf1c804282a1d2e3873d6203d2 ;; aarch64|arm64) asset=tidal-daemon-aarch64; expected=9ebf30e2e8bdea09720c2621f0a28ae2188045bfae61830ca8c8e6a3057ee023 ;; *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; esac; channel="${2:-stable}"; tag="v1.0.64"; check_mode="hardcoded"; if [ "$channel" = "dev" ]; then tag="dev"; check_mode="remote"; fi; base_url="https://github.com/Jeffe747/omarchy-tidal-music-player/releases/download/${tag}"; if [ "$check_mode" = "remote" ]; then if command -v curl >/dev/null 2>&1; then expected="$(curl -fsSL "${base_url}/SHA256SUMS" | grep -F " ${asset}" | cut -d" " -f1)"; elif command -v wget >/dev/null 2>&1; then expected="$(wget -qO- "${base_url}/SHA256SUMS" | grep -F " ${asset}" | cut -d" " -f1)"; fi; fi; dest="$1"; mkdir -p "$(dirname "$dest")"; tmp="${dest}.tmp.$$"; if command -v curl >/dev/null 2>&1; then curl -fL --retry 2 "${base_url}/${asset}" -o "$tmp" || { rm -f "$tmp"; exit 1; }; elif command -v wget >/dev/null 2>&1; then wget -O "$tmp" "${base_url}/${asset}" || { rm -f "$tmp"; exit 1; }; else echo "curl or wget is required" >&2; exit 1; fi; actual="$(sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp")"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then echo "Checksum verification failed: expected $expected, got $actual" >&2; rm -f "$tmp"; exit 2; fi; chmod +x "$tmp"; mv -f "$tmp" "$dest"', "tidal-bootstrap", root.stateBinaryPath, root.channel]
+    command: ["sh", "-c", 'set -eu; arch="$(uname -m)"; case "$arch" in x86_64|amd64) asset=tidal-daemon-x86_64; expected=f56ae31e733c15b8523ed65828f0bcabbc5f5f722e9fab2ec3f08ed0c1b7c2a7 ;; aarch64|arm64) asset=tidal-daemon-aarch64; expected=9ebf30e2e8bdea09720c2621f0a28ae2188045bfae61830ca8c8e6a3057ee023 ;; *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; esac; channel="${2:-stable}"; tag="v1.0.64"; check_mode="hardcoded"; if [ "$channel" = "dev" ]; then tag="dev"; check_mode="remote"; fi; base_url="https://github.com/Jeffe747/omarchy-tidal-music-player/releases/download/${tag}"; if [ "$check_mode" = "remote" ]; then if command -v curl >/dev/null 2>&1; then expected="$(curl -fsSL "${base_url}/SHA256SUMS" | grep -F " ${asset}" | cut -d" " -f1)"; elif command -v wget >/dev/null 2>&1; then expected="$(wget -qO- "${base_url}/SHA256SUMS" | grep -F " ${asset}" | cut -d" " -f1)"; fi; fi; dest="$1"; mkdir -p "$(dirname "$dest")"; tmp="${dest}.tmp.$$"; if command -v curl >/dev/null 2>&1; then curl -fL --retry 2 "${base_url}/${asset}" -o "$tmp" || { rm -f "$tmp"; exit 1; }; elif command -v wget >/dev/null 2>&1; then wget -O "$tmp" "${base_url}/${asset}" || { rm -f "$tmp"; exit 1; }; else echo "curl or wget is required" >&2; exit 1; fi; actual="$(sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp")"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then echo "Checksum verification failed: expected $expected, got $actual" >&2; rm -f "$tmp"; exit 2; fi; chmod +x "$tmp"; mv -f "$tmp" "$dest"', "tidal-bootstrap", root.stateBinaryPath, root.channel]
     running: false
     onExited: function(exitCode) {
       root.bootstrapping = false
@@ -411,6 +412,9 @@ Item {
       root.castActive = msg.cast_active === true
       root.castDeviceName = msg.cast_device_name || ""
       root.castState = msg.cast_state || "idle"
+      if (msg.cast_firewall_blocked !== undefined) {
+        root.castFirewallBlocked = msg.cast_firewall_blocked === true
+      }
       if (msg.cast_volume !== undefined && msg.cast_volume !== null && (Date.now() - root.lastVolumeSetTime > 1200)) {
         var cv = Number(msg.cast_volume)
         if (!isNaN(cv)) root.castVolume = Math.max(0.0, Math.min(1.0, cv))
