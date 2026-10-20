@@ -674,8 +674,7 @@ fn play_track(
         PlaybackEngine::parse_stream_url_and_mime(&info.manifest_mime_type, &info.manifest)?;
     if let Some(session) = player.cast_session.clone().filter(|_| player.cast_active) {
         let stream_url = if let Some(ref proxy) = player.stream_proxy {
-            proxy.register_track(id, direct_url.clone(), stream_mime.clone());
-            proxy.stream_url_for_target(id, &session.device.ip)
+            proxy.register_stream(id, direct_url.clone(), stream_mime.clone(), &session.device.ip)
         } else {
             direct_url
         };
@@ -961,8 +960,7 @@ fn connect_cast(
     if let Some(track) = current_track {
         if let Ok(info) = api_call(auth, |api, _| api.get_playback_info(track.id, &preferred_quality)) {
             if let Ok((direct_url, stream_mime)) = PlaybackEngine::parse_stream_url_and_mime(&info.manifest_mime_type, &info.manifest) {
-                proxy.register_track(track.id, direct_url.clone(), stream_mime.clone());
-                let proxy_url = proxy.stream_url_for_target(track.id, &device.ip);
+                let proxy_url = proxy.register_stream(track.id, direct_url.clone(), stream_mime.clone(), &device.ip);
                 let _ = session.load_track(
                     proxy_url,
                     stream_mime,
@@ -993,14 +991,19 @@ fn disconnect_cast(
     player: &Mutex<Player>,
     ipc: &IpcServer,
 ) -> Result<(), String> {
-    let session = {
+    let (session, proxy) = {
         let mut p = player.lock().map_err(|e| e.to_string())?;
         let _ = p.engine.set_pause(true);
         p.cast_active = false;
         p.cast_device_name = None;
         p.cast_state = crate::cast::CastState::Idle;
-        p.cast_session.take()
+        let proxy = p.stream_proxy.clone();
+        (p.cast_session.take(), proxy)
     };
+
+    if let Some(proxy) = proxy {
+        proxy.clear_streams();
+    }
 
     if let Some(session) = session {
         session.disconnect();
@@ -1025,6 +1028,9 @@ fn start_position_ticker(auth: Arc<AuthManager>, player: Arc<Mutex<Player>>, ipc
                                 state.cast_device_name = None;
                                 state.cast_state = crate::cast::CastState::Idle;
                                 state.cast_session = None;
+                                if let Some(ref proxy) = state.stream_proxy {
+                                    proxy.clear_streams();
+                                }
                                 status_changed = true;
                                 (None, None, false, None, status_changed)
                             } else {
@@ -1807,6 +1813,9 @@ fn main() {
                                         player.engine.stop()?;
                                         if let Some(session) = player.cast_session.take() {
                                             session.disconnect();
+                                        }
+                                        if let Some(ref proxy) = player.stream_proxy {
+                                            proxy.clear_streams();
                                         }
                                         player.cast_active = false;
                                         player.cast_device_name = None;

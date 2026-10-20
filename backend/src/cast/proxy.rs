@@ -1,22 +1,76 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream, UdpSocket};
+use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 #[derive(Clone)]
-struct TrackStreamInfo {
-    stream_url: String,
-    mime_type: String,
+pub struct RegisteredStream {
+    pub token: String,
+    pub track_id: u64,
+    pub stream_url: String,
+    pub mime_type: String,
+    pub receiver_ip: String,
 }
 
 pub struct StreamProxy {
     port: u16,
     listener: TcpListener,
-    tracks: Arc<Mutex<HashMap<u64, TrackStreamInfo>>>,
+    streams: Arc<Mutex<HashMap<String, RegisteredStream>>>,
     shutdown: Arc<AtomicBool>,
+}
+
+fn generate_token() -> String {
+    let mut buf = [0u8; 16];
+    let mut filled = false;
+    if let Ok(mut f) = std::fs::File::open("/dev/urandom") {
+        if f.read_exact(&mut buf).is_ok() {
+            filled = true;
+        }
+    }
+    if !filled {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let pid = std::process::id();
+        let b1 = now.to_le_bytes();
+        let b2 = (pid as u64).to_le_bytes();
+        buf[..8].copy_from_slice(&b1[..8]);
+        buf[8..16].copy_from_slice(&b2);
+    }
+    buf.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+fn is_authorized_peer(peer_addr: &SocketAddr, receiver_ip: &str) -> bool {
+    let peer_ip = peer_addr.ip();
+    if let Ok(expected_ip) = receiver_ip.parse::<IpAddr>() {
+        let peer_canonical = match peer_ip {
+            IpAddr::V4(v4) => IpAddr::V4(v4),
+            IpAddr::V6(v6) => {
+                if let Some(v4) = v6.to_ipv4_mapped() {
+                    IpAddr::V4(v4)
+                } else {
+                    IpAddr::V6(v6)
+                }
+            }
+        };
+        let expected_canonical = match expected_ip {
+            IpAddr::V4(v4) => IpAddr::V4(v4),
+            IpAddr::V6(v6) => {
+                if let Some(v4) = v6.to_ipv4_mapped() {
+                    IpAddr::V4(v4)
+                } else {
+                    IpAddr::V6(v6)
+                }
+            }
+        };
+        peer_canonical == expected_canonical
+    } else {
+        peer_ip.to_string() == receiver_ip
+    }
 }
 
 impl StreamProxy {
@@ -48,7 +102,7 @@ impl StreamProxy {
         Ok(Self {
             port,
             listener,
-            tracks: Arc::new(Mutex::new(HashMap::new())),
+            streams: Arc::new(Mutex::new(HashMap::new())),
             shutdown: Arc::new(AtomicBool::new(false)),
         })
     }
@@ -57,12 +111,36 @@ impl StreamProxy {
         self.port
     }
 
-    pub fn register_track(&self, track_id: u64, stream_url: String, mime_type: String) {
-        if let Ok(mut tracks) = self.tracks.lock() {
-            if tracks.len() > 10 {
-                tracks.clear();
+    /// Registers a track stream with an unguessable capability token and binds access
+    /// exclusively to the target receiver IP address.
+    pub fn register_stream(
+        &self,
+        track_id: u64,
+        stream_url: String,
+        mime_type: String,
+        receiver_ip: &str,
+    ) -> String {
+        let token = generate_token();
+        let local_ip = self.resolve_local_ip_for_target(receiver_ip);
+        let registered = RegisteredStream {
+            token: token.clone(),
+            track_id,
+            stream_url,
+            mime_type,
+            receiver_ip: receiver_ip.to_string(),
+        };
+        if let Ok(mut streams) = self.streams.lock() {
+            if streams.len() >= 5 {
+                streams.clear();
             }
-            tracks.insert(track_id, TrackStreamInfo { stream_url, mime_type });
+            streams.insert(token.clone(), registered);
+        }
+        format!("http://{}:{}/stream/{}/{}", local_ip, self.port, token, track_id)
+    }
+
+    pub fn clear_streams(&self) {
+        if let Ok(mut streams) = self.streams.lock() {
+            streams.clear();
         }
     }
 
@@ -82,11 +160,6 @@ impl StreamProxy {
         "127.0.0.1".to_string()
     }
 
-    pub fn stream_url_for_target(&self, track_id: u64, target_ip: &str) -> String {
-        let local_ip = self.resolve_local_ip_for_target(target_ip);
-        format!("http://{}:{}/stream/{}", local_ip, self.port, track_id)
-    }
-
     pub fn start(self: Arc<Self>) {
         thread::spawn(move || {
             while !self.shutdown.load(Ordering::Relaxed)
@@ -94,9 +167,9 @@ impl StreamProxy {
             {
                 match self.listener.accept() {
                     Ok((stream, _)) => {
-                        let tracks_ref = Arc::clone(&self.tracks);
+                        let streams_ref = Arc::clone(&self.streams);
                         thread::spawn(move || {
-                            handle_http_client(stream, tracks_ref);
+                            handle_http_client(stream, streams_ref);
                         });
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -196,10 +269,15 @@ pub fn check_cast_ports_blocked(proxy_port: u16) -> bool {
 
 fn handle_http_client(
     mut stream: TcpStream,
-    tracks: Arc<Mutex<HashMap<u64, TrackStreamInfo>>>,
+    streams: Arc<Mutex<HashMap<String, RegisteredStream>>>,
 ) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
+
+    let peer_addr = match stream.peer_addr() {
+        Ok(addr) => addr,
+        Err(_) => return,
+    };
 
     let mut buf = [0u8; 4096];
     let n = match stream.read(&mut buf) {
@@ -220,6 +298,48 @@ fn handle_http_client(
     }
     let method = parts[0];
     let path = parts[1];
+
+    // Extract unguessable capability token from /stream/<token> or /stream/<token>/<track_id>
+    let rest = match path.strip_prefix("/stream/") {
+        Some(r) => r,
+        None => {
+            let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+            return;
+        }
+    };
+
+    let token = rest.split(['/', '?']).next().unwrap_or("");
+    if token.is_empty() {
+        let _ = stream.write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n");
+        return;
+    }
+
+    let stream_info = {
+        let guard = match streams.lock() {
+            Ok(g) => g,
+            Err(_) => return,
+        };
+        guard.get(token).cloned()
+    };
+
+    let stream_info = match stream_info {
+        Some(info) => info,
+        None => {
+            let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+            return;
+        }
+    };
+
+    // Security: Only the authorized receiver IP may access this stream
+    if !is_authorized_peer(&peer_addr, &stream_info.receiver_ip) {
+        crate::log::write(&format!(
+            "StreamProxy: unauthorized connection from {} attempted access to stream bound to {}",
+            peer_addr.ip(),
+            stream_info.receiver_ip
+        ));
+        let _ = stream.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n");
+        return;
+    }
 
     // CORS preflight OPTIONS request
     if method == "OPTIONS" {
@@ -243,37 +363,6 @@ fn handle_http_client(
         return;
     }
 
-    // Extract track_id from /stream/<track_id>
-    let track_id: u64 = match path.strip_prefix("/stream/") {
-        Some(id_str) => match id_str.split('?').next().unwrap_or("").parse() {
-            Ok(id) => id,
-            Err(_) => {
-                let _ = stream.write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n");
-                return;
-            }
-        },
-        None => {
-            let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
-            return;
-        }
-    };
-
-    let track_info = {
-        let guard = match tracks.lock() {
-            Ok(g) => g,
-            Err(_) => return,
-        };
-        guard.get(&track_id).cloned()
-    };
-
-    let track_info = match track_info {
-        Some(info) => info,
-        None => {
-            let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
-            return;
-        }
-    };
-
     // Extract Range header
     let mut range_header = None;
     for line in lines {
@@ -292,7 +381,7 @@ fn handle_http_client(
         .timeout_connect(Duration::from_secs(5))
         .timeout_read(Duration::from_secs(30))
         .build();
-    let mut req = agent.get(&track_info.stream_url);
+    let mut req = agent.get(&stream_info.stream_url);
     if let Some(ref range) = range_header {
         req = req.set("Range", range);
     }
@@ -312,7 +401,7 @@ fn handle_http_client(
 
     let content_type = resp
         .header("Content-Type")
-        .unwrap_or(&track_info.mime_type)
+        .unwrap_or(&stream_info.mime_type)
         .to_string();
 
     let content_length = resp.header("Content-Length").map(str::to_string);
@@ -376,11 +465,19 @@ mod tests {
 
         Arc::clone(&proxy).start();
 
-        // Test OPTIONS preflight
+        // Register a stream for localhost receiver
+        let stream_url = proxy.register_stream(
+            42,
+            "http://example.com/audio.flac".into(),
+            "audio/flac".into(),
+            "127.0.0.1",
+        );
+        let path = stream_url.find("/stream/").map(|idx| &stream_url[idx..]).expect("valid stream path");
+
+        // Test OPTIONS preflight from authorized IP
         let mut client = TcpStream::connect(("127.0.0.1", port)).expect("connect to proxy");
-        client
-            .write_all(b"OPTIONS /stream/42 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
-            .unwrap();
+        let req = format!("OPTIONS {path} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+        client.write_all(req.as_bytes()).unwrap();
 
         let mut resp = [0u8; 1024];
         let n = client.read(&mut resp).unwrap();
@@ -391,6 +488,47 @@ mod tests {
         assert!(resp_str.contains("Access-Control-Allow-Methods: GET, HEAD, OPTIONS"));
         assert!(resp_str.contains("Access-Control-Allow-Private-Network: true"));
         assert!(resp_str.contains("Access-Control-Expose-Headers: Content-Length, Content-Range, Accept-Ranges"));
+
+        proxy.stop();
+    }
+
+    #[test]
+    fn test_stream_proxy_authorization_and_tokens() {
+        let proxy = Arc::new(StreamProxy::new().expect("Failed to create StreamProxy"));
+        let port = proxy.port();
+        Arc::clone(&proxy).start();
+
+        // 1. Unregistered token or plain track ID returns 404
+        let mut client = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        client
+            .write_all(b"GET /stream/42 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n")
+            .unwrap();
+        let mut resp = [0u8; 512];
+        let n = client.read(&mut resp).unwrap();
+        assert!(String::from_utf8_lossy(&resp[..n]).contains("HTTP/1.1 404 Not Found"));
+
+        // 2. Register for a remote IP: connecting from 127.0.0.1 must be rejected with 403 Forbidden
+        let remote_stream_url = proxy.register_stream(
+            99,
+            "http://example.com/audio.flac".into(),
+            "audio/flac".into(),
+            "192.168.1.200",
+        );
+        let remote_path = remote_stream_url.find("/stream/").map(|idx| &remote_stream_url[idx..]).unwrap();
+        let mut client2 = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let req2 = format!("GET {remote_path} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+        client2.write_all(req2.as_bytes()).unwrap();
+        let mut resp2 = [0u8; 512];
+        let n2 = client2.read(&mut resp2).unwrap();
+        assert!(String::from_utf8_lossy(&resp2[..n2]).contains("HTTP/1.1 403 Forbidden"));
+
+        // 3. Clear streams revokes previously registered capability
+        proxy.clear_streams();
+        let mut client3 = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        client3.write_all(req2.as_bytes()).unwrap();
+        let mut resp3 = [0u8; 512];
+        let n3 = client3.read(&mut resp3).unwrap();
+        assert!(String::from_utf8_lossy(&resp3[..n3]).contains("HTTP/1.1 404 Not Found"));
 
         proxy.stop();
     }
