@@ -922,6 +922,7 @@ fn connect_cast(
     };
 
     if let Some(prev) = prev_session {
+        proxy.clear_streams();
         prev.disconnect();
     }
 

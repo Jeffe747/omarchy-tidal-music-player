@@ -31,15 +31,9 @@ fn generate_token() -> String {
         }
     }
     if !filled {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
-        let pid = std::process::id();
-        let b1 = now.to_le_bytes();
-        let b2 = (pid as u64).to_le_bytes();
-        buf[..8].copy_from_slice(&b1[..8]);
-        buf[8..16].copy_from_slice(&b2);
+        let _ = rustls::crypto::ring::default_provider()
+            .secure_random
+            .fill(&mut buf);
     }
     buf.iter().map(|b| format!("{:02x}", b)).collect()
 }
@@ -130,9 +124,8 @@ impl StreamProxy {
             receiver_ip: receiver_ip.to_string(),
         };
         if let Ok(mut streams) = self.streams.lock() {
-            if streams.len() >= 5 {
-                streams.clear();
-            }
+            // Revoke any previously active stream capability immediately on track transition
+            streams.clear();
             streams.insert(token.clone(), registered);
         }
         format!("http://{}:{}/stream/{}/{}", local_ip, self.port, token, track_id)
@@ -199,67 +192,38 @@ pub fn check_cast_ports_blocked(proxy_port: u16) -> bool {
         }
     }
 
-    // 1. Check UFW (the standard firewall on Omarchy / Arch)
-    let ufw_active = std::process::Command::new("systemctl")
-        .args(["is-active", "--quiet", "ufw"])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
+    // Check UFW configuration files directly without spawning privileged commands
+    if let Ok(ufw_conf) = std::fs::read_to_string("/etc/ufw/ufw.conf") {
+        let ufw_enabled = ufw_conf.lines().any(|line| {
+            let trimmed = line.trim();
+            trimmed == "ENABLED=yes"
+                || trimmed == "ENABLED=\"yes\""
+                || trimmed == "ENABLED='yes'"
+        });
 
-    if ufw_active {
-        // If DEFAULT_INPUT_POLICY is ACCEPT, inbound traffic is permitted
-        if let Ok(default_ufw) = std::fs::read_to_string("/etc/default/ufw") {
-            let is_accept = default_ufw.lines().any(|line| {
-                let trimmed = line.trim();
-                trimmed.starts_with("DEFAULT_INPUT_POLICY=\"ACCEPT\"")
-                    || trimmed.starts_with("DEFAULT_INPUT_POLICY='ACCEPT'")
-                    || trimmed.starts_with("DEFAULT_INPUT_POLICY=ACCEPT")
-            });
-            if is_accept {
-                return false;
-            }
-        }
-
-        let port_str = proxy_port.to_string();
-
-        // Check if /etc/ufw/user.rules allows proxy_port or 36420
-        if let Ok(rules) = std::fs::read_to_string("/etc/ufw/user.rules") {
-            if rules.contains(&port_str) || rules.contains("36420") {
-                return false;
-            }
-        }
-
-        // Also check `sudo -n ufw status` if accessible without password
-        if let Ok(output) = std::process::Command::new("sudo")
-            .args(["-n", "ufw", "status"])
-            .output()
-        {
-            if output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                if stdout.contains(&port_str) || stdout.contains("36420") {
+        if ufw_enabled {
+            // If DEFAULT_INPUT_POLICY is ACCEPT, inbound traffic is permitted
+            if let Ok(default_ufw) = std::fs::read_to_string("/etc/default/ufw") {
+                let is_accept = default_ufw.lines().any(|line| {
+                    let trimmed = line.trim();
+                    trimmed.starts_with("DEFAULT_INPUT_POLICY=\"ACCEPT\"")
+                        || trimmed.starts_with("DEFAULT_INPUT_POLICY='ACCEPT'")
+                        || trimmed.starts_with("DEFAULT_INPUT_POLICY=ACCEPT")
+                });
+                if is_accept {
                     return false;
                 }
             }
-        }
 
-        return true;
-    }
+            let port_str = proxy_port.to_string();
 
-    // 2. Check firewalld if active
-    let firewalld_active = std::process::Command::new("systemctl")
-        .args(["is-active", "--quiet", "firewalld"])
-        .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
+            // Check if /etc/ufw/user.rules allows proxy_port or 36420
+            if let Ok(rules) = std::fs::read_to_string("/etc/ufw/user.rules") {
+                if rules.contains(&port_str) || rules.contains("36420") {
+                    return false;
+                }
+            }
 
-    if firewalld_active {
-        let port_arg = format!("{proxy_port}/tcp");
-        let allowed = std::process::Command::new("firewall-cmd")
-            .args(["--query-port", &port_arg])
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-        if !allowed {
             return true;
         }
     }
@@ -299,8 +263,9 @@ fn handle_http_client(
     let method = parts[0];
     let path = parts[1];
 
-    // Extract unguessable capability token from /stream/<token> or /stream/<token>/<track_id>
-    let rest = match path.strip_prefix("/stream/") {
+    // Extract unguessable capability token and track_id from /stream/<token>/<track_id>
+    let path_no_query = path.split('?').next().unwrap_or("");
+    let rest = match path_no_query.strip_prefix("/stream/") {
         Some(r) => r,
         None => {
             let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
@@ -308,11 +273,21 @@ fn handle_http_client(
         }
     };
 
-    let token = rest.split(['/', '?']).next().unwrap_or("");
-    if token.is_empty() {
-        let _ = stream.write_all(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n");
+    let mut segments = rest.split('/');
+    let token = segments.next().unwrap_or("");
+    let track_id_str = segments.next().unwrap_or("");
+    if token.is_empty() || track_id_str.is_empty() || segments.next().is_some() {
+        let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
         return;
     }
+
+    let requested_track_id: u64 = match track_id_str.parse() {
+        Ok(id) => id,
+        Err(_) => {
+            let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+            return;
+        }
+    };
 
     let stream_info = {
         let guard = match streams.lock() {
@@ -323,8 +298,8 @@ fn handle_http_client(
     };
 
     let stream_info = match stream_info {
-        Some(info) => info,
-        None => {
+        Some(info) if info.track_id == requested_track_id => info,
+        _ => {
             let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
             return;
         }
@@ -507,13 +482,37 @@ mod tests {
         let n = client.read(&mut resp).unwrap();
         assert!(String::from_utf8_lossy(&resp[..n]).contains("HTTP/1.1 404 Not Found"));
 
-        // 2. Register for a remote IP: connecting from 127.0.0.1 must be rejected with 403 Forbidden
+        // 2. Register stream for 127.0.0.1, then verify mismatched track_id returns 404
+        let stream1_url = proxy.register_stream(
+            101,
+            "http://example.com/audio1.flac".into(),
+            "audio/flac".into(),
+            "127.0.0.1",
+        );
+        let stream1_path = stream1_url.find("/stream/").map(|idx| &stream1_url[idx..]).unwrap();
+        let wrong_id_path = stream1_path.replacen("/101", "/999", 1);
+        let mut client_wrong_id = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let req_wrong_id = format!("GET {wrong_id_path} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+        client_wrong_id.write_all(req_wrong_id.as_bytes()).unwrap();
+        let mut resp_wrong_id = [0u8; 512];
+        let n_wrong = client_wrong_id.read(&mut resp_wrong_id).unwrap();
+        assert!(String::from_utf8_lossy(&resp_wrong_id[..n_wrong]).contains("HTTP/1.1 404 Not Found"));
+
+        // 3. Registering a new stream on track transition immediately revokes the previous token
         let remote_stream_url = proxy.register_stream(
             99,
             "http://example.com/audio.flac".into(),
             "audio/flac".into(),
             "192.168.1.200",
         );
+        let mut client_revoked = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let req_revoked = format!("OPTIONS {stream1_path} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+        client_revoked.write_all(req_revoked.as_bytes()).unwrap();
+        let mut resp_revoked = [0u8; 512];
+        let n_revoked = client_revoked.read(&mut resp_revoked).unwrap();
+        assert!(String::from_utf8_lossy(&resp_revoked[..n_revoked]).contains("HTTP/1.1 404 Not Found"));
+
+        // 4. Register for a remote IP: connecting from 127.0.0.1 must be rejected with 403 Forbidden
         let remote_path = remote_stream_url.find("/stream/").map(|idx| &remote_stream_url[idx..]).unwrap();
         let mut client2 = TcpStream::connect(("127.0.0.1", port)).unwrap();
         let req2 = format!("GET {remote_path} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
@@ -522,7 +521,7 @@ mod tests {
         let n2 = client2.read(&mut resp2).unwrap();
         assert!(String::from_utf8_lossy(&resp2[..n2]).contains("HTTP/1.1 403 Forbidden"));
 
-        // 3. Clear streams revokes previously registered capability
+        // 5. Clear streams revokes previously registered capability
         proxy.clear_streams();
         let mut client3 = TcpStream::connect(("127.0.0.1", port)).unwrap();
         client3.write_all(req2.as_bytes()).unwrap();

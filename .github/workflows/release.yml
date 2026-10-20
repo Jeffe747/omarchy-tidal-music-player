@@ -34,7 +34,8 @@ jobs:
         run: cargo install cross --git https://github.com/cross-rs/cross --locked
       - name: Build x86_64 release
         if: matrix.target == 'x86_64-unknown-linux-gnu'
-        run: cargo build --release --target x86_64-unknown-linux-gnu --manifest-path backend/Cargo.toml --locked
+        working-directory: backend
+        run: cargo build --release --target x86_64-unknown-linux-gnu --locked
       - name: Build aarch64 release
         if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: cross build --release --target aarch64-unknown-linux-gnu --manifest-path backend/Cargo.toml --locked --features dbus/vendored
