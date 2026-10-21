@@ -135,12 +135,10 @@ Compiles `tidal-daemon` in release mode with size optimization profiles:
 
 `Service.qml` resolves the daemon in this order:
 
-1. Tracked local bundle `bin/tidal-daemon`, which also supports developer builds.
-2. Hydrated state binary at `~/.local/state/omarchy/tidal/bin/tidal-daemon`.
-3. A system `tidal-daemon` found on `PATH` (with `/usr/bin/tidal-daemon` as the
-   conventional system location).
+1. Tracked local bundle `bin/tidal-daemon` (verified against the pinned SHA-256 digest for the current architecture).
+2. Hydrated state binary at `~/.local/state/omarchy/tidal/bin/tidal-daemon` (also verified against the pinned SHA-256 digest before selection).
 
-If none is executable, the service downloads the architecture-matched release
+If neither is present with the matching pinned SHA-256 digest, the service downloads the architecture-matched release
 asset (`tidal-daemon-x86_64` or `tidal-daemon-aarch64`) and installs it in the
 state directory. The bootstrap supports `x86_64`/`amd64` and
 `aarch64`/`arm64`; `curl` or `wget` and a SHA-256 utility are needed only for
@@ -152,20 +150,12 @@ release `SHA256SUMS` file. Commits pushed to `main` do not rebuild or replace
 those release assets, so their published bytes and digests remain unchanged.
 
 The repository-root `SHA256SUMS` records the expected release asset digests.
-`Service.qml` pins the same SHA-256 values in its bootstrap command and checks
-the downloaded temporary file before it is made executable or moved into the
-state directory. Keep these values synchronized: this pin prevents a mutable
+`Service.qml` pins the same SHA-256 values in both its binary selection check and
+its bootstrap command, verifying any candidate or downloaded binary before execution.
+Keep these values synchronized: this pin prevents a mutable
 release asset from silently replacing the trusted daemon. The compliance
 verification script checks digest format and exact synchronization between
 `SHA256SUMS` and the service pins.
-
-#### Rolling development channel
-
-To track precompiled development builds published from pushes to `main`, add
-`TIDAL_CHANNEL=dev` to `~/.config/omarchy/env` and restart the shell. The plugin
-then bootstraps the rolling `dev` release without local compilation. Use
-**Update dev engine** in Settings to fetch the latest build after a new push.
-Leave the variable unset (or set it to `stable`) to remain pinned to `v1.0.0`.
 
 #### Maintainer release checklist
 

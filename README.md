@@ -93,15 +93,6 @@ For the live milestone progress tracker and task checklist, see **[`PROGRESS.md`
 
 ## Installation & Setup
 
-### Rolling Development Builds
-
-Testing machines can use precompiled builds published from pushes to `main`
-without installing Rust or compiling locally. Add `TIDAL_CHANNEL=dev` to
-`~/.config/omarchy/env` and restart the shell. The Settings popup shows the
-active channel and provides **Update dev engine** to fetch the latest build.
-Leave `TIDAL_CHANNEL` unset (or set it to `stable`) to use the pinned `v1.0.0`
-marketplace release.
-
 ### 1-Command Omarchy Installation
 
 ```sh

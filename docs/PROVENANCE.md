@@ -29,13 +29,13 @@ true`, `codegen-units = 1`, `panic = "abort"`, and `strip = true`.
 The local Cargo build may differ byte-for-byte from the official Ubuntu-built
 release artifact. `scripts/verify-size.sh` therefore accepts the bundled x86_64
 artifact when its digest matches the canonical `SHA256SUMS` entry. `Service.qml`
-checks the bundled executable's SHA-256 against the architecture-specific pin
-before selecting it for execution. The stable bootstrap verifies downloads
-against the same pins and uses release tag `v1.0.70`.
+checks both the bundled executable's and the cached state executable's SHA-256
+against the architecture-specific pin before selecting either for execution. The
+bootstrap verifies downloads against the same pins and uses release tag
+`v1.0.70`.
 
 ## Release workflow
 
 `.github/workflows/release.yml` builds x86_64 with Cargo and applies the strip
-command above. It does not install or run UPX. The development release workflow
-uses the same x86_64 strip command. The published artifact checksums are recorded
-in the repository `SHA256SUMS` and pinned in `Service.qml`.
+command above. It does not install or run UPX. The published artifact checksums
+are recorded in the repository `SHA256SUMS` and pinned in `Service.qml`.
