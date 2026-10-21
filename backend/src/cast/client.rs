@@ -577,6 +577,7 @@ fn run_session_worker(
     // 5. Main event & heartbeat loop
     let media_session_id = Arc::new(AtomicI64::new(-1));
     let mut last_ping = Instant::now();
+    let mut finished_session_id: Option<i64> = None;
 
     while is_active.load(Ordering::Relaxed)
         && !crate::SHUTDOWN.load(Ordering::Relaxed)
@@ -620,6 +621,7 @@ fn run_session_worker(
                         load_json.to_string(),
                     );
                     let _ = write_cast_message(&mut tls_stream, &load_msg);
+                    finished_session_id = None;
                     if let Ok(mut st) = state.lock() {
                         *st = CastState::Buffering;
                     }
@@ -831,6 +833,10 @@ fn run_session_worker(
                                         .unwrap_or("IDLE");
                                     let idle_reason = media_status["idleReason"].as_str();
 
+                                    if player_state == "PLAYING" || player_state == "BUFFERING" {
+                                        finished_session_id = None;
+                                    }
+
                                     if let Ok(mut st) = state.lock() {
                                         *st = match player_state {
                                             "PLAYING" => CastState::Playing,
@@ -842,8 +848,12 @@ fn run_session_worker(
 
                                     if player_state == "IDLE" {
                                         if idle_reason == Some("FINISHED") {
-                                            crate::log::write("Cast track playback finished (EOF)");
-                                            on_track_finished();
+                                            let ms_id = media_status["mediaSessionId"].as_i64().unwrap_or(0);
+                                            if finished_session_id != Some(ms_id) {
+                                                finished_session_id = Some(ms_id);
+                                                crate::log::write("Cast track playback finished (EOF)");
+                                                on_track_finished();
+                                            }
                                         } else if let Some(reason) = idle_reason {
                                             crate::log::write(&format!("Cast media IDLE reason: {reason}"));
                                         }

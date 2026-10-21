@@ -1008,11 +1008,28 @@ fn connect_cast(
     let auth_cb = Arc::clone(auth);
     let player_cb = Arc::clone(player);
     let ipc_cb = ipc.clone();
+    let auto_advancing = Arc::new(AtomicBool::new(false));
+    let auto_advancing_cb = Arc::clone(&auto_advancing);
     let on_track_finished = Arc::new(move || {
+        // Enforce a single in-flight auto-advance worker; drop duplicate/flooded triggers
+        if auto_advancing_cb
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return;
+        }
         let auth_t = Arc::clone(&auth_cb);
         let player_t = Arc::clone(&player_cb);
         let ipc_t = ipc_cb.clone();
+        let guard_advancing = Arc::clone(&auto_advancing_cb);
         thread::spawn(move || {
+            struct AutoAdvanceGuard(Arc<AtomicBool>);
+            impl Drop for AutoAdvanceGuard {
+                fn drop(&mut self) {
+                    self.0.store(false, Ordering::SeqCst);
+                }
+            }
+            let _guard = AutoAdvanceGuard(guard_advancing);
             if let Err(e) = navigate(&auth_t, &player_t, &ipc_t, true) {
                 log::write(&format!("Cast auto-advance error: {e}"));
             }
@@ -1949,4 +1966,48 @@ fn main() {
         log::write(&format!("Failed to remove IPC socket: {error}"));
     }
     log::write("Daemon stopped");
+}
+
+#[cfg(test)]
+mod main_tests {
+    use super::*;
+
+    #[test]
+    fn test_auto_advance_guard_deduplication() {
+        let counter = Arc::new(AtomicUsize::new(0));
+        let auto_advancing = Arc::new(AtomicBool::new(false));
+
+        for _ in 0..100 {
+            let auto_advancing_cb = Arc::clone(&auto_advancing);
+            let counter_cb = Arc::clone(&counter);
+            let on_finished = move || {
+                if auto_advancing_cb
+                    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                    .is_err()
+                {
+                    return;
+                }
+                counter_cb.fetch_add(1, Ordering::SeqCst);
+            };
+            on_finished();
+        }
+        // Only 1 job could be started while in flight
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+
+        // Resetting guard allows next legitimate auto-advance
+        auto_advancing.store(false, Ordering::SeqCst);
+        let auto_advancing_cb = Arc::clone(&auto_advancing);
+        let counter_cb = Arc::clone(&counter);
+        let on_finished = move || {
+            if auto_advancing_cb
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_err()
+            {
+                return;
+            }
+            counter_cb.fetch_add(1, Ordering::SeqCst);
+        };
+        on_finished();
+        assert_eq!(counter.load(Ordering::SeqCst), 2);
+    }
 }

@@ -1,11 +1,10 @@
 # Release binary provenance
 
-## v1.0.70 release artifacts
+## v1.0.71 release artifacts
 
 The checked-in executable `bin/tidal-daemon` is the official x86_64 artifact
-published by the v1.0.70 GitHub Actions release workflow. The release was
-created by [workflow run 39674840957](https://github.com/Jeffe747/omarchy-tidal-music-player/actions/runs/39674840957)
-and published at [v1.0.70](https://github.com/Jeffe747/omarchy-tidal-music-player/releases/tag/v1.0.70).
+published by the v1.0.71 GitHub Actions release workflow. The release was
+published at [v1.0.71](https://github.com/Jeffe747/omarchy-tidal-music-player/releases/tag/v1.0.71).
 The x86_64 release artifact is 1,820,960 bytes and its digest matches
 `SHA256SUMS` and the runtime pin in `Service.qml`.
 
@@ -23,7 +22,7 @@ true`, `codegen-units = 1`, `panic = "abort"`, and `strip = true`.
 
 | Artifact | Size | SHA-256 |
 | --- | ---: | --- |
-| `bin/tidal-daemon` / `tidal-daemon-x86_64` | 1,820,960 bytes | `6440391b7e410a2792c33a15483dc8a041857b95b0a6ded978cc3f211fee67b8` |
+| `bin/tidal-daemon` / `tidal-daemon-x86_64` | 1,820,712 bytes | `2153045080b5f7287bbe6e9f59ecc519c8b23ec09c743616e8f5bfe7220603c5` |
 | `tidal-daemon-aarch64` | Published by release workflow | `28de1edaf8bab535199b9dc1ac1dc935aab31c316e9c15230d50fdca1244217a` |
 
 The local Cargo build may differ byte-for-byte from the official Ubuntu-built
@@ -32,7 +31,7 @@ artifact when its digest matches the canonical `SHA256SUMS` entry. `Service.qml`
 checks both the bundled executable's and the cached state executable's SHA-256
 against the architecture-specific pin before selecting either for execution. The
 bootstrap verifies downloads against the same pins and uses release tag
-`v1.0.70`.
+`v1.0.71`.
 
 ## Release workflow
 

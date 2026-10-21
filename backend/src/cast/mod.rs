@@ -153,11 +153,12 @@ impl CastMessage {
                 }
                 2 => {
                     let len = decode_varint(data, &mut offset)? as usize;
-                    if offset + len > data.len() {
-                        return Err("Protobuf length exceeds buffer bounds".to_string());
-                    }
-                    let bytes = &data[offset..offset + len];
-                    offset += len;
+                    let end = match offset.checked_add(len) {
+                        Some(e) if e <= data.len() => e,
+                        _ => return Err("Protobuf length exceeds buffer bounds".to_string()),
+                    };
+                    let bytes = &data[offset..end];
+                    offset = end;
                     match field_num {
                         2 => source_id = String::from_utf8_lossy(bytes).into_owned(),
                         3 => destination_id = String::from_utf8_lossy(bytes).into_owned(),
@@ -219,5 +220,18 @@ mod tests {
         let json = serde_json::to_string(&device).expect("serialize CastDevice");
         let parsed: CastDevice = serde_json::from_str(&json).expect("deserialize CastDevice");
         assert_eq!(parsed, device);
+    }
+
+    #[test]
+    fn test_protobuf_overflow_payload() {
+        // 0x12 is field 2 (source_id), wire type 2 (length-delimited)
+        // 9x 0xff bytes followed by 0x01 encodes u64::MAX
+        let payload = vec![0x12, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01];
+        let res = CastMessage::from_bytes(&payload);
+        assert!(res.is_err());
+        assert_eq!(
+            res.unwrap_err(),
+            "Protobuf length exceeds buffer bounds"
+        );
     }
 }
