@@ -358,6 +358,7 @@ Column {
       property var rowData: ({})
       property int rowIndex: -1
       width: list.contentHeight > list.height ? list.width - Style.space(10) : list.width
+      service: root.service
       track: rowData
       showArt: root.view === "search"
       durationText: root.formatTime(rowData.duration)

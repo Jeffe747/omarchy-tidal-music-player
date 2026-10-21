@@ -4,13 +4,14 @@ use std::io::Read;
 
 const API_BASE: &str = "https://api.tidal.com/v1";
 pub(crate) const MAX_JSON_RESPONSE_BYTES: u64 = 1024 * 1024;
+pub(crate) const MAX_ARTWORK_BYTES: u64 = 512 * 1024;
 const MAX_API_TEXT_RESPONSE_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_ERROR_BODY_BYTES: u64 = 64 * 1024;
 
-pub(crate) fn read_bounded_string(
+pub(crate) fn read_bounded_bytes(
     response: ureq::Response,
     max_bytes: u64,
-) -> Result<String, String> {
+) -> Result<Vec<u8>, String> {
     let mut reader = response.into_reader().take(max_bytes + 1);
     let mut buf = Vec::new();
     reader
@@ -21,6 +22,14 @@ pub(crate) fn read_bounded_string(
             "HTTP response body exceeds {max_bytes}-byte safety limit"
         ));
     }
+    Ok(buf)
+}
+
+pub(crate) fn read_bounded_string(
+    response: ureq::Response,
+    max_bytes: u64,
+) -> Result<String, String> {
+    let buf = read_bounded_bytes(response, max_bytes)?;
     String::from_utf8(buf).map_err(|e| format!("Invalid UTF-8 in HTTP response body: {e}"))
 }
 
@@ -314,14 +323,85 @@ impl TrackItem {
     }
 }
 
+pub fn is_valid_cover_id(hash: &str) -> bool {
+    !hash.is_empty()
+        && hash.len() <= 64
+        && hash
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+}
+
 pub fn cover_url(hash: &str) -> String {
-    if hash.is_empty() {
+    if !is_valid_cover_id(hash) {
         return String::new();
     }
     format!(
         "https://resources.tidal.com/images/{}/640x640.jpg",
         hash.replace('-', "/")
     )
+}
+
+pub fn cover_cache_dir() -> std::path::PathBuf {
+    if let Some(path) = std::env::var_os("TIDAL_ART_CACHE_DIR") {
+        return std::path::PathBuf::from(path);
+    }
+    let state_dir = std::env::var_os("XDG_STATE_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            std::path::PathBuf::from(std::env::var_os("HOME").unwrap_or_default())
+                .join(".local/state")
+        });
+    state_dir.join("tidal/covers")
+}
+
+pub fn cached_cover_file_url(hash: &str) -> Option<String> {
+    if !is_valid_cover_id(hash) {
+        return None;
+    }
+    let path = cover_cache_dir().join(format!("{hash}.jpg"));
+    if path.is_file() {
+        Some(format!("file://{}", path.display()))
+    } else {
+        None
+    }
+}
+
+pub fn fetch_and_cache_cover(hash: &str) -> Result<String, String> {
+    if !is_valid_cover_id(hash) {
+        return Err("Invalid cover identifier".to_string());
+    }
+    if let Some(url) = cached_cover_file_url(hash) {
+        return Ok(url);
+    }
+    let dir = cover_cache_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create cover cache dir: {e}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
+    }
+
+    let url = cover_url(hash);
+    let response = ureq::get(&url)
+        .timeout(std::time::Duration::from_secs(10))
+        .call()
+        .map_err(|e| format!("Artwork download failed: {e}"))?;
+    let bytes = read_bounded_bytes(response, MAX_ARTWORK_BYTES)?;
+    // Verify JPEG (FF D8 FF) or PNG (89 50 4E 47) magic header
+    let is_valid_image = (bytes.len() >= 3 && bytes[0..3] == [0xFF, 0xD8, 0xFF])
+        || (bytes.len() >= 4 && bytes[0..4] == [0x89, 0x50, 0x4E, 0x47]);
+    if !is_valid_image {
+        return Err("Artwork response is not a valid JPEG or PNG image".to_string());
+    }
+
+    let dest = dir.join(format!("{hash}.jpg"));
+    let tmp = dir.join(format!("{hash}.jpg.tmp.{}", std::process::id()));
+    std::fs::write(&tmp, &bytes).map_err(|e| format!("Failed to write cached cover: {e}"))?;
+    std::fs::rename(&tmp, &dest).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("Failed to finalize cached cover: {e}")
+    })?;
+    Ok(format!("file://{}", dest.display()))
 }
 
 fn encode_query(value: &str) -> String {
@@ -1333,6 +1413,47 @@ mod tests {
         server.join().unwrap();
         assert!(
             err.contains("exceeds 512-byte safety limit"),
+            "Unexpected error: {err}"
+        );
+    }
+
+    #[test]
+    fn test_is_valid_cover_id() {
+        assert!(is_valid_cover_id("ab-cd-ef-0123"));
+        assert!(!is_valid_cover_id(""));
+        assert!(!is_valid_cover_id("../etc/passwd"));
+        assert!(!is_valid_cover_id("ab/cd"));
+        assert!(!is_valid_cover_id(&"a".repeat(65)));
+    }
+
+    #[test]
+    fn test_read_bounded_bytes_enforces_byte_limit() {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            while reader.read_line(&mut line).unwrap_or(0) > 0 && line != "\r\n" {
+                line.clear();
+            }
+            let payload = vec![0xFFu8; 2048];
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                payload.len()
+            );
+            let _ = stream.write_all(&payload);
+        });
+
+        let response = ureq::get(&format!("http://{addr}/oversized.jpg"))
+            .call()
+            .unwrap();
+        let err = read_bounded_bytes(response, 1024).unwrap_err();
+        server.join().unwrap();
+        assert!(
+            err.contains("exceeds 1024-byte safety limit"),
             "Unexpected error: {err}"
         );
     }

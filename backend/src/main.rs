@@ -9,12 +9,15 @@ pub mod cast;
 #[path = "tests/ui_endpoints.rs"]
 mod ui_endpoint_tests;
 
-use api::{cover_url, Playlist, TidalApiClient, TrackItem};
+use api::{
+    cached_cover_file_url, cover_url, fetch_and_cache_cover, is_valid_cover_id, Playlist,
+    TidalApiClient, TrackItem,
+};
 use auth::AuthManager;
 use ipc::{FavoriteTrack, IpcCommand, IpcServer, IpcStateMessage, PlayerMessage};
 use playback::PlaybackEngine;
 use std::io::{BufRead, BufReader};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -22,6 +25,73 @@ use std::time::Duration;
 pub(crate) static SHUTDOWN: AtomicBool = AtomicBool::new(false);
 pub(crate) static FAVORITES_LOADING: AtomicBool = AtomicBool::new(false);
 pub(crate) static PLAY_REQUEST_ID: AtomicU64 = AtomicU64::new(0);
+static ARTWORK_WORKERS: AtomicUsize = AtomicUsize::new(0);
+const MAX_ARTWORK_WORKERS: usize = 4;
+
+struct ArtworkWorkerGuard;
+impl ArtworkWorkerGuard {
+    fn try_acquire() -> Option<Self> {
+        let mut current = ARTWORK_WORKERS.load(Ordering::Relaxed);
+        loop {
+            if current >= MAX_ARTWORK_WORKERS {
+                return None;
+            }
+            match ARTWORK_WORKERS.compare_exchange_weak(
+                current,
+                current + 1,
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => return Some(Self),
+                Err(actual) => current = actual,
+            }
+        }
+    }
+}
+impl Drop for ArtworkWorkerGuard {
+    fn drop(&mut self) {
+        ARTWORK_WORKERS.fetch_sub(1, Ordering::Release);
+    }
+}
+
+pub(crate) fn spawn_artwork_fetch(
+    cover: String,
+    status_ctx: Option<(Arc<AuthManager>, Arc<Mutex<Player>>)>,
+    ipc: IpcServer,
+) {
+    if !is_valid_cover_id(&cover) {
+        return;
+    }
+    if let Some(local_url) = cached_cover_file_url(&cover) {
+        ipc.broadcast(&PlayerMessage::ArtworkLoaded {
+            cover: &cover,
+            path: &local_url,
+        });
+        return;
+    }
+    let Some(guard) = ArtworkWorkerGuard::try_acquire() else {
+        return;
+    };
+    thread::spawn(move || {
+        let _guard = guard;
+        if let Ok(local_url) = fetch_and_cache_cover(&cover) {
+            ipc.broadcast(&PlayerMessage::ArtworkLoaded {
+                cover: &cover,
+                path: &local_url,
+            });
+            if let Some((auth, player)) = status_ctx {
+                let is_current = player
+                    .lock()
+                    .ok()
+                    .and_then(|p| p.current.as_ref().map(|t| t.cover() == cover))
+                    .unwrap_or(false);
+                if is_current {
+                    broadcast_status(&auth, &player, &ipc);
+                }
+            }
+        }
+    });
+}
 
 extern "C" fn request_shutdown(_: libc::c_int) {
     SHUTDOWN.store(true, Ordering::Relaxed);
@@ -231,7 +301,7 @@ fn build_status_message(auth_manager: &AuthManager, player: &Player) -> IpcState
         track_title: track.map(|t| t.title.clone()),
         track_artist: track.map(|t| t.artist_name().to_string()),
         track_album: track.map(|t| t.album_title().to_string()),
-        track_art_url: track.map(|t| cover_url(t.cover())),
+        track_art_url: track.map(|t| cached_cover_file_url(t.cover()).unwrap_or_default()),
         duration: Some(track.map(|t| t.duration as f64).unwrap_or(0.0)),
         position,
         audio_quality: Some(player.quality.clone()),
@@ -704,12 +774,19 @@ fn play_track(
             }
         }
     }
+    let cover_to_fetch = track.cover().to_string();
+    let need_cover_fetch =
+        is_valid_cover_id(&cover_to_fetch) && cached_cover_file_url(&cover_to_fetch).is_none();
     player.current = Some(track);
     player.quality = info.audio_quality;
     player.eof_handled_track = None;
     player.track_has_started = false;
     ipc.broadcast(&PlayerMessage::PlaybackStarted { track_id: id });
     ipc.broadcast(&build_status_message(auth, &player));
+    drop(player);
+    if need_cover_fetch {
+        spawn_artwork_fetch(cover_to_fetch, None, ipc.clone());
+    }
     Ok(())
 }
 
@@ -1357,6 +1434,7 @@ fn main() {
                                 | "connect_cast"
                                 | "disconnect_cast"
                                 | "set_cast_volume"
+                                | "fetch_artwork"
                                 | "start_auth"
                                 | "logout" => cmd.command.as_str(),
                                 _ => "unknown",
@@ -1690,6 +1768,15 @@ fn main() {
                                             }
                                         }
                                         broadcast_status(&auth_ref, &player_ref, &ipc_ref);
+                                    }
+                                }
+                                "fetch_artwork" => {
+                                    if let Some(cover) = cmd.cover {
+                                        spawn_artwork_fetch(
+                                            cover,
+                                            Some((Arc::clone(&auth_ref), Arc::clone(&player_ref))),
+                                            ipc_ref.clone(),
+                                        );
                                     }
                                 }
                                 "start_auth" => {

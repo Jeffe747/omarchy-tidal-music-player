@@ -7,7 +7,7 @@ Item {
 
   property var shell: null
   readonly property string channel: Quickshell.env("TIDAL_CHANNEL") || "stable"
-  readonly property string pluginVersion: "1.0.69"
+  readonly property string pluginVersion: "1.0.70"
   property string daemonVersion: ""
   readonly property string socketPath: Quickshell.env("XDG_RUNTIME_DIR") + "/tidal.sock"
   readonly property string sessionPath: Quickshell.env("TIDAL_SESSION_PATH") || (Quickshell.env("HOME") + "/.local/state/tidal/session.json")
@@ -114,15 +114,31 @@ Item {
   property int searchRequestId: 0
   property bool searchCompleted: false
   property bool explorationLoading: false
+  property var artworkCache: ({})
+  property var artworkRequested: ({})
   property var pendingCommands: []
   property int reconnectDelay: 3000
   readonly property var daemonSocket: socketLoader.item
+
+  function sanitizeLocalArtUrl(url) {
+    if (url && typeof url === "string" && url.indexOf("file://") === 0) return url
+    return ""
+  }
+
+  function requestArtwork(cover) {
+    if (!cover || typeof cover !== "string") return
+    if (root.artworkCache[cover] || root.artworkRequested[cover]) return
+    var req = Object.assign({}, root.artworkRequested)
+    req[cover] = true
+    root.artworkRequested = req
+    sendCommand({ "command": "fetch_artwork", "cover": cover })
+  }
 
   // Check daemon binary existence
   Process {
     id: binaryCheckProc
     command: ["sh", "-c",
-      'sys_bin="$(command -v tidal-daemon 2>/dev/null || true)"; if [ "$4" = dev ]; then path="$3"; if test -f "$path" && test -x "$path"; then printf "%s\\n" "$path"; exit 0; fi; else for path in "$1" "$3" "$sys_bin" "/usr/bin/tidal-daemon" "$2"; do if test -n "$path" && test -f "$path" && test -x "$path"; then if [ -z "${TIDAL_TEST_MODE:-}" ] && [ "$path" = "$1" ]; then arch="$(uname -m)"; case "$arch" in x86_64|amd64) expected="d48ccfa6e0faf7cc3886482bdf9e10af6ee21f2d82c3083ea367404e4f600a9b" ;; aarch64|arm64) expected="7934a44cf66b210562a90e32ce016e4de6ae7776e20be9543ee95f5418b6fd4b" ;; *) expected="" ;; esac; actual="$(sha256sum "$path" 2>/dev/null || shasum -a 256 "$path" 2>/dev/null || true)"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then continue; fi; fi; printf "%s\\n" "$path"; exit 0; fi; done; fi; exit 1',
+      'sys_bin="$(command -v tidal-daemon 2>/dev/null || true)"; if [ "$4" = dev ]; then path="$3"; if test -f "$path" && test -x "$path"; then printf "%s\\n" "$path"; exit 0; fi; else for path in "$1" "$3" "$sys_bin" "/usr/bin/tidal-daemon" "$2"; do if test -n "$path" && test -f "$path" && test -x "$path"; then if [ -z "${TIDAL_TEST_MODE:-}" ] && [ "$path" = "$1" ]; then arch="$(uname -m)"; case "$arch" in x86_64|amd64) expected="37514db9fe80959eaa38fdbd06f6c6d2133411657325b10800298d82e01a2587" ;; aarch64|arm64) expected="7934a44cf66b210562a90e32ce016e4de6ae7776e20be9543ee95f5418b6fd4b" ;; *) expected="" ;; esac; actual="$(sha256sum "$path" 2>/dev/null || shasum -a 256 "$path" 2>/dev/null || true)"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then continue; fi; fi; printf "%s\\n" "$path"; exit 0; fi; done; fi; exit 1',
       "tidal-binary-check", root.bundledBinaryPath, root.developmentBinaryPath, root.stateBinaryPath, root.channel]
     stdout: StdioCollector { id: binaryCheckOutput }
     running: false
@@ -168,7 +184,7 @@ Item {
 
   Process {
     id: bootstrapProc
-    command: ["sh", "-c", 'set -eu; arch="$(uname -m)"; case "$arch" in x86_64|amd64) asset=tidal-daemon-x86_64; expected=d48ccfa6e0faf7cc3886482bdf9e10af6ee21f2d82c3083ea367404e4f600a9b ;; aarch64|arm64) asset=tidal-daemon-aarch64; expected=7934a44cf66b210562a90e32ce016e4de6ae7776e20be9543ee95f5418b6fd4b ;; *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; esac; channel="${2:-stable}"; tag="v1.0.69"; check_mode="hardcoded"; if [ "$channel" = "dev" ]; then tag="dev"; check_mode="remote"; fi; base_url="https://github.com/Jeffe747/omarchy-tidal-music-player/releases/download/${tag}"; if [ "$check_mode" = "remote" ]; then if command -v curl >/dev/null 2>&1; then expected="$(curl -fsSL "${base_url}/SHA256SUMS" | grep -F " ${asset}" | cut -d" " -f1)"; elif command -v wget >/dev/null 2>&1; then expected="$(wget -qO- "${base_url}/SHA256SUMS" | grep -F " ${asset}" | cut -d" " -f1)"; fi; fi; dest="$1"; mkdir -p "$(dirname "$dest")"; tmp="${dest}.tmp.$$"; if command -v curl >/dev/null 2>&1; then curl -fL --retry 2 "${base_url}/${asset}" -o "$tmp" || { rm -f "$tmp"; exit 1; }; elif command -v wget >/dev/null 2>&1; then wget -O "$tmp" "${base_url}/${asset}" || { rm -f "$tmp"; exit 1; }; else echo "curl or wget is required" >&2; exit 1; fi; actual="$(sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp")"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then echo "Checksum verification failed: expected $expected, got $actual" >&2; rm -f "$tmp"; exit 2; fi; chmod +x "$tmp"; mv -f "$tmp" "$dest"', "tidal-bootstrap", root.stateBinaryPath, root.channel]
+    command: ["sh", "-c", 'set -eu; arch="$(uname -m)"; case "$arch" in x86_64|amd64) asset=tidal-daemon-x86_64; expected=37514db9fe80959eaa38fdbd06f6c6d2133411657325b10800298d82e01a2587 ;; aarch64|arm64) asset=tidal-daemon-aarch64; expected=7934a44cf66b210562a90e32ce016e4de6ae7776e20be9543ee95f5418b6fd4b ;; *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; esac; channel="${2:-stable}"; tag="v1.0.70"; check_mode="hardcoded"; if [ "$channel" = "dev" ]; then tag="dev"; check_mode="remote"; fi; base_url="https://github.com/Jeffe747/omarchy-tidal-music-player/releases/download/${tag}"; if [ "$check_mode" = "remote" ]; then if command -v curl >/dev/null 2>&1; then expected="$(curl -fsSL "${base_url}/SHA256SUMS" | grep -F " ${asset}" | cut -d" " -f1)"; elif command -v wget >/dev/null 2>&1; then expected="$(wget -qO- "${base_url}/SHA256SUMS" | grep -F " ${asset}" | cut -d" " -f1)"; fi; fi; dest="$1"; mkdir -p "$(dirname "$dest")"; tmp="${dest}.tmp.$$"; if command -v curl >/dev/null 2>&1; then curl -fL --retry 2 "${base_url}/${asset}" -o "$tmp" || { rm -f "$tmp"; exit 1; }; elif command -v wget >/dev/null 2>&1; then wget -O "$tmp" "${base_url}/${asset}" || { rm -f "$tmp"; exit 1; }; else echo "curl or wget is required" >&2; exit 1; fi; actual="$(sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp")"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then echo "Checksum verification failed: expected $expected, got $actual" >&2; rm -f "$tmp"; exit 2; fi; chmod +x "$tmp"; mv -f "$tmp" "$dest"', "tidal-bootstrap", root.stateBinaryPath, root.channel]
     running: false
     onExited: function(exitCode) {
       root.bootstrapping = false
@@ -396,7 +412,7 @@ Item {
         root.trackTitle = msg.track_title || ""
         root.trackArtist = msg.track_artist || ""
         root.trackAlbum = msg.track_album || ""
-        root.trackArtUrl = msg.track_art_url || ""
+        root.trackArtUrl = root.sanitizeLocalArtUrl(msg.track_art_url)
         root.trackDuration = msg.duration || 0.0
       }
       if (msg.position !== undefined && msg.position !== null) {
@@ -443,11 +459,25 @@ Item {
       root.searching = false
       root.searchCompleted = true
       root.searchError = ""
-      root.searchResults = msg.results || []
+      var results = msg.results || []
+      for (var s = 0; s < results.length && s < 20; s++) {
+        var r = results[s]
+        if (r && r.cover && !root.sanitizeLocalArtUrl(r.art_url)) {
+          root.requestArtwork(r.cover)
+        }
+      }
+      root.searchResults = results
       if (msg.request_id === root.explorationSearchRequestId && root.explorationView === "artist") {
         root.explorationLoading = false
         root.explorationTracks = root.searchResults
         root.explorationError = ""
+      }
+    } else if (msg.type === "artwork_loaded") {
+      var localPath = root.sanitizeLocalArtUrl(msg.path)
+      if (msg.cover && localPath) {
+        var nextCache = Object.assign({}, root.artworkCache)
+        nextCache[msg.cover] = localPath
+        root.artworkCache = nextCache
       }
     } else if (msg.type === "search_error") {
       if (msg.request_id !== root.searchRequestId) return
@@ -654,7 +684,11 @@ Item {
       if (trackData.title) root.trackTitle = trackData.title
       if (trackData.artist) root.trackArtist = trackData.artist
       if (trackData.album) root.trackAlbum = trackData.album
-      if (trackData.art_url) root.trackArtUrl = trackData.art_url
+      var candidateArt = root.sanitizeLocalArtUrl(trackData.art_url)
+      if (!candidateArt && trackData.cover && root.artworkCache[trackData.cover]) {
+        candidateArt = root.artworkCache[trackData.cover]
+      }
+      root.trackArtUrl = candidateArt
       if (trackData.duration) root.trackDuration = Math.max(0, Number(trackData.duration) || 0)
       root.trackPosition = 0
     }

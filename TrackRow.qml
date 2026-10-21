@@ -3,11 +3,23 @@ import qs.Commons
 
 Rectangle {
   id: root
+  property var service: null
   property var track: ({})
   property bool current: false
   property bool cursor: false
   property bool showArt: false
   property string durationText: ""
+  readonly property string localArtSource: {
+    if (!root.showArt || !root.track) return ""
+    var direct = root.track.art_url || ""
+    if (typeof direct === "string" && direct.indexOf("file://") === 0) return direct
+    var cov = root.track.cover || ""
+    if (cov && root.service && root.service.artworkCache && root.service.artworkCache[cov]) {
+      var cached = root.service.artworkCache[cov]
+      if (typeof cached === "string" && cached.indexOf("file://") === 0) return cached
+    }
+    return ""
+  }
   signal play()
   signal contextMenuRequested(var track, real mouseX, real mouseY)
   signal exploreArtist(var artistId, string artistName)
@@ -34,7 +46,7 @@ Rectangle {
       Image {
         id: artwork
         anchors.fill: parent
-        source: root.showArt ? (root.track.art_url || "") : ""
+        source: root.localArtSource
         sourceSize: Qt.size(width * Screen.devicePixelRatio, height * Screen.devicePixelRatio)
         fillMode: Image.PreserveAspectCrop
         asynchronous: true

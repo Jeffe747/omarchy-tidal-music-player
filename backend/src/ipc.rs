@@ -1,4 +1,4 @@
-use crate::api::{cover_url, Playlist, TrackItem};
+use crate::api::{cached_cover_file_url, Playlist, TrackItem};
 use crate::cast::CastDevice;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -29,7 +29,7 @@ impl<'a> From<&'a TrackItem> for FavoriteTrack<'a> {
             album: track.album_title(),
             duration: track.duration,
             cover: track.cover(),
-            art_url: cover_url(track.cover()),
+            art_url: cached_cover_file_url(track.cover()).unwrap_or_default(),
             artist_id: track
                 .artist
                 .as_ref()
@@ -113,6 +113,10 @@ pub enum PlayerMessage<'a> {
     CastError {
         error: &'a str,
     },
+    ArtworkLoaded {
+        cover: &'a str,
+        path: &'a str,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -144,6 +148,8 @@ pub struct IpcCommand {
     pub device_id: Option<String>,
     #[serde(default)]
     pub volume: Option<f64>,
+    #[serde(default)]
+    pub cover: Option<String>,
 }
 
 fn default_cast_state() -> String {
@@ -437,7 +443,7 @@ mod tests {
             value["tracks"][0],
             serde_json::json!({
                 "id":42,"title":"Song","artist":"Artist","album":"Album","duration":180,
-                "cover":"ab-cd","art_url":"https://resources.tidal.com/images/ab/cd/640x640.jpg","artist_id":0,"album_id":0
+                "cover":"ab-cd","art_url":"","artist_id":0,"album_id":0
             })
         );
         assert_eq!(

@@ -46,8 +46,9 @@ Column {
         id: cover
         objectName: "tidalNowPlayingArt"
         anchors.fill: parent
-        visible: !!root.service && !!root.service.trackArtUrl
-        source: root.service && root.service.trackArtUrl ? root.service.trackArtUrl : ""
+        readonly property string localArtSource: root.service && root.service.trackArtUrl && root.service.trackArtUrl.indexOf("file://") === 0 ? root.service.trackArtUrl : ""
+        visible: localArtSource !== ""
+        source: localArtSource
         sourceSize: Qt.size(width * Screen.devicePixelRatio, height * Screen.devicePixelRatio)
         fillMode: Image.PreserveAspectCrop
         asynchronous: true

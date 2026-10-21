@@ -351,10 +351,7 @@ mod tests {
         assert_eq!(status.track_title.as_deref(), Some("Song"));
         assert_eq!(status.track_artist.as_deref(), Some("Artist"));
         assert_eq!(status.track_album.as_deref(), Some("Album"));
-        assert_eq!(
-            status.track_art_url.as_deref(),
-            Some("https://resources.tidal.com/images/ab/cd/640x640.jpg")
-        );
+        assert_eq!(status.track_art_url.as_deref(), Some(""));
         assert_eq!(status.duration, Some(180.0));
         assert_eq!(status.position, Some(0.0));
         player.engine.toggle_pause().unwrap();
