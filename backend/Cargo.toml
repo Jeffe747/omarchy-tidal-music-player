@@ -1,6 +1,6 @@
 [package]
 name = "tidal-daemon"
-version = "1.0.67"
+version = "1.0.68"
 edition = "2021"
 authors = ["jaj"]
 description = "Lean background daemon for Omarchy Tidal music streaming and MPRIS integration"

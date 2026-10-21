@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -19,7 +19,42 @@ pub struct StreamProxy {
     port: u16,
     listener: TcpListener,
     streams: Arc<Mutex<HashMap<String, RegisteredStream>>>,
+    active_workers: Arc<AtomicUsize>,
     shutdown: Arc<AtomicBool>,
+}
+
+struct WorkerBudgetGuard {
+    counter: Arc<AtomicUsize>,
+}
+
+impl WorkerBudgetGuard {
+    fn try_acquire(counter: &Arc<AtomicUsize>) -> Option<Self> {
+        let mut current = counter.load(Ordering::Relaxed);
+        loop {
+            if current >= StreamProxy::MAX_ACTIVE_WORKERS {
+                return None;
+            }
+            match counter.compare_exchange_weak(
+                current,
+                current + 1,
+                Ordering::AcqRel,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => {
+                    return Some(Self {
+                        counter: Arc::clone(counter),
+                    })
+                }
+                Err(actual) => current = actual,
+            }
+        }
+    }
+}
+
+impl Drop for WorkerBudgetGuard {
+    fn drop(&mut self) {
+        self.counter.fetch_sub(1, Ordering::AcqRel);
+    }
 }
 
 fn generate_token() -> String {
@@ -70,6 +105,7 @@ fn is_authorized_peer(peer_addr: &SocketAddr, receiver_ip: &str) -> bool {
 impl StreamProxy {
     pub const DEFAULT_PORT: u16 = 36420;
     pub const PORT_RANGE_END: u16 = 36425;
+    pub const MAX_ACTIVE_WORKERS: usize = 4;
 
     pub fn new() -> Result<Self, String> {
         let mut listener = None;
@@ -97,12 +133,17 @@ impl StreamProxy {
             port,
             listener,
             streams: Arc::new(Mutex::new(HashMap::new())),
+            active_workers: Arc::new(AtomicUsize::new(0)),
             shutdown: Arc::new(AtomicBool::new(false)),
         })
     }
 
     pub fn port(&self) -> u16 {
         self.port
+    }
+
+    pub fn active_workers(&self) -> usize {
+        self.active_workers.load(Ordering::Acquire)
     }
 
     /// Registers a track stream with an unguessable capability token and binds access
@@ -159,10 +200,56 @@ impl StreamProxy {
                 && !crate::SHUTDOWN.load(Ordering::Relaxed)
             {
                 match self.listener.accept() {
-                    Ok((stream, _)) => {
+                    Ok((mut stream, peer_addr)) => {
+                        // 1. Pre-spawn receiver authorization gate: reject unauthenticated LAN peers
+                        // or idle-state connections before allocating any worker thread.
+                        let (has_streams, is_authorized) = match self.streams.lock() {
+                            Ok(guard) => {
+                                let has = !guard.is_empty();
+                                let auth = guard
+                                    .values()
+                                    .any(|s| is_authorized_peer(&peer_addr, &s.receiver_ip));
+                                (has, auth)
+                            }
+                            Err(_) => (false, false),
+                        };
+
+                        if !has_streams {
+                            let _ = stream.set_write_timeout(Some(Duration::from_millis(100)));
+                            let _ = stream.write_all(
+                                b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                            );
+                            continue;
+                        }
+
+                        if !is_authorized {
+                            crate::log::write(&format!(
+                                "StreamProxy: rejected unauthorized connection from {} before spawning worker",
+                                peer_addr.ip()
+                            ));
+                            let _ = stream.set_write_timeout(Some(Duration::from_millis(100)));
+                            let _ = stream.write_all(
+                                b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                            );
+                            continue;
+                        }
+
+                        // 2. Enforce strict concurrent worker budget before spawning a native thread.
+                        let worker_guard = match WorkerBudgetGuard::try_acquire(&self.active_workers) {
+                            Some(guard) => guard,
+                            None => {
+                                let _ = stream.set_write_timeout(Some(Duration::from_millis(100)));
+                                let _ = stream.write_all(
+                                    b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                                );
+                                continue;
+                            }
+                        };
+
                         let streams_ref = Arc::clone(&self.streams);
                         thread::spawn(move || {
-                            handle_http_client(stream, streams_ref);
+                            let _guard = worker_guard;
+                            handle_http_client(stream, peer_addr, streams_ref);
                         });
                     }
                     Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
@@ -233,15 +320,12 @@ pub fn check_cast_ports_blocked(proxy_port: u16) -> bool {
 
 fn handle_http_client(
     mut stream: TcpStream,
+    peer_addr: SocketAddr,
     streams: Arc<Mutex<HashMap<String, RegisteredStream>>>,
 ) {
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(5)));
+    let _ = stream.set_nonblocking(false);
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
     let _ = stream.set_write_timeout(Some(Duration::from_secs(30)));
-
-    let peer_addr = match stream.peer_addr() {
-        Ok(addr) => addr,
-        Err(_) => return,
-    };
 
     let mut buf = [0u8; 4096];
     let n = match stream.read(&mut buf) {
@@ -499,11 +583,11 @@ mod tests {
         assert!(String::from_utf8_lossy(&resp_wrong_id[..n_wrong]).contains("HTTP/1.1 404 Not Found"));
 
         // 3. Registering a new stream on track transition immediately revokes the previous token
-        let remote_stream_url = proxy.register_stream(
+        let _stream2_url = proxy.register_stream(
             99,
-            "http://example.com/audio.flac".into(),
+            "http://example.com/audio2.flac".into(),
             "audio/flac".into(),
-            "192.168.1.200",
+            "127.0.0.1",
         );
         let mut client_revoked = TcpStream::connect(("127.0.0.1", port)).unwrap();
         let req_revoked = format!("OPTIONS {stream1_path} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
@@ -513,6 +597,12 @@ mod tests {
         assert!(String::from_utf8_lossy(&resp_revoked[..n_revoked]).contains("HTTP/1.1 404 Not Found"));
 
         // 4. Register for a remote IP: connecting from 127.0.0.1 must be rejected with 403 Forbidden
+        let remote_stream_url = proxy.register_stream(
+            99,
+            "http://example.com/audio.flac".into(),
+            "audio/flac".into(),
+            "192.168.1.200",
+        );
         let remote_path = remote_stream_url.find("/stream/").map(|idx| &remote_stream_url[idx..]).unwrap();
         let mut client2 = TcpStream::connect(("127.0.0.1", port)).unwrap();
         let req2 = format!("GET {remote_path} HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
@@ -528,6 +618,62 @@ mod tests {
         let mut resp3 = [0u8; 512];
         let n3 = client3.read(&mut resp3).unwrap();
         assert!(String::from_utf8_lossy(&resp3[..n3]).contains("HTTP/1.1 404 Not Found"));
+
+        proxy.stop();
+    }
+
+    #[test]
+    fn test_stream_proxy_connection_budget() {
+        let proxy = Arc::new(StreamProxy::new().expect("Failed to create StreamProxy"));
+        let port = proxy.port();
+        Arc::clone(&proxy).start();
+
+        // Register a stream for localhost so connections pass the pre-spawn receiver IP check
+        proxy.register_stream(
+            1,
+            "http://example.com/audio.flac".into(),
+            "audio/flac".into(),
+            "127.0.0.1",
+        );
+
+        // Hold MAX_ACTIVE_WORKERS connections open without sending any bytes (blocking in worker read())
+        let mut held_clients = Vec::new();
+        for _ in 0..StreamProxy::MAX_ACTIVE_WORKERS {
+            let c = TcpStream::connect(("127.0.0.1", port)).unwrap();
+            held_clients.push(c);
+        }
+
+        // Wait briefly for the accept loop to spawn the 4 workers
+        for _ in 0..50 {
+            if proxy.active_workers() == StreamProxy::MAX_ACTIVE_WORKERS {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        assert_eq!(proxy.active_workers(), StreamProxy::MAX_ACTIVE_WORKERS);
+
+        // 5th connection must be rejected immediately in the accept loop with 503 Service Unavailable
+        let mut overflow_client = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        overflow_client
+            .set_read_timeout(Some(Duration::from_millis(500)))
+            .unwrap();
+        let mut resp = [0u8; 512];
+        let n = overflow_client.read(&mut resp).unwrap();
+        assert!(
+            String::from_utf8_lossy(&resp[..n]).contains("HTTP/1.1 503 Service Unavailable"),
+            "Expected 503 Service Unavailable when worker budget is exhausted"
+        );
+        assert_eq!(proxy.active_workers(), StreamProxy::MAX_ACTIVE_WORKERS);
+
+        // Drop held clients so workers exit and release their budget guards
+        drop(held_clients);
+        for _ in 0..50 {
+            if proxy.active_workers() == 0 {
+                break;
+            }
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(proxy.active_workers(), 0);
 
         proxy.stop();
     }
