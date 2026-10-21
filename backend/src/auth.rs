@@ -247,9 +247,9 @@ impl AuthManager {
             format!("Device authorization request failed: {e}")
         })?;
 
-        let mut info: DeviceAuthInfo = resp
-            .into_json()
-            .map_err(|e| format!("Failed to parse device auth response: {e}"))?;
+        let mut info: DeviceAuthInfo =
+            crate::api::read_bounded_json(resp, crate::api::MAX_JSON_RESPONSE_BYTES)
+                .map_err(|e| format!("Failed to parse device auth response: {e}"))?;
 
         // Ensure verificationUri has https:// scheme for xdg-open compatibility
         if !info.verification_uri.starts_with("http://")
@@ -281,7 +281,10 @@ impl AuthManager {
             .set("Content-Type", "application/x-www-form-urlencoded")
             .send_form(&form_data)
         {
-            Ok(resp) => match resp.into_json::<RawTokenResponse>() {
+            Ok(resp) => match crate::api::read_bounded_json::<RawTokenResponse>(
+                resp,
+                crate::api::MAX_JSON_RESPONSE_BYTES,
+            ) {
                 Ok(raw) => {
                     let now = current_unix_timestamp();
                     let expires_at = raw.expires_in.map(|exp| now + exp);
@@ -308,7 +311,10 @@ impl AuthManager {
                 crate::log::write(&format!(
                     "API POST /v1/oauth2/token failed: HTTP {status_code}"
                 ));
-                if let Ok(err_resp) = resp.into_json::<OAuthErrorResponse>() {
+                if let Ok(err_resp) = crate::api::read_bounded_json::<OAuthErrorResponse>(
+                    resp,
+                    crate::api::MAX_JSON_RESPONSE_BYTES,
+                ) {
                     let err_type = err_resp.error.as_deref().unwrap_or("");
                     match err_type {
                         "authorization_pending" => PollResult::Pending,
@@ -387,9 +393,9 @@ impl AuthManager {
                 format!("Token refresh request failed: {e}")
             })?;
 
-        let raw: RawTokenResponse = resp
-            .into_json()
-            .map_err(|e| format!("Failed to parse refresh token response: {e}"))?;
+        let raw: RawTokenResponse =
+            crate::api::read_bounded_json(resp, crate::api::MAX_JSON_RESPONSE_BYTES)
+                .map_err(|e| format!("Failed to parse refresh token response: {e}"))?;
 
         let now = current_unix_timestamp();
         let expires_at = raw.expires_in.map(|exp| now + exp);

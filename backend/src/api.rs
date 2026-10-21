@@ -1,6 +1,36 @@
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use std::io::Read;
 
 const API_BASE: &str = "https://api.tidal.com/v1";
+pub(crate) const MAX_JSON_RESPONSE_BYTES: u64 = 1024 * 1024;
+const MAX_API_TEXT_RESPONSE_BYTES: u64 = 2 * 1024 * 1024;
+const MAX_ERROR_BODY_BYTES: u64 = 64 * 1024;
+
+pub(crate) fn read_bounded_string(
+    response: ureq::Response,
+    max_bytes: u64,
+) -> Result<String, String> {
+    let mut reader = response.into_reader().take(max_bytes + 1);
+    let mut buf = Vec::new();
+    reader
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("Failed to read HTTP response body: {e}"))?;
+    if buf.len() as u64 > max_bytes {
+        return Err(format!(
+            "HTTP response body exceeds {max_bytes}-byte safety limit"
+        ));
+    }
+    String::from_utf8(buf).map_err(|e| format!("Invalid UTF-8 in HTTP response body: {e}"))
+}
+
+pub(crate) fn read_bounded_json<T: DeserializeOwned>(
+    response: ureq::Response,
+    max_bytes: u64,
+) -> Result<T, String> {
+    let body = read_bounded_string(response, max_bytes)?;
+    serde_json::from_str(&body).map_err(|e| format!("{e}"))
+}
 
 struct ApiFailure {
     status: Option<u16>,
@@ -393,15 +423,17 @@ impl TidalApiClient {
             .call()
             .map_err(|error| {
                 let mut failure = match error {
-                    ureq::Error::Status(status, response) => match response.into_string() {
-                        Ok(body) => ApiFailure::from_body(status, &body, &self.access_token),
-                        Err(_) => ApiFailure {
-                            status: Some(status),
-                            quality_related: false,
-                            retryable: matches!(status, 408 | 429 | 500..=599),
-                            message: format!("HTTP {status}; failed to read error body"),
-                        },
-                    },
+                    ureq::Error::Status(status, response) => {
+                        match read_bounded_string(response, MAX_ERROR_BODY_BYTES) {
+                            Ok(body) => ApiFailure::from_body(status, &body, &self.access_token),
+                            Err(_) => ApiFailure {
+                                status: Some(status),
+                                quality_related: false,
+                                retryable: matches!(status, 408 | 429 | 500..=599),
+                                message: format!("HTTP {status}; failed to read error body"),
+                            },
+                        }
+                    }
                     ureq::Error::Transport(error) => ApiFailure {
                         status: None,
                         quality_related: false,
@@ -459,8 +491,7 @@ impl TidalApiClient {
                 ureq::get(&format!("{API_BASE}/sessions"))
             })
             .map_err(|error| format!("Session country request failed: {}", error.message))?;
-        let value: serde_json::Value = response
-            .into_json()
+        let value: serde_json::Value = read_bounded_json(response, MAX_JSON_RESPONSE_BYTES)
             .map_err(|e| format!("Failed to parse session country: {e}"))?;
         parse_session_country(&value)
     }
@@ -473,7 +504,7 @@ impl TidalApiClient {
     ) -> Result<(Vec<TrackItem>, usize, Option<u64>), String> {
         let url = format!("{API_BASE}/users/{user_id}/favorites/tracks");
         let path = format!("/v1/users/{user_id}/favorites/tracks");
-        let json = self
+        let response = self
             .request_with_retry(&path, 3, || {
                 ureq::get(&url)
                     .query("countryCode", &self.country_code)
@@ -482,8 +513,8 @@ impl TidalApiClient {
                     .query("order", "DATE")
                     .query("orderDirection", "DESC")
             })
-            .map_err(|e| format!("Favorites request failed: {}", e.ipc_message()))?
-            .into_string()
+            .map_err(|e| format!("Favorites request failed: {}", e.ipc_message()))?;
+        let json = read_bounded_string(response, MAX_API_TEXT_RESPONSE_BYTES)
             .map_err(|e| format!("Failed to read favorites: {e}"))?;
         parse_favorites_page(&json)
     }
@@ -509,25 +540,26 @@ impl TidalApiClient {
     pub fn get_track(&self, track_id: u64) -> Result<TrackItem, String> {
         let url = format!("{API_BASE}/tracks/{track_id}");
         let path = format!("/v1/tracks/{track_id}");
-        self.request_with_retry(&path, 3, || {
-            ureq::get(&url).query("countryCode", &self.country_code)
-        })
-        .map_err(|e| format!("Track request failed: {}", e.ipc_message()))?
-        .into_json()
-        .map_err(|e| format!("Failed to parse track: {e}"))
+        let response = self
+            .request_with_retry(&path, 3, || {
+                ureq::get(&url).query("countryCode", &self.country_code)
+            })
+            .map_err(|e| format!("Track request failed: {}", e.ipc_message()))?;
+        read_bounded_json(response, MAX_JSON_RESPONSE_BYTES)
+            .map_err(|e| format!("Failed to parse track: {e}"))
     }
 
     pub fn get_playlists(&self, user_id: u64) -> Result<Vec<Playlist>, String> {
         let url = format!("{API_BASE}/users/{user_id}/playlists");
-        let body = self
+        let response = self
             .request_with_retry("/v1/users/{user_id}/playlists", 3, || {
                 ureq::get(&url)
                     .query("countryCode", &self.country_code)
                     .query("limit", "50")
                     .query("offset", "0")
             })
-            .map_err(|e| format!("Playlists request failed: {}", e.ipc_message()))?
-            .into_string()
+            .map_err(|e| format!("Playlists request failed: {}", e.ipc_message()))?;
+        let body = read_bounded_string(response, MAX_API_TEXT_RESPONSE_BYTES)
             .map_err(|e| format!("Failed to read playlists: {e}"))?;
         parse_playlists(&body)
     }
@@ -545,10 +577,10 @@ impl TidalApiClient {
         if let Some(description) = description {
             request = request.query("description", description);
         }
-        let body = self
+        let response = self
             .request(request, &format!("/v1/users/{user_id}/playlists"))
-            .map_err(|e| format!("Create playlist request failed: {}", e.ipc_message()))?
-            .into_string()
+            .map_err(|e| format!("Create playlist request failed: {}", e.ipc_message()))?;
+        let body = read_bounded_string(response, MAX_API_TEXT_RESPONSE_BYTES)
             .map_err(|e| format!("Failed to read created playlist: {e}"))?;
         parse_created_playlist(&body)
     }
@@ -556,15 +588,15 @@ impl TidalApiClient {
     pub fn get_playlist_tracks(&self, uuid: &str) -> Result<Vec<TrackItem>, String> {
         let url = format!("{API_BASE}/playlists/{}/tracks", encode_query(uuid));
         let path = format!("/v1/playlists/{uuid}/tracks");
-        let body = self
+        let response = self
             .request_with_retry(&path, 3, || {
                 ureq::get(&url)
                     .query("countryCode", &self.country_code)
                     .query("limit", "100")
                     .query("offset", "0")
             })
-            .map_err(|e| format!("Playlist tracks request failed: {}", e.ipc_message()))?
-            .into_string()
+            .map_err(|e| format!("Playlist tracks request failed: {}", e.ipc_message()))?;
+        let body = read_bounded_string(response, MAX_API_TEXT_RESPONSE_BYTES)
             .map_err(|e| format!("Failed to read playlist tracks: {e}"))?;
         parse_playlist_tracks(&body)
     }
@@ -605,8 +637,7 @@ impl TidalApiClient {
                     .query("offset", "0")
             })
             .map_err(|e| format!("Album tracks request failed: {}", e.ipc_message()))?;
-        let json = response
-            .into_string()
+        let json = read_bounded_string(response, MAX_API_TEXT_RESPONSE_BYTES)
             .map_err(|e| format!("Failed to read album tracks: {e}"))?;
         parse_playlist_tracks(&json)
     }
@@ -621,8 +652,7 @@ impl TidalApiClient {
                     .query("limit", "100")
             })
             .map_err(|e| format!("Artist tracks request failed: {}", e.ipc_message()))?;
-        let json = response
-            .into_string()
+        let json = read_bounded_string(response, MAX_API_TEXT_RESPONSE_BYTES)
             .map_err(|e| format!("Failed to read artist tracks: {e}"))?;
         parse_playlist_tracks(&json)
     }
@@ -638,8 +668,7 @@ impl TidalApiClient {
                     .query("offset", "0")
             })
             .map_err(|e| format!("Track radio request failed: {}", e.ipc_message()))?;
-        let body = response
-            .into_string()
+        let body = read_bounded_string(response, MAX_API_TEXT_RESPONSE_BYTES)
             .map_err(|e| format!("Track radio request failed: {e}"))?;
         parse_playlist_tracks(&body)
             .map_err(|e| format!("Track radio request failed: {e}"))
@@ -662,7 +691,7 @@ impl TidalApiClient {
                     .query("immersiveAudio", "false")
                     .query("countryCode", &self.country_code)
             })?;
-            response.into_json().map_err(|e| ApiFailure {
+            read_bounded_json(response, MAX_JSON_RESPONSE_BYTES).map_err(|e| ApiFailure {
                 status: None,
                 quality_related: false,
                 retryable: false,
@@ -680,8 +709,7 @@ impl TidalApiClient {
         let resp = self
             .request_with_retry("/v1/search", 3, || ureq::get(&url))
             .map_err(|e| format!("Search request failed: {}", e.ipc_message()))?;
-        let json = resp
-            .into_string()
+        let json = read_bounded_string(resp, MAX_API_TEXT_RESPONSE_BYTES)
             .map_err(|e| format!("Failed to read search response: {e}"))?;
         parse_search_results(&json)
     }
@@ -1277,6 +1305,35 @@ mod tests {
             )
             .unwrap(),
             "https://example.com/track.flac"
+        );
+    }
+
+    #[test]
+    fn test_read_bounded_json_enforces_byte_limit() {
+        use std::io::{BufRead, BufReader, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            while reader.read_line(&mut line).unwrap_or(0) > 0 && line != "\r\n" {
+                line.clear();
+            }
+            let payload = format!("{{\"data\":\"{}\"}}", "x".repeat(2048));
+            let _ = write!(
+                stream,
+                "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}",
+                payload.len()
+            );
+        });
+
+        let response = ureq::get(&format!("http://{addr}/oversized")).call().unwrap();
+        let err = read_bounded_json::<serde_json::Value>(response, 512).unwrap_err();
+        server.join().unwrap();
+        assert!(
+            err.contains("exceeds 512-byte safety limit"),
+            "Unexpected error: {err}"
         );
     }
 }
