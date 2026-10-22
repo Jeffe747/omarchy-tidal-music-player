@@ -6,7 +6,7 @@ Item {
   id: root
 
   property var shell: null
-  readonly property string pluginVersion: "1.0.72"
+  readonly property string pluginVersion: "1.0.73"
   property string daemonVersion: ""
   readonly property string socketPath: Quickshell.env("XDG_RUNTIME_DIR") + "/tidal.sock"
   readonly property string sessionPath: Quickshell.env("TIDAL_SESSION_PATH") || (Quickshell.env("HOME") + "/.local/state/tidal/session.json")
@@ -176,7 +176,7 @@ Item {
 
   Process {
     id: bootstrapProc
-    command: ["sh", "-c", 'set -eu; arch="$(uname -m)"; case "$arch" in x86_64|amd64) asset=tidal-daemon-x86_64; expected=cddfe4f641a9cdf6ff5bbc650fbf36d47d07174f97cce09816011833c2018b34 ;; aarch64|arm64) asset=tidal-daemon-aarch64; expected=11f064401c7fed48f9ee6fedc20d584e46c1d985a9965fe2265df885b7ddb4ab ;; *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; esac; tag="v1.0.72"; base_url="https://github.com/Jeffe747/omarchy-tidal-music-player/releases/download/${tag}"; dest="$1"; mkdir -p "$(dirname "$dest")"; tmp="${dest}.tmp.$$"; if command -v curl >/dev/null 2>&1; then curl -fL --retry 2 "${base_url}/${asset}" -o "$tmp" || { rm -f "$tmp"; exit 1; }; elif command -v wget >/dev/null 2>&1; then wget -O "$tmp" "${base_url}/${asset}" || { rm -f "$tmp"; exit 1; }; else echo "curl or wget is required" >&2; exit 1; fi; actual="$(sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp")"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then echo "Checksum verification failed: expected $expected, got $actual" >&2; rm -f "$tmp"; exit 2; fi; chmod +x "$tmp"; mv -f "$tmp" "$dest"', "tidal-bootstrap", root.stateBinaryPath]
+    command: ["sh", "-c", 'set -eu; arch="$(uname -m)"; case "$arch" in x86_64|amd64) asset=tidal-daemon-x86_64; expected=cddfe4f641a9cdf6ff5bbc650fbf36d47d07174f97cce09816011833c2018b34 ;; aarch64|arm64) asset=tidal-daemon-aarch64; expected=11f064401c7fed48f9ee6fedc20d584e46c1d985a9965fe2265df885b7ddb4ab ;; *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; esac; tag="v1.0.73"; base_url="https://github.com/Jeffe747/omarchy-tidal-music-player/releases/download/${tag}"; dest="$1"; mkdir -p "$(dirname "$dest")"; tmp="${dest}.tmp.$$"; if command -v curl >/dev/null 2>&1; then curl -fL --retry 2 "${base_url}/${asset}" -o "$tmp" || { rm -f "$tmp"; exit 1; }; elif command -v wget >/dev/null 2>&1; then wget -O "$tmp" "${base_url}/${asset}" || { rm -f "$tmp"; exit 1; }; else echo "curl or wget is required" >&2; exit 1; fi; actual="$(sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp")"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then echo "Checksum verification failed: expected $expected, got $actual" >&2; rm -f "$tmp"; exit 2; fi; chmod +x "$tmp"; mv -f "$tmp" "$dest"', "tidal-bootstrap", root.stateBinaryPath]
     running: false
     onExited: function(exitCode) {
       root.bootstrapping = false

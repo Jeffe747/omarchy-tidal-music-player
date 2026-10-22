@@ -455,6 +455,74 @@ mod tests {
         assert!(url.is_empty() || url.starts_with("file://"));
     }
     #[test]
+    fn metadata_uses_local_artwork_after_cache_fill() {
+        const CHILD: &str = "TIDAL_MPRIS_ART_TEST_CHILD";
+        const COVER: &str = "review-art-test";
+        if std::env::var_os(CHILD).is_some() {
+            let dir = crate::api::cover_cache_dir();
+            let t: TrackItem = serde_json::from_str(&format!(
+                r#"{{"id":42,"title":"Song","duration":180,"album":{{"cover":"{COVER}"}}}}"#
+            ))
+            .expect("valid test track");
+            let before = track_metadata(Some(&t));
+            assert_eq!(art_url_from_metadata(&before), "");
+            std::fs::write(dir.join(format!("{COVER}.jpg")), [0xff, 0xd8, 0xff])
+                .expect("cache artwork");
+            let after = track_metadata(Some(&t));
+            assert_eq!(
+                art_url_from_metadata(&after),
+                format!("file://{}/{}.jpg", dir.display(), COVER)
+            );
+            return;
+        }
+
+        let dir = std::env::temp_dir().join(format!(
+            "tidal-mpris-art-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir(&dir).expect("create isolated cover cache");
+        let output = std::process::Command::new(std::env::current_exe().expect("test executable"))
+            .args([
+                "--exact",
+                "mpris::tests::metadata_uses_local_artwork_after_cache_fill",
+            ])
+            .env(CHILD, "1")
+            .env("TIDAL_ART_CACHE_DIR", &dir)
+            .output()
+            .expect("run isolated MPRIS cache test");
+        let artwork = dir.join(format!("{COVER}.jpg"));
+        if artwork.exists() {
+            std::fs::remove_file(artwork).expect("remove test artwork");
+        }
+        std::fs::remove_dir(&dir).expect("remove isolated cover cache");
+        assert!(
+            output.status.success(),
+            "MPRIS cache fixture failed:\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    fn art_url_from_metadata(metadata: &MessageItem) -> String {
+        let MessageItem::Dict(entries) = metadata else {
+            panic!("metadata must be a dictionary")
+        };
+        let (_, MessageItem::Variant(value)) = entries
+            .iter()
+            .find(|(key, _)| matches!(key, MessageItem::Str(name) if name == "xesam:artUrl"))
+            .expect("artwork metadata")
+        else {
+            panic!("artwork must be a variant")
+        };
+        let MessageItem::Str(url) = value.as_ref() else {
+            panic!("artwork must be a string")
+        };
+        url.clone()
+    }
+    #[test]
     fn seek_message_arguments_parse_with_expected_dbus_types() {
         assert_eq!(
             parse_seek_args("Seek", &[MessageItem::Int64(-5)]),
