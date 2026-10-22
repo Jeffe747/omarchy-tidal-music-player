@@ -1,4 +1,8 @@
-use crate::{api::TrackItem, ipc::IpcServer, AuthManager, Player, SHUTDOWN};
+use crate::{
+    api::{cached_cover_file_url, TrackItem},
+    ipc::IpcServer,
+    AuthManager, Player, SHUTDOWN,
+};
 use dbus::{
     arg::messageitem::MessageItem,
     blocking::Connection,
@@ -55,7 +59,7 @@ fn track_metadata(track: Option<&TrackItem>) -> MessageItem {
         ("xesam:album", MessageItem::Str(t.album_title().to_string())),
         (
             "xesam:artUrl",
-            MessageItem::Str(crate::api::cover_url(t.cover())),
+            MessageItem::Str(cached_cover_file_url(t.cover()).unwrap_or_default()),
         ),
         (
             "mpris:length",
@@ -392,7 +396,15 @@ pub fn start(auth: Arc<AuthManager>, player: Arc<Mutex<Player>>, ipc: IpcServer)
                     .map(|(_, v)| format!("{v:?}"))
                     .unwrap_or_default();
                 let track = p.current.as_ref().map(|t| t.id).unwrap_or(0);
-                let state = format!("{status}:{track}:{}:{}", p.quality, p.preferred_quality);
+                let art_url = p
+                    .current
+                    .as_ref()
+                    .and_then(|t| cached_cover_file_url(t.cover()))
+                    .unwrap_or_default();
+                let state = format!(
+                    "{status}:{track}:{}:{}:{art_url}",
+                    p.quality, p.preferred_quality
+                );
                 if state != previous {
                     send_changed(
                         &conn,
@@ -429,6 +441,18 @@ mod tests {
             panic!("metadata must be a dictionary")
         };
         assert_eq!(entries.len(), 6);
+        let art = entries
+            .iter()
+            .find(|(key, _)| matches!(key, MessageItem::Str(name) if name == "xesam:artUrl"))
+            .map(|(_, value)| value)
+            .expect("MPRIS artwork metadata must exist");
+        let MessageItem::Variant(art) = art else {
+            panic!("MPRIS artwork metadata must be a variant")
+        };
+        let MessageItem::Str(url) = art.as_ref() else {
+            panic!("MPRIS artwork metadata must be a string")
+        };
+        assert!(url.is_empty() || url.starts_with("file://"));
     }
     #[test]
     fn seek_message_arguments_parse_with_expected_dbus_types() {

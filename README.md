@@ -20,6 +20,7 @@ The dedicated Tidal music player for the [Omarchy](https://omarchy.org/) Linux d
 - **Library and catalog discovery:** Browse favorites and playlists, create playlists inline, search the catalog, explore artists and albums, and start Song Radio.
 - **Track context actions:** Toggle favorites, add tracks to playlists, or open Song Radio for a track.
 - **Desktop media control:** Integrates with MPRIS2 and `playerctl`, with PipeWire volume control and keyboard media keys.
+- **Google Cast:** Streams audio to a selected receiver on the local network. Cast discovery and receiver TLS identity are not authenticated; only use this feature on trusted networks with receivers you recognize. A device spoofing a receiver on the same network could receive audio if selected.
 
 ---
 

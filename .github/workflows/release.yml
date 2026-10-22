@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -55,9 +56,11 @@ jobs:
           if-no-files-found: error
 
   release:
+    if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: dist
@@ -65,6 +68,14 @@ jobs:
       - name: Create checksums
         working-directory: dist
         run: sha256sum tidal-daemon-x86_64 tidal-daemon-aarch64 > SHA256SUMS
+      - name: Verify committed release assets and runtime pins
+        run: |
+          test "v$(jq -r .version manifest.json)" = "$GITHUB_REF_NAME"
+          diff -u SHA256SUMS dist/SHA256SUMS
+          cmp bin/tidal-daemon dist/tidal-daemon-x86_64
+          while read -r digest asset; do
+            test "$(grep -Foc "$digest" Service.qml)" -eq 2
+          done < SHA256SUMS
       - uses: softprops/action-gh-release@v2
         with:
           files: |
