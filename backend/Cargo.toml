@@ -15,6 +15,9 @@ dbus = { version = "0.9.12", default-features = false }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
 rustls-pki-types = "1.0"
 
+[dev-dependencies]
+ring = "0.17.14"
+
 [profile.release]
 opt-level = "z"
 lto = true

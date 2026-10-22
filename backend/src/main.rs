@@ -1218,6 +1218,44 @@ fn start_position_ticker(auth: Arc<AuthManager>, player: Arc<Mutex<Player>>, ipc
     });
 }
 
+#[cfg(test)]
+fn self_test_crypto() -> Result<(), String> {
+    use ring::signature::KeyPair;
+
+    let rng = ring::rand::SystemRandom::new();
+    let key = ring::signature::Ed25519KeyPair::generate_pkcs8(&rng)
+        .map_err(|_| "Ed25519 key generation failed")?;
+    let pair = ring::signature::Ed25519KeyPair::from_pkcs8(key.as_ref())
+        .map_err(|_| "Ed25519 key loading failed")?;
+    let message = b"tidal-crypto-compatibility";
+    let signature = pair.sign(message);
+    ring::signature::UnparsedPublicKey::new(&ring::signature::ED25519, pair.public_key().as_ref())
+        .verify(message, signature.as_ref())
+        .map_err(|_| "Ed25519 verification failed")?;
+
+    let group = rustls::crypto::ring::default_provider()
+        .kx_groups
+        .into_iter()
+        .find(|group| group.name() == rustls::NamedGroup::X25519)
+        .ok_or("X25519 key exchange is unavailable")?;
+    let first = group.start().map_err(|e| e.to_string())?;
+    let second = group.start().map_err(|e| e.to_string())?;
+    let first_public = first.pub_key().to_vec();
+    let second_public = second.pub_key().to_vec();
+    let first_secret = first.complete(&second_public).map_err(|e| e.to_string())?;
+    let second_secret = second.complete(&first_public).map_err(|e| e.to_string())?;
+    if first_secret.secret_bytes() != second_secret.secret_bytes() {
+        return Err("X25519 shared secrets disagree".into());
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+#[test]
+fn test_crypto_compatibility() {
+    self_test_crypto().expect("crypto provider must work on the host CPU");
+}
+
 fn main() {
     let args: Vec<String> = std::env::args().collect();
     let auth_manager = Arc::new(AuthManager::new(None));

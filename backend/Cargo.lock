@@ -405,6 +405,7 @@ dependencies = [
  "base64",
  "dbus",
  "libc",
+ "ring",
  "rustls",
  "rustls-pki-types",
  "serde",

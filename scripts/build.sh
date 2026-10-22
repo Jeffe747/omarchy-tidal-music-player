@@ -17,6 +17,10 @@ if ! command -v cargo >/dev/null 2>&1; then
 fi
 
 cd "$BACKEND_DIR"
+if [[ "$(uname -m)" == "x86_64" ]]; then
+  export CFLAGS_x86_64_unknown_linux_gnu="-march=x86-64 -mtune=generic"
+  export RUSTFLAGS="-C target-cpu=x86-64"
+fi
 cargo build --release
 
 TARGET_BIN="$BACKEND_DIR/target/release/tidal-daemon"

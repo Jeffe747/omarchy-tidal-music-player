@@ -36,6 +36,9 @@ jobs:
       - name: Build x86_64 release
         if: matrix.target == 'x86_64-unknown-linux-gnu'
         working-directory: backend
+        env:
+          CFLAGS_x86_64_unknown_linux_gnu: -march=x86-64 -mtune=generic
+          RUSTFLAGS: -C target-cpu=x86-64
         run: cargo build --release --target x86_64-unknown-linux-gnu --locked
       - name: Build aarch64 release
         if: matrix.target == 'aarch64-unknown-linux-gnu'
@@ -49,6 +52,17 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y binutils-aarch64-linux-gnu && aarch64-linux-gnu-strip backend/target/aarch64-unknown-linux-gnu/release/tidal-daemon
       - name: Stage release binary
         run: install -Dm755 backend/target/${{ matrix.target }}/release/tidal-daemon "dist/${{ matrix.artifact_name }}"
+      - name: Check Ivy Bridge crypto compatibility
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        working-directory: backend
+        env:
+          CFLAGS_x86_64_unknown_linux_gnu: -march=x86-64 -mtune=generic
+          RUSTFLAGS: -C target-cpu=x86-64
+        run: |
+          sudo apt-get update && sudo apt-get install -y qemu-user
+          test_binary="$(cargo test --release --target x86_64-unknown-linux-gnu --locked --no-run --message-format=json | jq -r 'select(.profile.test == true and .target.name == "tidal-daemon") | .executable' | tail -n 1)"
+          test -n "$test_binary"
+          qemu-x86_64 -cpu IvyBridge "$test_binary" test_crypto_compatibility --exact
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
