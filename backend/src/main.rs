@@ -74,21 +74,24 @@ pub(crate) fn spawn_artwork_fetch(
     };
     thread::spawn(move || {
         let _guard = guard;
-        if let Ok(local_url) = fetch_and_cache_cover(&cover) {
-            ipc.broadcast(&PlayerMessage::ArtworkLoaded {
-                cover: &cover,
-                path: &local_url,
-            });
-            if let Some((auth, player)) = status_ctx {
-                let is_current = player
-                    .lock()
-                    .ok()
-                    .and_then(|p| p.current.as_ref().map(|t| t.cover() == cover))
-                    .unwrap_or(false);
-                if is_current {
-                    broadcast_status(&auth, &player, &ipc);
+        match fetch_and_cache_cover(&cover) {
+            Ok(local_url) => {
+                ipc.broadcast(&PlayerMessage::ArtworkLoaded {
+                    cover: &cover,
+                    path: &local_url,
+                });
+                if let Some((auth, player)) = status_ctx {
+                    let is_current = player
+                        .lock()
+                        .ok()
+                        .and_then(|p| p.current.as_ref().map(|t| t.cover() == cover))
+                        .unwrap_or(false);
+                    if is_current {
+                        broadcast_status(&auth, &player, &ipc);
+                    }
                 }
             }
+            Err(error) => log::write(&format!("Artwork cache rejected cover: {error}")),
         }
     });
 }

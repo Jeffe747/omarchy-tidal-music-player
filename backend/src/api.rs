@@ -355,14 +355,29 @@ pub fn cover_cache_dir() -> std::path::PathBuf {
 }
 
 pub fn cached_cover_file_url(hash: &str) -> Option<String> {
+    cached_cover_file_url_in(&cover_cache_dir(), hash)
+}
+
+fn cached_cover_file_url_in(dir: &std::path::Path, hash: &str) -> Option<String> {
     if !is_valid_cover_id(hash) {
         return None;
     }
-    let path = cover_cache_dir().join(format!("{hash}.jpg"));
-    if path.is_file() {
-        Some(format!("file://{}", path.display()))
+    let path = dir.join(format!("{hash}.jpg"));
+    let mut file = std::fs::File::open(&path).ok()?;
+    let metadata = file.metadata().ok()?;
+    if !metadata.is_file() || !(3..=MAX_ARTWORK_BYTES).contains(&metadata.len()) {
+        return None;
+    }
+    let mut header = [0u8; 3];
+    file.read_exact(&mut header).ok()?;
+    (header == [0xFF, 0xD8, 0xFF]).then(|| format!("file://{}", path.display()))
+}
+
+fn validate_cover_bytes(bytes: &[u8]) -> Result<(), String> {
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        Ok(())
     } else {
-        None
+        Err("Artwork response is not a JPEG image".to_string())
     }
 }
 
@@ -387,12 +402,7 @@ pub fn fetch_and_cache_cover(hash: &str) -> Result<String, String> {
         .call()
         .map_err(|e| format!("Artwork download failed: {e}"))?;
     let bytes = read_bounded_bytes(response, MAX_ARTWORK_BYTES)?;
-    // Verify JPEG (FF D8 FF) or PNG (89 50 4E 47) magic header
-    let is_valid_image = (bytes.len() >= 3 && bytes[0..3] == [0xFF, 0xD8, 0xFF])
-        || (bytes.len() >= 4 && bytes[0..4] == [0x89, 0x50, 0x4E, 0x47]);
-    if !is_valid_image {
-        return Err("Artwork response is not a valid JPEG or PNG image".to_string());
-    }
+    validate_cover_bytes(&bytes)?;
 
     let dest = dir.join(format!("{hash}.jpg"));
     let tmp = dir.join(format!("{hash}.jpg.tmp.{}", std::process::id()));
@@ -1367,6 +1377,39 @@ mod tests {
             "https://resources.tidal.com/images/ab/cd/ef/640x640.jpg"
         );
         assert_eq!(cover_url(""), "");
+    }
+
+    #[test]
+    fn test_artwork_rejects_png_downloads_and_cached_png() {
+        let png = b"\x89PNG\r\n\x1a\n";
+        assert!(validate_cover_bytes(png).is_err());
+        assert!(validate_cover_bytes(&[0xff, 0xd8, 0xff]).is_ok());
+
+        let dir = std::env::temp_dir().join(format!(
+            "tidal-cover-validation-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("system clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir(&dir).expect("create isolated cover cache");
+        let cover = dir.join("review-cover.jpg");
+        std::fs::write(&cover, png).expect("write previously cached PNG");
+        assert_eq!(cached_cover_file_url_in(&dir, "review-cover"), None);
+
+        let mut oversized_jpeg = vec![0u8; MAX_ARTWORK_BYTES as usize + 1];
+        oversized_jpeg[..3].copy_from_slice(&[0xff, 0xd8, 0xff]);
+        std::fs::write(&cover, oversized_jpeg).expect("write oversized cached image");
+        assert_eq!(cached_cover_file_url_in(&dir, "review-cover"), None);
+
+        std::fs::write(&cover, [0xff, 0xd8, 0xff]).expect("write bounded JPEG");
+        assert_eq!(
+            cached_cover_file_url_in(&dir, "review-cover"),
+            Some(format!("file://{}", cover.display()))
+        );
+        std::fs::remove_file(&cover).expect("remove test cover");
+        std::fs::remove_dir(&dir).expect("remove test cache");
     }
 
     #[test]
