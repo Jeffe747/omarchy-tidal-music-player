@@ -38,7 +38,7 @@ jobs:
         working-directory: backend
         env:
           CFLAGS_x86_64_unknown_linux_gnu: -march=x86-64 -mtune=generic
-          RUSTFLAGS: -C target-cpu=x86-64
+          RUSTFLAGS: -C target-cpu=x86-64 -C link-arg=-Wl,-z,pack-relative-relocs
         run: cargo build --release --target x86_64-unknown-linux-gnu --locked
       - name: Build aarch64 release
         if: matrix.target == 'aarch64-unknown-linux-gnu'
@@ -62,7 +62,7 @@ jobs:
         working-directory: backend
         env:
           CFLAGS_x86_64_unknown_linux_gnu: -march=x86-64 -mtune=generic
-          RUSTFLAGS: -C target-cpu=x86-64
+          RUSTFLAGS: -C target-cpu=x86-64 -C link-arg=-Wl,-z,pack-relative-relocs
         run: |
           sudo apt-get update && sudo apt-get install -y qemu-user
           test_binary="$(cargo test --release --target x86_64-unknown-linux-gnu --locked --no-run --message-format=json | jq -r 'select(.profile.test == true and .target.name == "tidal-daemon") | .executable' | tail -n 1)"

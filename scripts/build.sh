@@ -19,7 +19,7 @@ fi
 cd "$BACKEND_DIR"
 if [[ "$(uname -m)" == "x86_64" ]]; then
   export CFLAGS_x86_64_unknown_linux_gnu="-march=x86-64 -mtune=generic"
-  export RUSTFLAGS="-C target-cpu=x86-64"
+  export RUSTFLAGS="-C target-cpu=x86-64 -C link-arg=-Wl,-z,pack-relative-relocs"
 fi
 cargo build --release
 
