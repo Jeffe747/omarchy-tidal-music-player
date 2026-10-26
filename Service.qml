@@ -358,7 +358,7 @@ Item {
           var parsed = JSON.parse(raw)
           if (parsed) {
             if (parsed.player_style) {
-              var valid = ["standard", "turntable", "showcase", "zen"]
+              var valid = ["standard", "turntable", "showcase"]
               if (valid.indexOf(parsed.player_style) !== -1) {
                 root.playerStyle = parsed.player_style
               }
@@ -404,7 +404,7 @@ Item {
   }
 
   function setPlayerStyle(style) {
-    var valid = ["standard", "turntable", "showcase", "zen"]
+    var valid = ["standard", "turntable", "showcase"]
     if (valid.indexOf(style) === -1) return
     root.playerStyle = style
     scheduleUiSettingsSave()

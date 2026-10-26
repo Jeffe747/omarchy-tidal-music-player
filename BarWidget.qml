@@ -519,8 +519,7 @@ Panel {
             options: [
               { value: "standard", label: "Standard (Classic)" },
               { value: "turntable", label: "Audiophile Turntable" },
-              { value: "showcase", label: "Showcase" },
-              { value: "zen", label: "Swiss Zen" }
+              { value: "showcase", label: "Showcase" }
             ]
             value: tidalService ? tidalService.playerStyle : "standard"
             onChanged: function(v) { if (tidalService) tidalService.setPlayerStyle(v) }
