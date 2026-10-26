@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Effects
 import Quickshell.Services.Pipewire
 import qs.Commons
 import qs.Ui as Ui
@@ -387,23 +388,55 @@ Column {
             opacity: 0.25
           }
 
+          // Center Label Mask (smooth circle)
+          Item {
+            id: turntableLabelMask
+            objectName: "tidalTurntableLabelMask"
+            width: parent.width * 0.42
+            height: width
+            anchors.centerIn: parent
+            visible: false
+            layer.enabled: true
+            Rectangle {
+              anchors.fill: parent
+              radius: width / 2
+              color: "white"
+              antialiasing: true
+            }
+          }
+
           // Center Label Artwork
           Rectangle {
+            id: turntableArtworkContainer
             width: parent.width * 0.42
             height: width
             radius: width / 2
             anchors.centerIn: parent
             color: Color.accent
-            clip: true
 
-            Image {
+            Item {
               anchors.fill: parent
               visible: root.localArtSource !== ""
-              source: root.localArtSource
-              sourceSize: Qt.size(width * Screen.devicePixelRatio, height * Screen.devicePixelRatio)
-              fillMode: Image.PreserveAspectCrop
-              asynchronous: true
+              layer.enabled: true
+              layer.smooth: true
+              layer.effect: MultiEffect {
+                maskEnabled: true
+                maskSource: turntableLabelMask
+                maskThresholdMin: 0.5
+                maskSpreadAtMin: 0.05
+              }
+
+              Image {
+                id: turntableArtImage
+                objectName: "tidalTurntableArtImage"
+                anchors.fill: parent
+                source: root.localArtSource
+                sourceSize: Qt.size(width * Screen.devicePixelRatio, height * Screen.devicePixelRatio)
+                fillMode: Image.PreserveAspectCrop
+                asynchronous: true
+              }
             }
+
             Text {
               anchors.centerIn: parent
               visible: root.localArtSource === ""
