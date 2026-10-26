@@ -400,7 +400,7 @@ dependencies = [
 
 [[package]]
 name = "tidal-daemon"
-version = "1.0.76"
+version = "1.0.77"
 dependencies = [
  "base64",
  "dbus",
