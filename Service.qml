@@ -15,6 +15,7 @@ Item {
   readonly property string stateBinaryPath: Quickshell.env("HOME") + "/.local/state/omarchy/tidal/bin/tidal-daemon"
   readonly property string uiSettingsPath: Quickshell.env("HOME") + "/.local/state/omarchy/tidal/ui_settings.json"
   property string playerStyle: "standard"
+  property bool libraryOpen: true
   property string selectedBinaryPath: ""
   property bool bootstrapping: false
   property string bootstrapStatus: "Setting up Tidal engine…"
@@ -355,10 +356,15 @@ Item {
         var raw = text()
         if (raw && raw.trim().length > 0) {
           var parsed = JSON.parse(raw)
-          if (parsed && parsed.player_style) {
-            var valid = ["standard", "mini", "turntable", "showcase", "zen"]
-            if (valid.indexOf(parsed.player_style) !== -1) {
-              root.playerStyle = parsed.player_style
+          if (parsed) {
+            if (parsed.player_style) {
+              var valid = ["standard", "mini", "turntable", "showcase", "zen"]
+              if (valid.indexOf(parsed.player_style) !== -1) {
+                root.playerStyle = parsed.player_style
+              }
+            }
+            if (parsed.library_open !== undefined) {
+              root.libraryOpen = parsed.library_open === true
             }
           }
         }
@@ -389,7 +395,10 @@ Item {
     running: false
     onExited: function(exitCode) {
       if (exitCode === 0) {
-        uiSettingsFile.setText(JSON.stringify({ "player_style": root.playerStyle }, null, 2) + "\n")
+        uiSettingsFile.setText(JSON.stringify({
+          "player_style": root.playerStyle,
+          "library_open": root.libraryOpen
+        }, null, 2) + "\n")
       }
     }
   }
@@ -398,6 +407,11 @@ Item {
     var valid = ["standard", "mini", "turntable", "showcase", "zen"]
     if (valid.indexOf(style) === -1) return
     root.playerStyle = style
+    scheduleUiSettingsSave()
+  }
+
+  function setLibraryOpen(open) {
+    root.libraryOpen = open === true
     scheduleUiSettingsSave()
   }
 
