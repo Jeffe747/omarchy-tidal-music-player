@@ -916,7 +916,7 @@ pub(crate) fn navigate(
     ipc: &IpcServer,
     forward: bool,
 ) -> Result<(), String> {
-    let target = {
+    let next_track_id = {
         let state = player.lock().map_err(|e| e.to_string())?;
         let current = state.current.as_ref().ok_or("No current track")?;
         let pos = if state.cast_active {
@@ -945,7 +945,7 @@ pub(crate) fn navigate(
         if len == 0 {
             return Err("Active queue is empty".to_string());
         }
-        if forward && state.repeat_mode == "one" {
+        let target = if forward && state.repeat_mode == "one" {
             index
         } else if forward && state.shuffle && len > 1 {
             let seed = std::time::SystemTime::now()
@@ -964,10 +964,18 @@ pub(crate) fn navigate(
             (index + 1) % len
         } else {
             (index + len - 1) % len
-        }
+        };
+        state
+            .queue
+            .get(target)
+            .map(|t| t.id)
+            .ok_or_else(|| "Navigation target is not in active queue".to_string())?
     };
-    let id = player.lock().map_err(|e| e.to_string())?.queue[target].id;
-    play_track(auth, player, ipc, Some(id), None)
+    #[cfg(test)]
+    if let Some(result) = ui_endpoint_tests::navigation_playback_override(next_track_id) {
+        return result;
+    }
+    play_track(auth, player, ipc, Some(next_track_id), None)
 }
 
 fn connect_cast(
