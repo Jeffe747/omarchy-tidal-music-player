@@ -220,22 +220,35 @@ Panel {
           objectName: "tidalLibraryToggle"
           visible: root.isAuthenticated && !root.settingsOpen && !root.chromecastOpen
           width: parent.width
-          height: Style.spacing.controlHeight
+          height: root.libraryOpen ? Style.space(20) : Style.spacing.controlHeight
           radius: Style.cornerRadius
-          color: toggleMouse.containsMouse ? Style.hoverFill : Style.normalFill
-          border.color: Color.muted
-          border.width: Style.normalBorderWidth
+          color: root.libraryOpen ? (toggleMouse.containsMouse ? Style.hoverFill : "transparent") : (toggleMouse.containsMouse ? Style.hoverFill : Style.normalFill)
+          border.color: root.libraryOpen ? "transparent" : Color.muted
+          border.width: root.libraryOpen ? 0 : Style.normalBorderWidth
 
+          // When open: clean centered chevron handle with no outline and no text
+          Text {
+            anchors.centerIn: parent
+            visible: root.libraryOpen
+            textFormat: Text.PlainText
+            text: "󰅃"
+            color: toggleMouse.containsMouse ? Color.accent : Color.muted
+            font.family: Style.font.family
+            font.pixelSize: Style.font.body
+          }
+
+          // When closed: keep existing style with outline, text, and counts
           Row {
             anchors.fill: parent
             anchors.leftMargin: Style.spacing.md
             anchors.rightMargin: Style.spacing.md
             spacing: Style.spacing.sm
+            visible: !root.libraryOpen
 
             Text {
               anchors.verticalCenter: parent.verticalCenter
               textFormat: Text.PlainText
-              text: root.libraryOpen ? "󰅃" : "󰅀"
+              text: "󰅀"
               color: Color.accent
               font.family: Style.font.family
               font.pixelSize: Style.font.body
@@ -244,7 +257,7 @@ Panel {
             Text {
               anchors.verticalCenter: parent.verticalCenter
               textFormat: Text.PlainText
-              text: root.libraryOpen ? "Hide Library & Search" : "Search & Library"
+              text: "Search & Library"
               color: Color.foreground
               font.family: Style.font.family
               font.pixelSize: Style.font.caption
@@ -259,7 +272,7 @@ Panel {
             Text {
               id: libraryCountsText
               anchors.verticalCenter: parent.verticalCenter
-              visible: !root.libraryOpen && !!tidalService && (tidalService.favorites.length > 0 || tidalService.playlists.length > 0)
+              visible: !!tidalService && (tidalService.favorites.length > 0 || tidalService.playlists.length > 0)
               textFormat: Text.PlainText
               text: (tidalService ? (tidalService.favoritesTotal || tidalService.favorites.length) : 0) + " favorites · " + (tidalService ? tidalService.playlists.length : 0) + " playlists"
               color: Color.muted
