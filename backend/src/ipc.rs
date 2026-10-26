@@ -150,6 +150,8 @@ pub struct IpcCommand {
     pub volume: Option<f64>,
     #[serde(default)]
     pub cover: Option<String>,
+    #[serde(default)]
+    pub context: Option<String>,
 }
 
 fn default_cast_state() -> String {

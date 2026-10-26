@@ -137,7 +137,7 @@ Item {
   Process {
     id: binaryCheckProc
     command: ["sh", "-c",
-      'if [ -n "${TIDAL_TEST_MODE:-}" ]; then for path in "$1" "$2"; do if test -n "$path" && test -f "$path" && test -x "$path"; then printf "%s\\n" "$path"; exit 0; fi; done; exit 1; fi; arch="$(uname -m)"; case "$arch" in x86_64|amd64) expected="a7cf4b74d1d0c00ced3c4a0567c07be71c7f5b728cce29ae568f852f1c793076" ;; aarch64|arm64) expected="fc3f2bcbef3c6a3d4dd5c703e759ccfbb77e21923412ce9518355bc3093b5b8b" ;; *) expected="" ;; esac; for path in "$1" "$3"; do if test -n "$path" && test -f "$path" && test -x "$path"; then actual="$(sha256sum "$path" 2>/dev/null || shasum -a 256 "$path" 2>/dev/null || true)"; actual="${actual%% *}"; if [ -n "$expected" ] && [ "$actual" = "$expected" ]; then printf "%s\\n" "$path"; exit 0; fi; fi; done; exit 1',
+      'if [ -n "${TIDAL_TEST_MODE:-}" ]; then for path in "$1" "$2"; do if test -n "$path" && test -f "$path" && test -x "$path"; then printf "%s\\n" "$path"; exit 0; fi; done; exit 1; fi; arch="$(uname -m)"; case "$arch" in x86_64|amd64) expected="ac1ee0c75267399b09852186434bed12674f46202bd6e2ee8b3390e0d8f42d27" ;; aarch64|arm64) expected="fc3f2bcbef3c6a3d4dd5c703e759ccfbb77e21923412ce9518355bc3093b5b8b" ;; *) expected="" ;; esac; for path in "$1" "$3"; do if test -n "$path" && test -f "$path" && test -x "$path"; then actual="$(sha256sum "$path" 2>/dev/null || shasum -a 256 "$path" 2>/dev/null || true)"; actual="${actual%% *}"; if [ -n "$expected" ] && [ "$actual" = "$expected" ]; then printf "%s\\n" "$path"; exit 0; fi; fi; done; exit 1',
       "tidal-binary-check", root.bundledBinaryPath, root.developmentBinaryPath, root.stateBinaryPath]
     stdout: StdioCollector { id: binaryCheckOutput }
     running: false
@@ -176,7 +176,7 @@ Item {
 
   Process {
     id: bootstrapProc
-    command: ["sh", "-c", 'set -eu; arch="$(uname -m)"; case "$arch" in x86_64|amd64) asset=tidal-daemon-x86_64; expected=a7cf4b74d1d0c00ced3c4a0567c07be71c7f5b728cce29ae568f852f1c793076 ;; aarch64|arm64) asset=tidal-daemon-aarch64; expected=fc3f2bcbef3c6a3d4dd5c703e759ccfbb77e21923412ce9518355bc3093b5b8b ;; *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; esac; tag="v1.0.75"; base_url="https://github.com/Jeffe747/omarchy-tidal-music-player/releases/download/${tag}"; dest="$1"; mkdir -p "$(dirname "$dest")"; tmp="${dest}.tmp.$$"; if command -v curl >/dev/null 2>&1; then curl -fL --retry 2 "${base_url}/${asset}" -o "$tmp" || { rm -f "$tmp"; exit 1; }; elif command -v wget >/dev/null 2>&1; then wget -O "$tmp" "${base_url}/${asset}" || { rm -f "$tmp"; exit 1; }; else echo "curl or wget is required" >&2; exit 1; fi; actual="$(sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp")"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then echo "Checksum verification failed: expected $expected, got $actual" >&2; rm -f "$tmp"; exit 2; fi; chmod +x "$tmp"; mv -f "$tmp" "$dest"', "tidal-bootstrap", root.stateBinaryPath]
+    command: ["sh", "-c", 'set -eu; arch="$(uname -m)"; case "$arch" in x86_64|amd64) asset=tidal-daemon-x86_64; expected=ac1ee0c75267399b09852186434bed12674f46202bd6e2ee8b3390e0d8f42d27 ;; aarch64|arm64) asset=tidal-daemon-aarch64; expected=fc3f2bcbef3c6a3d4dd5c703e759ccfbb77e21923412ce9518355bc3093b5b8b ;; *) echo "Unsupported architecture: $arch" >&2; exit 1 ;; esac; tag="v1.0.75"; base_url="https://github.com/Jeffe747/omarchy-tidal-music-player/releases/download/${tag}"; dest="$1"; mkdir -p "$(dirname "$dest")"; tmp="${dest}.tmp.$$"; if command -v curl >/dev/null 2>&1; then curl -fL --retry 2 "${base_url}/${asset}" -o "$tmp" || { rm -f "$tmp"; exit 1; }; elif command -v wget >/dev/null 2>&1; then wget -O "$tmp" "${base_url}/${asset}" || { rm -f "$tmp"; exit 1; }; else echo "curl or wget is required" >&2; exit 1; fi; actual="$(sha256sum "$tmp" 2>/dev/null || shasum -a 256 "$tmp")"; actual="${actual%% *}"; if [ -z "$expected" ] || [ "$actual" != "$expected" ]; then echo "Checksum verification failed: expected $expected, got $actual" >&2; rm -f "$tmp"; exit 2; fi; chmod +x "$tmp"; mv -f "$tmp" "$dest"', "tidal-bootstrap", root.stateBinaryPath]
     running: false
     onExited: function(exitCode) {
       root.bootstrapping = false
@@ -660,7 +660,7 @@ Item {
     root.searchCompleted = false
   }
 
-  function playTrack(trackId, trackData) {
+  function playTrack(trackId, trackData, context) {
     root.playbackError = ""
     root.trackLoading = true
     if (!trackData && root.favorites && root.favorites.length > 0) {
@@ -684,7 +684,9 @@ Item {
       if (trackData.duration) root.trackDuration = Math.max(0, Number(trackData.duration) || 0)
       root.trackPosition = 0
     }
-    sendCommand({ "command": "play_track", "track_id": trackId })
+    var msg = { "command": "play_track", "track_id": trackId }
+    if (context) msg.context = context
+    sendCommand(msg)
   }
 
   function loadFavorites() {

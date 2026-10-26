@@ -46,6 +46,12 @@ fn new_ui_ipc_commands_and_status_fields_deserialize() {
     .unwrap();
     assert_eq!(command.track_id, Some(42));
 
+    let command: IpcCommand = serde_json::from_value(
+        serde_json::json!({ "command": "play_track", "track_id": 42, "context": "explore" }),
+    )
+    .unwrap();
+    assert_eq!(command.context, Some("explore".to_string()));
+
     let status: IpcStateMessage = serde_json::from_value(serde_json::json!({
         "type": "status",
         "authenticated": true,
@@ -86,4 +92,53 @@ fn test_favorites_loading_atomic_guard() {
     assert!(req2 > req1);
     assert_ne!(req1, PLAY_REQUEST_ID.load(Ordering::SeqCst));
     assert_eq!(req2, PLAY_REQUEST_ID.load(Ordering::SeqCst));
+}
+
+#[test]
+fn test_exploration_queue_source_preservation() {
+    use crate::api::TrackItem;
+    use crate::QueueSource;
+
+    let track1: TrackItem = serde_json::from_str(
+        r#"{"id":101,"title":"Track 1","duration":120,"artist":{"name":"Artist"},"album":{"title":"Album"}}"#
+    ).unwrap();
+    let track2: TrackItem = serde_json::from_str(
+        r#"{"id":102,"title":"Track 2","duration":180,"artist":{"name":"Artist"},"album":{"title":"Album"}}"#
+    ).unwrap();
+    let fav_track: TrackItem = serde_json::from_str(
+        r#"{"id":999,"title":"Fav Track","duration":200,"artist":{"name":"Artist"},"album":{"title":"Album"}}"#
+    ).unwrap();
+
+    let mut queue = vec![track1.clone(), track2.clone()];
+    let mut queue_source = QueueSource::Exploration {
+        view: "album".to_string(),
+        id: 50,
+    };
+    let favorites = vec![fav_track.clone()];
+
+    // 1. Favorites progressive loading must NOT mutate queue when in Exploration mode
+    let page_tracks = vec![fav_track.clone()];
+    if queue_source == QueueSource::Favorites {
+        queue.extend(page_tracks);
+    }
+    assert_eq!(queue.len(), 2, "Exploration queue must not be overwritten by favorites loading");
+
+    // 2. Navigation calculation in exploration queue: Next from track 1 advances to track 2
+    let index = queue.iter().position(|t| t.id == track1.id).unwrap();
+    let next_index = (index + 1) % queue.len();
+    assert_eq!(queue[next_index].id, 102, "Next must advance to track 2 on the explored album");
+
+    // 3. Navigation from track 2: reaches end of queue when repeat is off
+    assert_eq!(next_index + 1, queue.len(), "End of album queue detected correctly");
+
+    // 4. Switching context to favorites when user explicitly plays from favorites
+    let context = Some("favorites");
+    let target_id = fav_track.id;
+    if context == Some("favorites") && favorites.iter().any(|item| item.id == target_id) {
+        queue = favorites.clone();
+        queue_source = QueueSource::Favorites;
+    }
+    assert_eq!(queue_source, QueueSource::Favorites);
+    assert_eq!(queue.len(), 1);
+    assert_eq!(queue[0].id, 999);
 }

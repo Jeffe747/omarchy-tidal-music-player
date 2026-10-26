@@ -100,10 +100,19 @@ extern "C" fn request_shutdown(_: libc::c_int) {
     SHUTDOWN.store(true, Ordering::Relaxed);
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum QueueSource {
+    Favorites,
+    Playlist(String),
+    Exploration { view: String, id: u64 },
+    Custom,
+}
+
 pub(crate) struct Player {
     engine: PlaybackEngine,
     favorites: Vec<TrackItem>,
     queue: Vec<TrackItem>,
+    queue_source: QueueSource,
     playlists: Vec<Playlist>,
     current_playlist_id: Option<String>,
     current: Option<TrackItem>,
@@ -148,6 +157,7 @@ impl Player {
             engine: PlaybackEngine::new(),
             favorites: Vec::new(),
             queue: Vec::new(),
+            queue_source: QueueSource::Favorites,
             playlists: Vec::new(),
             current_playlist_id: None,
             current: None,
@@ -433,7 +443,7 @@ fn load_favorites_async(
             {
                 let mut p = player.lock().map_err(|e| e.to_string())?;
                 p.favorites = first_tracks.clone();
-                if p.current_playlist_id.is_none() {
+                if p.queue_source == QueueSource::Favorites {
                     p.queue = p.favorites.clone();
                 }
             }
@@ -471,7 +481,7 @@ fn load_favorites_async(
                 {
                     let mut p = player.lock().map_err(|e| e.to_string())?;
                     p.favorites.extend(page_tracks.clone());
-                    if p.current_playlist_id.is_none() {
+                    if p.queue_source == QueueSource::Favorites {
                         p.queue.extend(page_tracks.clone());
                     }
                 }
@@ -557,6 +567,7 @@ fn load_playlist_tracks(
     let mut state = player.lock().map_err(|e| e.to_string())?;
     state.queue = tracks.clone();
     state.current_playlist_id = Some(playlist_id.clone());
+    state.queue_source = QueueSource::Playlist(playlist_id.clone());
     ipc.broadcast(&PlayerMessage::PlaylistTracksLoaded {
         playlist_id: &playlist_id,
         tracks: tracks.iter().map(FavoriteTrack::from).collect(),
@@ -609,12 +620,12 @@ fn toggle_favorite(
         let mut state = player.lock().map_err(|e| e.to_string())?;
         if was_favorite {
             state.favorites.retain(|item| item.id != track.id);
-            if state.current_playlist_id.is_none() {
+            if state.queue_source == QueueSource::Favorites {
                 state.queue.retain(|item| item.id != track.id);
             }
         } else {
             state.favorites.push(track.clone());
-            if state.current_playlist_id.is_none() {
+            if state.queue_source == QueueSource::Favorites {
                 state.queue.push(track.clone());
             }
         }
@@ -651,7 +662,13 @@ fn add_playlist_track(
     Ok(())
 }
 
-fn explore(auth: &AuthManager, ipc: &IpcServer, view: &str, id: u64) -> Result<(), String> {
+fn explore(
+    auth: &AuthManager,
+    player: &Mutex<Player>,
+    ipc: &IpcServer,
+    view: &str,
+    id: u64,
+) -> Result<(), String> {
     let tracks = api_call(auth, |api, _| {
         if view == "album" {
             api.get_album_tracks(id)
@@ -661,6 +678,15 @@ fn explore(auth: &AuthManager, ipc: &IpcServer, view: &str, id: u64) -> Result<(
             api.get_artist_tracks(id)
         }
     })?;
+    {
+        let mut state = player.lock().map_err(|e| e.to_string())?;
+        state.queue = tracks.clone();
+        state.current_playlist_id = None;
+        state.queue_source = QueueSource::Exploration {
+            view: view.to_string(),
+            id,
+        };
+    }
     ipc.broadcast(&PlayerMessage::ExplorationLoaded {
         view,
         tracks: tracks.iter().map(FavoriteTrack::from).collect(),
@@ -695,6 +721,7 @@ fn play_track(
     player: &Mutex<Player>,
     ipc: &IpcServer,
     track_id: Option<u64>,
+    context: Option<&str>,
 ) -> Result<(), String> {
     let id = track_id.ok_or("play_track requires track_id")?;
     let req_id = PLAY_REQUEST_ID.fetch_add(1, Ordering::SeqCst) + 1;
@@ -734,13 +761,21 @@ fn play_track(
     if req_id != PLAY_REQUEST_ID.load(Ordering::SeqCst) {
         return Ok(());
     }
-    if !player.queue.iter().any(|item| item.id == id) {
+    if context == Some("favorites") {
         if player.favorites.iter().any(|item| item.id == id) {
             player.queue = player.favorites.clone();
             player.current_playlist_id = None;
+            player.queue_source = QueueSource::Favorites;
+        }
+    } else if !player.queue.iter().any(|item| item.id == id) {
+        if player.favorites.iter().any(|item| item.id == id) {
+            player.queue = player.favorites.clone();
+            player.current_playlist_id = None;
+            player.queue_source = QueueSource::Favorites;
         } else {
             player.queue = vec![track.clone()];
             player.current_playlist_id = None;
+            player.queue_source = QueueSource::Custom;
         }
     }
     let (direct_url, stream_mime) =
@@ -812,7 +847,7 @@ pub(crate) fn play_or_resume(
         }
     };
     if let Some(id) = first_favorite {
-        return play_track(auth, player, ipc, Some(id));
+        return play_track(auth, player, ipc, Some(id), None);
     }
     let no_current = player.lock().map_err(|e| e.to_string())?.current.is_none();
     if no_current {
@@ -832,7 +867,7 @@ pub(crate) fn play_or_resume(
             }
         };
         if let Some(id) = first {
-            return play_track(auth, player, ipc, Some(id));
+            return play_track(auth, player, ipc, Some(id), None);
         }
         let (first_tracks, count, _) = api_call(auth, |api, user_id| {
             api.get_favorites_page(
@@ -845,11 +880,11 @@ pub(crate) fn play_or_resume(
             let first_id = first_tracks[0].id;
             let mut state = player.lock().map_err(|e| e.to_string())?;
             state.favorites = first_tracks.clone();
-            if state.current_playlist_id.is_none() {
+            if state.queue_source == QueueSource::Favorites {
                 state.queue = first_tracks;
             }
             drop(state);
-            return play_track(auth, player, ipc, Some(first_id));
+            return play_track(auth, player, ipc, Some(first_id), Some("favorites"));
         }
         return Err("No favorite tracks are available".to_string());
     }
@@ -932,7 +967,7 @@ pub(crate) fn navigate(
         }
     };
     let id = player.lock().map_err(|e| e.to_string())?.queue[target].id;
-    play_track(auth, player, ipc, Some(id))
+    play_track(auth, player, ipc, Some(id), None)
 }
 
 fn connect_cast(
@@ -1682,9 +1717,10 @@ fn main() {
                                         .or(cmd.track_id)
                                         .unwrap_or_default();
                                     let auth = Arc::clone(&auth_ref);
+                                    let player = Arc::clone(&player_ref);
                                     let ipc = ipc_ref.clone();
                                     thread::spawn(move || {
-                                        if let Err(error) = explore(&auth, &ipc, view, id) {
+                                        if let Err(error) = explore(&auth, &player, &ipc, view, id) {
                                             ipc.broadcast(&PlayerMessage::ExplorationError {
                                                 view,
                                                 error: &error,
@@ -1697,9 +1733,10 @@ fn main() {
                                     let player = Arc::clone(&player_ref);
                                     let ipc = ipc_ref.clone();
                                     let track_id = cmd.track_id;
+                                    let context = cmd.context;
                                     thread::spawn(move || {
                                         if let Err(error) =
-                                            play_track(&auth, &player, &ipc, track_id)
+                                            play_track(&auth, &player, &ipc, track_id, context.as_deref())
                                         {
                                             log::write(&format!("Playback failed: {error}"));
                                             ipc.broadcast(&PlayerMessage::PlaybackError {

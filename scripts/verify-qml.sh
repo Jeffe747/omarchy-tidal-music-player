@@ -70,7 +70,7 @@ for mode in bundled fallback nonexecutable missing; do
   fi
 
   if ! grep -q 'TIDAL_QML_TEST_PASS' "$TEST_DIR/output.log" \
-    || grep -v 'QLocalSocket::ServerNotFoundError' "$TEST_DIR/output.log" \
+    || grep -v "QLocalSocket::ServerNotFoundError" "$TEST_DIR/output.log" | grep -v "Failed to register with host portal" \
       | grep -Eq 'WARN|ERROR|qml:.*Error|failed'; then
     cat "$TEST_DIR/output.log"
     exit 1

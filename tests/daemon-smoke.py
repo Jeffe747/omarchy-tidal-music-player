@@ -10,6 +10,7 @@ import time
 binary = Path(__file__).resolve().parents[1] / "bin/tidal-daemon"
 with tempfile.TemporaryDirectory(prefix="tidal-daemon-smoke-") as runtime:
     env = dict(os.environ, HOME=runtime, XDG_RUNTIME_DIR=runtime,
+               XDG_STATE_HOME=runtime + "/.local/state",
                TIDAL_SESSION_PATH=runtime + "/session.json")
     help_result = subprocess.run([binary, "--help"], env=env, capture_output=True,
                                  text=True, timeout=5)
