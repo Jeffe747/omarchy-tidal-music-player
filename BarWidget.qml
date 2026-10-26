@@ -247,7 +247,7 @@ Panel {
             }
           }
           onBack: root.goBack()
-          onPlayTrack: function(id, track) { if (tidalService) tidalService.playTrack(id, track) }
+          onPlayTrack: function(id, track, context) { if (tidalService) tidalService.playTrack(id, track, context) }
           onExploreArtist: function(id, name) { searchDebounce.stop(); if (tidalService) tidalService.exploreArtist(id, name) }
           onExploreAlbum: function(id, name) { searchDebounce.stop(); if (tidalService) tidalService.exploreAlbum(id, name) }
           onOpenPlaylist: function(id) { if (tidalService) tidalService.loadPlaylistTracks(id) }

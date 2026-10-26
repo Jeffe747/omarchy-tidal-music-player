@@ -23,7 +23,7 @@ Column {
   }
   signal selectTab(string tab)
   signal back()
-  signal playTrack(var id, var track)
+  signal playTrack(var id, var track, string context)
   signal exploreArtist(var artistId, string artistName)
   signal exploreAlbum(var albumId, string albumTitle)
   signal openPlaylist(string id)
@@ -40,7 +40,7 @@ Column {
     var item = activeItems[index]
     if (!item) return
     if (view === "playlists") root.openPlaylist(item.uuid)
-    else root.playTrack(item.id, item)
+    else root.playTrack(item.id, item, root.view)
   }
   function cancelCreatingPlaylist() { creatingPlaylist = false; newPlaylistField.text = "" }
 
@@ -364,7 +364,7 @@ Column {
       durationText: root.formatTime(rowData.duration)
       current: !!root.service && root.service.currentTrackId === rowData.id
       cursor: root.keyboardIndex === rowIndex
-      onPlay: root.playTrack(rowData.id, rowData)
+      onPlay: root.playTrack(rowData.id, rowData, root.view)
       onContextMenuRequested: function(track, x, y) {
         var p = mapToItem(root, x, y)
         root.contextMenuRequested(track, p.x, p.y)

@@ -325,6 +325,7 @@ mod tests {
             engine,
             favorites: Vec::new(),
             queue: Vec::new(),
+            queue_source: crate::QueueSource::Favorites,
             playlists: Vec::new(),
             current_playlist_id: None,
             current: Some(serde_json::from_str(r#"{"id":42,"title":"Song","duration":180,"artist":{"name":"Artist"},"album":{"title":"Album","cover":"ab-cd"}}"#).unwrap()),
