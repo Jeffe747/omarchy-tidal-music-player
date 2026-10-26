@@ -518,7 +518,6 @@ Panel {
             showLabel: false
             options: [
               { value: "standard", label: "Standard (Classic)" },
-              { value: "mini", label: "Mini Pill" },
               { value: "turntable", label: "Audiophile Turntable" },
               { value: "showcase", label: "Showcase" },
               { value: "zen", label: "Swiss Zen" }
