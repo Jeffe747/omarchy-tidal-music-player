@@ -343,6 +343,13 @@ ShellRoot {
           root.check(root.service.playlistsLoading && !library.creatingPlaylist && playlistField.text === "",
                      "Create must dispatch and reset the form")
         }
+
+        root.service.setPlayerStyle("turntable")
+        var turntableMask = findObject(root.widget, "tidalTurntableLabelMask")
+        var turntableArt = findObject(root.widget, "tidalTurntableArtImage")
+        root.check(turntableMask !== null && turntableArt !== null,
+                   "Turntable style must include circular label mask and artwork image")
+        root.service.setPlayerStyle("standard")
       }
       playlistCreateTimer.start()
     }

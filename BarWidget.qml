@@ -15,6 +15,7 @@ Panel {
   readonly property var defaultAudioSink: Pipewire.defaultAudioSink
   readonly property bool isSystemMuted: !!defaultAudioSink && !!defaultAudioSink.audio && defaultAudioSink.audio.muted
   property string libraryTab: "favorites"
+  property bool libraryOpen: tidalService ? tidalService.libraryOpen : true
   property bool settingsOpen: false
   property bool chromecastOpen: false
   property bool confirmLogout: false
@@ -51,6 +52,7 @@ Panel {
   }
   function closeContextMenu() { contextMenuOpen = false; playlistSubmenuOpen = false; contextMenuTrack = null }
   function goBack() {
+    if (styleDropdown && styleDropdown.popupOpen) { styleDropdown.close(); return }
     if (contextMenuOpen) { closeContextMenu(); return }
     if (libraryView && libraryView.creatingPlaylist) { libraryView.cancelCreatingPlaylist(); return }
     if (confirmLogout) { confirmLogout = false; return }
@@ -68,7 +70,7 @@ Panel {
     close()
   }
   function moveCursor(dy) {
-    if (settingsOpen || chromecastOpen) return
+    if (settingsOpen || chromecastOpen || !libraryOpen) return
     var count = libraryView.activeItems.length
     keyboardIndex = count ? Math.max(0, Math.min(count - 1, keyboardIndex + dy)) : -1
   }
@@ -80,6 +82,10 @@ Panel {
   }
   function handleTextKey(key) {
     if (settingsOpen || chromecastOpen) return
+    if (!libraryOpen) {
+      libraryOpen = true
+      if (tidalService) tidalService.setLibraryOpen(true)
+    }
     if (key === "/") { searchField.forceActiveFocus(); return }
     if (key.length === 1 && key !== " " && !searchField.activeFocus) {
       searchField.text += key
@@ -151,6 +157,17 @@ Panel {
           width: parent.width
           service: tidalService
           bar: root.bar
+          libraryOpen: root.libraryOpen && !root.settingsOpen && !root.chromecastOpen
+          onLibraryRequested: {
+            if (root.settingsOpen || root.chromecastOpen) {
+              root.settingsOpen = false
+              root.chromecastOpen = false
+              root.libraryOpen = true
+            } else {
+              root.libraryOpen = !root.libraryOpen
+            }
+            if (tidalService) tidalService.setLibraryOpen(root.libraryOpen)
+          }
           onSettingsRequested: {
             if (root.chromecastOpen) root.chromecastOpen = false
             root.settingsOpen = !root.settingsOpen
@@ -209,51 +226,68 @@ Panel {
             onClicked: if (tidalService) tidalService.startAuth()
           }
         }
-        SafeTextField {
-          id: searchField
-          objectName: "tidalSearchField"
-          visible: root.isAuthenticated && !root.settingsOpen && !root.chromecastOpen && root.view !== "explore"
+        Rectangle {
+          visible: libraryContainer.visible
           width: parent.width
-          placeholderText: "Search Tidal tracks…"
-          onTextChanged: {
-            root.keyboardIndex = -1
-            searchDebounce.stop()
-            if (tidalService) {
-              if (text.trim()) { tidalService.prepareSearch(); searchDebounce.start() }
-              else tidalService.clearSearch()
+          height: 1
+          color: Color.muted
+          opacity: 0.25
+        }
+        Column {
+          id: libraryContainer
+          readonly property bool showLibrary: root.isAuthenticated && !root.settingsOpen && !root.chromecastOpen && root.libraryOpen
+          visible: showLibrary || height > 0
+          width: parent.width
+          height: showLibrary ? implicitHeight : 0
+          clip: true
+          spacing: Style.spacing.xxl
+          Behavior on height { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
+
+          SafeTextField {
+            id: searchField
+            objectName: "tidalSearchField"
+            visible: root.view !== "explore"
+            width: parent.width
+            placeholderText: "Search Tidal tracks…"
+            onTextChanged: {
+              root.keyboardIndex = -1
+              searchDebounce.stop()
+              if (tidalService) {
+                if (text.trim()) { tidalService.prepareSearch(); searchDebounce.start() }
+                else tidalService.clearSearch()
+              }
             }
           }
-        }
-        Timer {
-          id: searchDebounce
-          interval: 350
-          onTriggered: if (tidalService && root.view !== "explore" && searchField.text.trim()) tidalService.search(searchField.text.trim())
-        }
-        LibraryView {
-          id: libraryView
-          objectName: "tidalLibraryView"
-          visible: root.isAuthenticated && !root.settingsOpen && !root.chromecastOpen
-          width: parent.width
-          service: tidalService
-          view: root.view
-          keyboardIndex: root.keyboardIndex
-          onSelectTab: function(tab) {
-            root.libraryTab = tab
-            if (tab === "playlists") {
-              if (tidalService && tidalService.currentPlaylistId) tidalService.closePlaylist()
-              if (tidalService) tidalService.loadPlaylists()
-            } else if (tab === "favorites") {
-              if (tidalService && (!tidalService.favoritesRequested || tidalService.favorites.length === 0)) tidalService.loadFavorites()
-            }
+          Timer {
+            id: searchDebounce
+            interval: 350
+            onTriggered: if (tidalService && root.view !== "explore" && searchField.text.trim()) tidalService.search(searchField.text.trim())
           }
-          onBack: root.goBack()
-          onPlayTrack: function(id, track, context) { if (tidalService) tidalService.playTrack(id, track, context) }
-          onExploreArtist: function(id, name) { searchDebounce.stop(); if (tidalService) tidalService.exploreArtist(id, name) }
-          onExploreAlbum: function(id, name) { searchDebounce.stop(); if (tidalService) tidalService.exploreAlbum(id, name) }
-          onOpenPlaylist: function(id) { if (tidalService) tidalService.loadPlaylistTracks(id) }
-          onContextMenuRequested: function(track, lx, ly) {
-            var pos = libraryView.mapToItem(keyCatcher, lx, ly)
-            root.openContextMenu(track, pos.x, pos.y)
+          LibraryView {
+            id: libraryView
+            objectName: "tidalLibraryView"
+            width: parent.width
+            service: tidalService
+            view: root.view
+            keyboardIndex: root.keyboardIndex
+            onSelectTab: function(tab) {
+              root.libraryTab = tab
+              if (tab === "playlists") {
+                if (tidalService && tidalService.currentPlaylistId) tidalService.closePlaylist()
+                if (tidalService) tidalService.loadPlaylists()
+              } else if (tab === "favorites") {
+                if (tidalService && (!tidalService.favoritesRequested || tidalService.favorites.length === 0)) tidalService.loadFavorites()
+              }
+            }
+            onBack: root.goBack()
+            onPlayTrack: function(id, track, context) { if (tidalService) tidalService.playTrack(id, track, context) }
+            onExploreArtist: function(id, name) { searchDebounce.stop(); if (tidalService) tidalService.exploreArtist(id, name) }
+            onExploreAlbum: function(id, name) { searchDebounce.stop(); if (tidalService) tidalService.exploreAlbum(id, name) }
+            onOpenPlaylist: function(id) { if (tidalService) tidalService.loadPlaylistTracks(id) }
+            onContextMenuRequested: function(track, lx, ly) {
+              var pos = libraryView.mapToItem(keyCatcher, lx, ly)
+              root.openContextMenu(track, pos.x, pos.y)
+            }
           }
         }
       }
@@ -430,6 +464,21 @@ Panel {
             onChanged: function(v) { if (tidalService) tidalService.setAudioQuality(v) }
           }
           Text { visible: !!tidalService && !!tidalService.trackTitle; textFormat: Text.PlainText; text: tidalService ? "Playing: " + tidalService.audioQuality : ""; color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+          PanelSeparator { width: parent.width }
+          Text { text: "Player style"; textFormat: Text.PlainText; color: Color.muted; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+          Ui.Dropdown {
+            id: styleDropdown
+            objectName: "tidalStyleDropdown"
+            width: parent.width
+            showLabel: false
+            options: [
+              { value: "standard", label: "Standard (Classic)" },
+              { value: "turntable", label: "Audiophile Turntable" },
+              { value: "showcase", label: "Showcase" }
+            ]
+            value: tidalService ? tidalService.playerStyle : "standard"
+            onChanged: function(v) { if (tidalService) tidalService.setPlayerStyle(v) }
+          }
           PanelSeparator { width: parent.width }
           Text { text: "Daemon"; textFormat: Text.PlainText; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body; font.bold: true }
           Text { width: parent.width; textFormat: Text.PlainText; text: !tidalService ? "Unavailable" : ((tidalService.daemonSocket && tidalService.daemonSocket.connected ? "Connected" : "Disconnected") + " · " + (tidalService.daemonBinaryExists ? "Binary ready" : "Binary missing")); color: tidalService && tidalService.daemonSocket && tidalService.daemonSocket.connected ? Color.accent : Color.urgent; font.family: Style.font.family; font.pixelSize: Style.font.caption; wrapMode: Text.WordWrap }

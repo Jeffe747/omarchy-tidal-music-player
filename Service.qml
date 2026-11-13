@@ -13,6 +13,9 @@ Item {
   readonly property string bundledBinaryPath: Qt.resolvedUrl("bin/tidal-daemon").toString().replace(/^file:\/\//, "")
   readonly property string developmentBinaryPath: Qt.resolvedUrl("backend/target/release/tidal-daemon").toString().replace(/^file:\/\//, "")
   readonly property string stateBinaryPath: Quickshell.env("HOME") + "/.local/state/omarchy/tidal/bin/tidal-daemon"
+  readonly property string uiSettingsPath: Quickshell.env("HOME") + "/.local/state/omarchy/tidal/ui_settings.json"
+  property string playerStyle: "standard"
+  property bool libraryOpen: true
   property string selectedBinaryPath: ""
   property bool bootstrapping: false
   property string bootstrapStatus: "Setting up Tidal engine…"
@@ -342,8 +345,79 @@ Item {
     }
   }
 
+  FileView {
+    id: uiSettingsFile
+    path: root.uiSettingsPath
+    watchChanges: false
+    atomicWrites: true
+    printErrors: false
+    onLoaded: function() {
+      try {
+        var raw = text()
+        if (raw && raw.trim().length > 0) {
+          var parsed = JSON.parse(raw)
+          if (parsed) {
+            if (parsed.player_style) {
+              var valid = ["standard", "turntable", "showcase"]
+              if (valid.indexOf(parsed.player_style) !== -1) {
+                root.playerStyle = parsed.player_style
+              }
+            }
+            if (parsed.library_open !== undefined) {
+              root.libraryOpen = parsed.library_open === true
+            }
+          }
+        }
+      } catch (e) {
+        console.warn("Tidal Service: Failed to parse ui_settings.json:", e)
+      }
+    }
+    onLoadFailed: function() {}
+  }
+
+  Timer {
+    id: uiSettingsSaveTimer
+    interval: 200
+    repeat: false
+    onTriggered: {
+      ensureStateDirProc.running = false
+      ensureStateDirProc.running = true
+    }
+  }
+
+  function scheduleUiSettingsSave() {
+    uiSettingsSaveTimer.restart()
+  }
+
+  Process {
+    id: ensureStateDirProc
+    command: ["sh", "-c", 'mkdir -p "$(dirname "$1")"', "tidal-mkdir", root.uiSettingsPath]
+    running: false
+    onExited: function(exitCode) {
+      if (exitCode === 0) {
+        uiSettingsFile.setText(JSON.stringify({
+          "player_style": root.playerStyle,
+          "library_open": root.libraryOpen
+        }, null, 2) + "\n")
+      }
+    }
+  }
+
+  function setPlayerStyle(style) {
+    var valid = ["standard", "turntable", "showcase"]
+    if (valid.indexOf(style) === -1) return
+    root.playerStyle = style
+    scheduleUiSettingsSave()
+  }
+
+  function setLibraryOpen(open) {
+    root.libraryOpen = open === true
+    scheduleUiSettingsSave()
+  }
+
   Component.onCompleted: {
     checkDaemonBinary()
+    uiSettingsFile.reload()
   }
 
   function ensureDaemonRunning() {
