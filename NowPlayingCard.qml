@@ -10,11 +10,13 @@ Column {
   property var bar: null
   property var sink: Pipewire.defaultAudioSink
   property bool settingsOpen: false
+  property bool libraryOpen: true
   property real previewSeconds: 0
   property real pendingSeek: -1
   property real wheelRemainder: 0
   signal settingsRequested()
   signal chromecastRequested()
+  signal libraryRequested()
   signal exploreArtist(var artistId, string artistName)
   signal exploreAlbum(var albumId, string albumTitle)
 
@@ -119,7 +121,7 @@ Column {
           Text {
             id: standardTitle
             objectName: "tidalNowPlayingTitle"
-            width: Math.max(0, parent.width - standardSettings.implicitWidth - (standardChromecast.visible ? standardChromecast.implicitWidth + Style.spacing.sm : 0) - (standardFavorite.visible ? standardFavorite.implicitWidth + Style.spacing.sm : 0) - Style.spacing.sm)
+            width: Math.max(0, parent.width - standardSettings.implicitWidth - (standardChromecast.visible ? standardChromecast.implicitWidth + Style.spacing.sm : 0) - (standardLibrary.visible ? standardLibrary.implicitWidth + Style.spacing.sm : 0) - (standardFavorite.visible ? standardFavorite.implicitWidth + Style.spacing.sm : 0) - Style.spacing.sm)
             textFormat: Text.PlainText
             text: root.service && root.service.trackTitle ? root.service.trackTitle : (root.service && root.service.trackLoading ? "Loading track…" : "Nothing playing")
             color: root.service && (root.service.trackTitle || root.service.trackLoading) ? Color.foreground : Color.muted
@@ -140,6 +142,17 @@ Column {
             Accessible.role: Accessible.Button
             Accessible.name: "Toggle favorite"
             onClicked: if (root.service && enabled) root.service.toggleFavorite()
+          }
+          Ui.PanelActionButton {
+            id: standardLibrary
+            objectName: "tidalLibraryToggle"
+            size: Style.spacing.controlHeight
+            iconText: "󰲸"
+            tooltipText: root.libraryOpen ? "Hide Library" : "Search & Library"
+            foreground: root.libraryOpen ? Color.accent : Color.foreground
+            Accessible.role: Accessible.Button
+            Accessible.name: tooltipText
+            onClicked: root.libraryRequested()
           }
           Ui.PanelActionButton {
             id: standardChromecast
@@ -484,6 +497,7 @@ Column {
             spacing: Style.spacing.xs
             anchors.verticalCenter: parent.verticalCenter
             Ui.PanelActionButton { size: Style.spacing.controlHeight; iconText: root.isFav ? "󰋑" : "󰋕"; foreground: root.isFav ? Color.accent : Color.foreground; tooltipText: "Favorite"; onClicked: if (root.service) root.service.toggleFavorite() }
+            Ui.PanelActionButton { size: Style.spacing.controlHeight; iconText: "󰲸"; foreground: root.libraryOpen ? Color.accent : Color.foreground; tooltipText: root.libraryOpen ? "Hide Library" : "Search & Library"; onClicked: root.libraryRequested() }
             Ui.PanelActionButton { size: Style.spacing.controlHeight; iconText: "󰄘"; foreground: root.service && root.service.castActive ? Color.accent : Color.foreground; tooltipText: "Cast"; onClicked: root.chromecastRequested() }
             Ui.PanelActionButton { size: Style.spacing.controlHeight; iconText: "󰒓"; tooltipText: "Settings"; onClicked: root.settingsRequested() }
           }
@@ -710,6 +724,7 @@ Column {
       anchors.horizontalCenter: parent.horizontalCenter
       spacing: Style.spacing.md
       Ui.PanelActionButton { size: Style.spacing.controlHeight; iconText: root.isFav ? "󰋑" : "󰋕"; foreground: root.isFav ? Color.accent : Color.foreground; tooltipText: "Favorite"; onClicked: if (root.service) root.service.toggleFavorite() }
+      Ui.PanelActionButton { size: Style.spacing.controlHeight; iconText: "󰲸"; foreground: root.libraryOpen ? Color.accent : Color.foreground; tooltipText: root.libraryOpen ? "Hide Library" : "Search & Library"; onClicked: root.libraryRequested() }
       Ui.PanelActionButton { size: Style.spacing.controlHeight; iconText: "󰄘"; foreground: root.service && root.service.castActive ? Color.accent : Color.foreground; tooltipText: "Cast"; onClicked: root.chromecastRequested() }
       Ui.PanelActionButton { size: Style.spacing.controlHeight; iconText: "󰒓"; tooltipText: "Settings"; onClicked: root.settingsRequested() }
     }

@@ -7,7 +7,7 @@
   "repository": "https://github.com/Jeffe747/omarchy-tidal-music-player.git",
   "license": "MIT",
   "author": "jaj",
-  "description": "Native Tidal music player for Omarchy featuring Hi-Res Lossless FLAC playback via PipeWire, bar widget and now-playing flyout, full catalog search, favorites and playlists, Google Cast audio streaming, and MPRIS2 desktop controls.",
+  "description": "Native Tidal music player for Omarchy featuring Hi-Res Lossless FLAC playback via PipeWire, bar widget and now-playing flyout, full catalog search, favorites and playlists, Google Cast audio streaming, and MPRIS2 desktop controls. UI update: adds selectable player styles (Standard, Deck, Showcase) and a collapsible search/library drawer toggled from the player action bar.",
   "kinds": [
     "service",
     "bar-widget"

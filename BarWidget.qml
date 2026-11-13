@@ -157,6 +157,17 @@ Panel {
           width: parent.width
           service: tidalService
           bar: root.bar
+          libraryOpen: root.libraryOpen && !root.settingsOpen && !root.chromecastOpen
+          onLibraryRequested: {
+            if (root.settingsOpen || root.chromecastOpen) {
+              root.settingsOpen = false
+              root.chromecastOpen = false
+              root.libraryOpen = true
+            } else {
+              root.libraryOpen = !root.libraryOpen
+            }
+            if (tidalService) tidalService.setLibraryOpen(root.libraryOpen)
+          }
           onSettingsRequested: {
             if (root.chromecastOpen) root.chromecastOpen = false
             root.settingsOpen = !root.settingsOpen
@@ -216,90 +227,21 @@ Panel {
           }
         }
         Rectangle {
-          id: libraryToggleRow
-          objectName: "tidalLibraryToggle"
-          visible: root.isAuthenticated && !root.settingsOpen && !root.chromecastOpen
+          visible: libraryContainer.visible
           width: parent.width
-          height: root.libraryOpen ? Style.space(20) : Style.spacing.controlHeight
-          radius: Style.cornerRadius
-          color: root.libraryOpen ? (toggleMouse.containsMouse ? Style.hoverFill : "transparent") : (toggleMouse.containsMouse ? Style.hoverFill : Style.normalFill)
-          border.color: root.libraryOpen ? "transparent" : Color.muted
-          border.width: root.libraryOpen ? 0 : Style.normalBorderWidth
-
-          // When open: clean centered chevron handle with no outline and no text
-          Text {
-            anchors.centerIn: parent
-            visible: root.libraryOpen
-            textFormat: Text.PlainText
-            text: "󰅃"
-            color: toggleMouse.containsMouse ? Color.accent : Color.muted
-            font.family: Style.font.family
-            font.pixelSize: Style.font.body
-          }
-
-          // When closed: keep existing style with outline, text, and counts
-          Row {
-            anchors.fill: parent
-            anchors.leftMargin: Style.spacing.md
-            anchors.rightMargin: Style.spacing.md
-            spacing: Style.spacing.sm
-            visible: !root.libraryOpen
-
-            Text {
-              anchors.verticalCenter: parent.verticalCenter
-              textFormat: Text.PlainText
-              text: "󰅀"
-              color: Color.accent
-              font.family: Style.font.family
-              font.pixelSize: Style.font.body
-            }
-
-            Text {
-              anchors.verticalCenter: parent.verticalCenter
-              textFormat: Text.PlainText
-              text: "Search & Library"
-              color: Color.foreground
-              font.family: Style.font.family
-              font.pixelSize: Style.font.caption
-              font.bold: true
-            }
-
-            Item {
-              width: Math.max(0, parent.width - parent.children[0].implicitWidth - parent.children[1].implicitWidth - libraryCountsText.implicitWidth - Style.spacing.sm * 2)
-              height: 1
-            }
-
-            Text {
-              id: libraryCountsText
-              anchors.verticalCenter: parent.verticalCenter
-              visible: !!tidalService && (tidalService.favorites.length > 0 || tidalService.playlists.length > 0)
-              textFormat: Text.PlainText
-              text: (tidalService ? (tidalService.favoritesTotal || tidalService.favorites.length) : 0) + " favorites · " + (tidalService ? tidalService.playlists.length : 0) + " playlists"
-              color: Color.muted
-              font.family: Style.font.family
-              font.pixelSize: Style.font.caption
-            }
-          }
-
-          MouseArea {
-            id: toggleMouse
-            anchors.fill: parent
-            hoverEnabled: true
-            cursorShape: Qt.PointingHandCursor
-            Accessible.role: Accessible.Button
-            Accessible.name: root.libraryOpen ? "Hide Library and Search" : "Show Search and Library"
-            onClicked: {
-              root.libraryOpen = !root.libraryOpen
-              if (tidalService) tidalService.setLibraryOpen(root.libraryOpen)
-            }
-          }
+          height: 1
+          color: Color.muted
+          opacity: 0.25
         }
         Column {
           id: libraryContainer
-          visible: root.isAuthenticated && !root.settingsOpen && !root.chromecastOpen && root.libraryOpen
+          readonly property bool showLibrary: root.isAuthenticated && !root.settingsOpen && !root.chromecastOpen && root.libraryOpen
+          visible: showLibrary || height > 0
           width: parent.width
-          height: visible ? implicitHeight : 0
+          height: showLibrary ? implicitHeight : 0
+          clip: true
           spacing: Style.spacing.xxl
+          Behavior on height { NumberAnimation { duration: 150; easing.type: Easing.OutCubic } }
 
           SafeTextField {
             id: searchField
