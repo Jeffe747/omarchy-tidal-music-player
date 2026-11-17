@@ -38,6 +38,7 @@ Item {
   property string trackArtist: ""
   property string trackAlbum: ""
   property string trackArtUrl: ""
+  property string currentTrackCover: ""
   property real trackDuration: 0.0
   property real trackPosition: 0.0
   property string audioQuality: "LOSSLESS" // "HI_RES_LOSSLESS", "LOSSLESS", "HIGH"
@@ -474,7 +475,11 @@ Item {
         root.trackLoading = false
       }
       if (!root.trackLoading || msg.track_id === root.currentTrackId || msg.track_id === undefined) {
-        root.currentTrackId = msg.track_id !== undefined ? msg.track_id : null
+        var nextTrackId = msg.track_id !== undefined ? msg.track_id : null
+        if (nextTrackId !== root.currentTrackId) {
+          root.currentTrackCover = ""
+        }
+        root.currentTrackId = nextTrackId
         root.trackTitle = msg.track_title || ""
         root.trackArtist = msg.track_artist || ""
         root.trackAlbum = msg.track_album || ""
@@ -544,6 +549,11 @@ Item {
         var nextCache = Object.assign({}, root.artworkCache)
         nextCache[msg.cover] = localPath
         root.artworkCache = nextCache
+        if (root.currentTrackCover && msg.cover === root.currentTrackCover) {
+          root.trackArtUrl = localPath
+        } else if (root.trackTitle !== "" && root.trackArtUrl === "") {
+          sendCommand({ "command": "get_status" })
+        }
       }
     } else if (msg.type === "search_error") {
       if (msg.request_id !== root.searchRequestId) return
@@ -747,6 +757,7 @@ Item {
     }
     if (trackData && typeof trackData === "object") {
       root.currentTrackId = trackId
+      root.currentTrackCover = trackData.cover ? String(trackData.cover) : ""
       if (trackData.title) root.trackTitle = trackData.title
       if (trackData.artist) root.trackArtist = trackData.artist
       if (trackData.album) root.trackAlbum = trackData.album
