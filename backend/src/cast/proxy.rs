@@ -4,7 +4,26 @@ use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
+
+const REJECT_LOG_COOLDOWN: Duration = Duration::from_secs(60);
+
+fn should_log_rejection(
+    last_log: &mut Option<Instant>,
+    suppressed: &mut u64,
+    now: Instant,
+    cooldown: Duration,
+) -> Option<u64> {
+    if last_log.is_none_or(|prev| now.saturating_duration_since(prev) >= cooldown) {
+        *last_log = Some(now);
+        let prior = *suppressed;
+        *suppressed = 0;
+        Some(prior)
+    } else {
+        *suppressed = suppressed.saturating_add(1);
+        None
+    }
+}
 
 #[derive(Clone)]
 pub struct RegisteredStream {
@@ -196,6 +215,8 @@ impl StreamProxy {
 
     pub fn start(self: Arc<Self>) {
         thread::spawn(move || {
+            let mut last_reject_log: Option<Instant> = None;
+            let mut suppressed_rejections: u64 = 0;
             while !self.shutdown.load(Ordering::Relaxed)
                 && !crate::SHUTDOWN.load(Ordering::Relaxed)
             {
@@ -223,10 +244,24 @@ impl StreamProxy {
                         }
 
                         if !is_authorized {
-                            crate::log::write(&format!(
-                                "StreamProxy: rejected unauthorized connection from {} before spawning worker",
-                                peer_addr.ip()
-                            ));
+                            if let Some(suppressed) = should_log_rejection(
+                                &mut last_reject_log,
+                                &mut suppressed_rejections,
+                                Instant::now(),
+                                REJECT_LOG_COOLDOWN,
+                            ) {
+                                if suppressed > 0 {
+                                    crate::log::write(&format!(
+                                        "StreamProxy: rejected unauthorized connection from {} before spawning worker ({suppressed} prior rejections suppressed)",
+                                        peer_addr.ip()
+                                    ));
+                                } else {
+                                    crate::log::write(&format!(
+                                        "StreamProxy: rejected unauthorized connection from {} before spawning worker",
+                                        peer_addr.ip()
+                                    ));
+                                }
+                            }
                             let _ = stream.set_write_timeout(Some(Duration::from_millis(100)));
                             let _ = stream.write_all(
                                 b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
@@ -685,5 +720,20 @@ mod tests {
         std::env::set_var("TIDAL_CAST_FIREWALL_BLOCKED", "0");
         assert!(!check_cast_ports_blocked(36420));
         std::env::remove_var("TIDAL_CAST_FIREWALL_BLOCKED");
+    }
+
+    #[test]
+    fn test_rejection_log_rate_limit() {
+        let start = Instant::now();
+        let cooldown = Duration::from_secs(60);
+        let mut last_log = None;
+        let mut suppressed = 0;
+
+        assert_eq!(should_log_rejection(&mut last_log, &mut suppressed, start, cooldown), Some(0));
+        assert_eq!(should_log_rejection(&mut last_log, &mut suppressed, start + Duration::from_secs(1), cooldown), None);
+        assert_eq!(should_log_rejection(&mut last_log, &mut suppressed, start + Duration::from_secs(59), cooldown), None);
+        assert_eq!(suppressed, 2);
+        assert_eq!(should_log_rejection(&mut last_log, &mut suppressed, start + Duration::from_secs(60), cooldown), Some(2));
+        assert_eq!(suppressed, 0);
     }
 }

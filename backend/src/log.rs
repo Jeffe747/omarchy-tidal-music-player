@@ -79,6 +79,14 @@ pub fn http_failure(path: &str, error: &ureq::Error) {
     }
 }
 
+fn write_line_to_file(file: &mut File, line: &str) -> io::Result<()> {
+    let incoming = (line.len() as u64).saturating_add(1);
+    if file.metadata()?.len().saturating_add(incoming) > MAX_SIZE {
+        file.set_len(0)?;
+    }
+    writeln!(file, "{line}")
+}
+
 pub fn write(message: &str) {
     let line = format!(
         "[{}] {}",
@@ -89,7 +97,7 @@ pub fn write(message: &str) {
     if let Some(log) = LOG.get() {
         match log.lock() {
             Ok(mut file) => {
-                if let Err(error) = writeln!(file, "{line}") {
+                if let Err(error) = write_line_to_file(&mut file, &line) {
                     eprintln!("Failed to write daemon log: {error}");
                 }
             }
@@ -142,5 +150,28 @@ mod tests {
             safe_text("failed refresh_token=secret"),
             "failed [redacted]"
         );
+    }
+
+    #[test]
+    fn test_runtime_log_truncation_enforces_max_size() {
+        let dir = std::env::temp_dir().join(format!(
+            "tidal-log-runtime-cap-test-{}",
+            std::process::id()
+        ));
+        let path = dir.join("daemon.log");
+        let mut file = open(&path).unwrap();
+        file.set_len(MAX_SIZE - 10).unwrap();
+
+        write_line_to_file(&mut file, "overflowing-runtime-entry").unwrap();
+        let len = file.metadata().unwrap().len();
+        assert!(len <= MAX_SIZE, "log length {len} exceeded MAX_SIZE");
+        assert_eq!(
+            fs::read_to_string(&path).unwrap(),
+            "overflowing-runtime-entry\n"
+        );
+
+        drop(file);
+        fs::remove_file(path).unwrap();
+        fs::remove_dir(dir).unwrap();
     }
 }
