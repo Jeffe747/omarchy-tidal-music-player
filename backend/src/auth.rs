@@ -362,8 +362,7 @@ impl AuthManager {
                 PollResult::Expired => return Err("Device authorization code expired".to_string()),
                 PollResult::Denied => return Err("User denied authorization".to_string()),
                 PollResult::Error(err) => {
-                    crate::log::write("Warning during device authorization polling");
-                    eprintln!("  [!] Warning during token poll: {err}");
+                    crate::log::write(&format!("Warning during device authorization polling: {err}"));
                 }
             }
         }

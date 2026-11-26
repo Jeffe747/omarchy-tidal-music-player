@@ -1409,7 +1409,7 @@ fn main() {
     }
 
     if let Err(error) = log::init() {
-        eprintln!("Failed to initialize private daemon log: {error}");
+        log::write_stderr(&format!("Failed to initialize private daemon log: {error}"));
         std::process::exit(1);
     }
     log::write("Starting Omarchy Tidal Daemon");
@@ -1901,9 +1901,9 @@ fn main() {
                                         );
                                     } else {
                                         if auth_flag.swap(true, Ordering::SeqCst) {
-                                            println!(
-                                            "  [i] Auth already in progress, requesting fresh code..."
-                                        );
+                                            log::write(
+                                                "Auth already in progress, requesting fresh code",
+                                            );
                                         }
 
                                         match auth_ref.request_device_code() {
@@ -1928,17 +1928,17 @@ fn main() {
                                                 let player_worker = Arc::clone(&player_ref);
 
                                                 thread::spawn(move || {
-                                                    println!(
-                                                    "  [i] Polling Tidal token for device code..."
-                                                );
+                                                    log::write(
+                                                        "Polling Tidal token for device code",
+                                                    );
                                                     match auth_worker
                                                         .poll_token(&dev_code, interval, expires_in)
                                                     {
                                                         Ok(session) => {
-                                                            println!(
-                                                            "  [✓] Successfully authenticated with Tidal! User: {:?}",
-                                                            session.user_id
-                                                        );
+                                                            log::write(&format!(
+                                                                "Successfully authenticated with Tidal (user {:?})",
+                                                                session.user_id
+                                                            ));
                                                             if let Err(error) =
                                                                 auth_worker.save_session(&session)
                                                             {
@@ -1966,10 +1966,9 @@ fn main() {
                                                             );
                                                         }
                                                         Err(err) => {
-                                                            log::write("Device authorization expired or failed");
-                                                            eprintln!(
-                                                            "  [!] Device auth expired or failed: {err}"
-                                                        );
+                                                            log::write(&format!(
+                                                                "Device authorization expired or failed: {err}"
+                                                            ));
                                                             let expired_msg = serde_json::json!({
                                                                 "type": "auth_expired",
                                                                 "error": err,
@@ -1981,10 +1980,9 @@ fn main() {
                                                 });
                                             }
                                             Err(e) => {
-                                                log::write("Device authorization request failed");
-                                                eprintln!(
-                                                "  [!] Failed to request device authorization: {e}"
-                                            );
+                                                log::write(&format!(
+                                                    "Device authorization request failed: {e}"
+                                                ));
                                                 auth_flag.store(false, Ordering::SeqCst);
                                                 let err_msg = serde_json::json!({
                                                     "type": "auth_error",
@@ -1996,7 +1994,7 @@ fn main() {
                                     }
                                 }
                                 "logout" => {
-                                    println!("  [i] User requested logout");
+                                    log::write("User requested logout");
                                     let result = (|| {
                                         auth_ref.delete_session().map_err(|e| e.to_string())?;
                                         let mut player =

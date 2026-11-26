@@ -258,7 +258,7 @@ impl PlaybackEngine {
 impl Drop for PlaybackEngine {
     fn drop(&mut self) {
         if let Err(error) = self.stop() {
-            eprintln!("Playback cleanup failed: {error}");
+            crate::log::write(&format!("Playback cleanup failed: {error}"));
         }
     }
 }

@@ -61,17 +61,22 @@ with tempfile.TemporaryDirectory(prefix="tidal-daemon-smoke-") as runtime:
                 assert request({"command": "play_track"}) == {
                     "type": "playback_error", "error": "play_track requires track_id",
                 }
+                # Regression: closing the read end of stdout/stderr (e.g. shell restart)
+                # must not panic/abort the daemon when subsequent IPC commands log.
+                daemon.stdout.close()
+                daemon.stderr.close()
                 assert request({"command": "get_status"})["type"] == "status"
+                assert daemon.poll() is None, "Daemon exited after stderr pipe closed"
     finally:
         daemon.terminate()
         try:
-            stdout, stderr = daemon.communicate(timeout=10)
+            daemon.wait(timeout=10)
         except subprocess.TimeoutExpired:
             daemon.kill()
-            stdout, stderr = daemon.communicate()
+            daemon.wait()
             raise RuntimeError("Daemon failed to shut down")
         if daemon.returncode != 0:
-            raise RuntimeError((stdout + stderr).decode())
+            raise RuntimeError(f"Daemon exited with status {daemon.returncode}")
     assert not Path(runtime, "tidal.sock").exists(), "Daemon must clean up its socket"
     assert not Path(runtime, "tidal-mpv.sock").exists()
     log = Path(runtime, ".local/state/tidal/daemon.log")
@@ -80,6 +85,7 @@ with tempfile.TemporaryDirectory(prefix="tidal-daemon-smoke-") as runtime:
     lines = log.read_text()
     for command in ["get_status", "get_favorites", "play_track"]:
         assert f"IPC command: {command}" in lines
+    assert lines.count("IPC command: get_status") >= 2
     assert "Playback failed: No active session found" in lines
     assert "Daemon stopped" in lines
-    print("Daemon smoke passed: probe arguments, default client config, responsive IPC, clean shutdown")
+    print("Daemon smoke passed: probe arguments, default client config, broken-pipe logging, responsive IPC, clean shutdown")

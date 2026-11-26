@@ -87,23 +87,27 @@ fn write_line_to_file(file: &mut File, line: &str) -> io::Result<()> {
     writeln!(file, "{line}")
 }
 
+pub fn write_stderr(message: &str) {
+    let _ = writeln!(io::stderr().lock(), "{message}");
+}
+
 pub fn write(message: &str) {
     let line = format!(
         "[{}] {}",
         crate::auth::current_unix_timestamp(),
         safe_text(message)
     );
-    eprintln!("{line}");
     if let Some(log) = LOG.get() {
         match log.lock() {
             Ok(mut file) => {
                 if let Err(error) = write_line_to_file(&mut file, &line) {
-                    eprintln!("Failed to write daemon log: {error}");
+                    write_stderr(&format!("Failed to write daemon log: {error}"));
                 }
             }
-            Err(error) => eprintln!("Failed to lock daemon log: {error}"),
+            Err(error) => write_stderr(&format!("Failed to lock daemon log: {error}")),
         }
     }
+    write_stderr(&line);
 }
 
 #[cfg(test)]

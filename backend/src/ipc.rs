@@ -247,7 +247,7 @@ impl IpcServer {
 
     pub fn register_client(&self, stream: UnixStream) {
         if let Err(error) = stream.set_write_timeout(Some(std::time::Duration::from_secs(3))) {
-            eprintln!("Failed to configure IPC client: {error}");
+            crate::log::write(&format!("Failed to configure IPC client: {error}"));
             return;
         }
         if let Ok(mut clients) = self.clients.lock() {
@@ -259,7 +259,7 @@ impl IpcServer {
         let mut payload = match serde_json::to_string(msg) {
             Ok(payload) => payload,
             Err(error) => {
-                eprintln!("Failed to serialize IPC message: {error}");
+                crate::log::write(&format!("Failed to serialize IPC message: {error}"));
                 return;
             }
         };
